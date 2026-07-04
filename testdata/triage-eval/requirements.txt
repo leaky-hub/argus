@@ -1,0 +1,4 @@
+# Deliberately planted fixtures for the appsec triage eval. DO NOT fix.
+flask==2.0.0 # PLANT(TP): known CVEs
+pyyaml==5.3.1 # PLANT(TP): known CVEs
+jinja2==2.11.2 # PLANT(TP): known CVEs

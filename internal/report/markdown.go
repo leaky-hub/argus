@@ -82,10 +82,10 @@ func WriteMarkdown(w io.Writer, findings []model.Finding) error {
 			return err
 		}
 
-		if _, err := fmt.Fprintln(w, "| Title | Tool | Category | Location | CWE/CVE | Remediation |"); err != nil {
+		if _, err := fmt.Fprintln(w, "| Title | Tool | Category | Location | Risk | Verdict | CWE/CVE | Remediation |"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "|---|---|---|---|---|---|"); err != nil {
+		if _, err := fmt.Fprintln(w, "|---|---|---|---|---|---|---|---|"); err != nil {
 			return err
 		}
 
@@ -97,11 +97,26 @@ func WriteMarkdown(w io.Writer, findings []model.Finding) error {
 			}
 			catCell := escapePipe(f.Category)
 			locCell := escapePipe(formatLocation(f))
+
+			var riskCell string
+			if f.RiskScore != nil {
+				riskCell = fmt.Sprintf("%.1f", *f.RiskScore)
+			} else {
+				riskCell = "-"
+			}
+
+			var verdictCell string
+			if f.Triage != nil && f.Triage.Verdict != "" {
+				verdictCell = escapePipe(f.Triage.Verdict)
+			} else {
+				verdictCell = "-"
+			}
+
 			cweCveCell := escapePipe(formatCWECVE(f))
 			remCell := truncate(escapePipe(f.Remediation), 120)
 
-			if _, err := fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s |\n",
-				titleCell, toolCell, catCell, locCell, cweCveCell, remCell); err != nil {
+			if _, err := fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+				titleCell, toolCell, catCell, locCell, riskCell, verdictCell, cweCveCell, remCell); err != nil {
 				return err
 			}
 		}

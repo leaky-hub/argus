@@ -10,12 +10,16 @@ still catching runtime issues.
   Action, unified findings model, SARIF/Markdown/JSON output, dedup/correlation,
   severity gate. ✅ = the acceptance criteria in the Phase 1 handoff; see
   `docs/architecture.md` and `docs/findings-model.md`.
-- **Phase 2 — AI triage & risk scoring:** LLM-backed false-positive triage,
-  severity re-ranking with exploitability/reachability context,
-  natural-language remediation, auto-generated fix suggestions/patches.
-  Provider-agnostic interface (the `internal/triage` seam is already wired).
-  ✅ = triage measurably cuts false positives on a labeled fixture set and
-  every finding gets a risk score.
+- **Phase 2 — AI triage & risk scoring (core shipped):** LLM-backed
+  false-positive triage (provider-agnostic: local Ollama default + Anthropic
+  opt-in), prompt-injection-hardened per-finding review with bounded source
+  snippets, and 0–10 risk scoring (deterministic baseline + bounded LLM
+  adjustment, `docs/risk-scoring.md`). ✅ met on the labeled eval set
+  (`testdata/triage-eval/`, `go test -run TestTriageEval`): FP-detection
+  precision 1.00 / recall 1.00, zero true positives suppressed, every finding
+  scored in every run. **Remaining stretch:** natural-language remediation
+  and auto-generated fix suggestions/patches; severity re-ranking with
+  reachability context lands with IAST (Phase 7).
 - **Phase 3 — IaC & cloud posture:** add Checkov/KICS (Terraform/CFN/K8s/
   Dockerfile) and cloud-config assessment (CIS benchmarks, cloud best-practice
   standards). ✅ = clean scans of sample Terraform + a K8s manifest, mapped

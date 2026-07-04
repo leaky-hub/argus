@@ -1,6 +1,6 @@
 # Unified Findings Model
 
-**Schema version: 1.0.0** (`model.SchemaVersion`)
+**Schema version: 1.1.0** (`model.SchemaVersion`)
 
 This is the single most important contract in the platform. Every scanner
 adapter maps its native output *into* this model; every downstream stage —
@@ -57,8 +57,13 @@ Produced by `model.Normalize`. JSON field names are camelCase as tagged in
 | `remediation` | |
 | `meta`, `rawPayload` | Tool passthrough |
 | `complianceControls` | **Enrichment slot** — Phase 4 (framework control IDs) |
-| `triage` | **Enrichment slot** — Phase 2 (`{verdict, rationale, model}`) |
-| `riskScore` | **Enrichment slot** — Phase 2 (0–10 float pointer, nil = unscored) |
+| `triage` | **Enrichment slot** — populated by Phase 2 AI triage: `{verdict, confidence, rationale, model}`. `verdict` ∈ `true-positive` \| `false-positive` \| `uncertain`; `confidence` ∈ [0,1] (validated/clamped at parse time, bounds the risk adjustment); `rationale` is sanitized, length-capped model text; `model` is the provider/model audit tag |
+| `riskScore` | **Enrichment slot** — populated by Phase 2 for every finding in every run (0–10, one decimal; see `docs/risk-scoring.md`). `nil` only in pre-Phase-2 documents |
+
+Triage semantics are strictly additive: a verdict never changes `severity`,
+never feeds the default severity gate, and never removes a finding (the
+explicit `--exclude-fp` opt-in filters at report time; the model itself is
+untouched).
 
 ## Severity normalization
 
@@ -113,6 +118,8 @@ can have. When in doubt, don't merge.
 ## Versioning rules
 
 - `SchemaVersion` (semver) is embedded in JSON reports.
+- **1.1.0** (Phase 2): added optional `triage.confidence`. Additive only;
+  1.0.0 documents remain valid.
 - Additive optional fields: minor bump. Renamed/removed/retyped fields or
   changed severity semantics: major bump plus a migration note here.
 - The fingerprint algorithm versions independently; new algorithms are added

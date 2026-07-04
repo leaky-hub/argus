@@ -14,7 +14,8 @@ import (
 )
 
 // SchemaVersion identifies the findings-model revision embedded in reports.
-const SchemaVersion = "1.0.0"
+// 1.1.0: added optional Triage.Confidence (Phase 2 AI triage).
+const SchemaVersion = "1.1.0"
 
 // Finding categories. String-typed (not iota) because they appear verbatim in
 // JSON/SARIF output and in config files.
@@ -56,11 +57,22 @@ type Location struct {
 	URL       string `json:"url,omitempty"` // DAST findings (Phase 5)
 }
 
+// Triage verdict values. String-typed: they appear verbatim in reports.
+const (
+	VerdictTruePositive  = "true-positive"
+	VerdictFalsePositive = "false-positive"
+	VerdictUncertain     = "uncertain"
+)
+
 // Triage is the AI-triage enrichment slot (Phase 2). Wired but optional.
+// Confidence is the model's self-reported certainty in [0,1], validated and
+// clamped at parse time; it bounds the risk-score adjustment
+// (see docs/risk-scoring.md).
 type Triage struct {
-	Verdict   string `json:"verdict"` // "true-positive" | "false-positive" | "uncertain"
-	Rationale string `json:"rationale,omitempty"`
-	Model     string `json:"model,omitempty"`
+	Verdict    string  `json:"verdict"` // "true-positive" | "false-positive" | "uncertain"
+	Confidence float64 `json:"confidence,omitempty"`
+	Rationale  string  `json:"rationale,omitempty"`
+	Model      string  `json:"model,omitempty"`
 }
 
 // Finding is the normalized, enriched record. Everything downstream of the

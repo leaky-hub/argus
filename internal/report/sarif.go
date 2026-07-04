@@ -86,6 +86,13 @@ type sarifResultProperties struct {
 	CVE      string   `json:"cve,omitempty"`
 	Package  string   `json:"package,omitempty"`
 	Severity string   `json:"severity,omitempty"` // normalized appsec severity
+	// Phase 2 enrichment. riskScore is the 0-10 prioritization score
+	// (docs/risk-scoring.md); triageVerdict/-Rationale carry the AI triage
+	// outcome. Deliberately NOT mapped onto security-severity: GitHub's
+	// alert bucketing must never move on LLM output.
+	RiskScore       *float64 `json:"riskScore,omitempty"`
+	TriageVerdict   string   `json:"triageVerdict,omitempty"`
+	TriageRationale string   `json:"triageRationale,omitempty"`
 }
 
 type sarifLocation struct {
@@ -135,12 +142,17 @@ func WriteSARIF(w io.Writer, findings []model.Finding) error {
 				"appsec/fingerprint/v1": f.ID,
 			},
 			Properties: sarifResultProperties{
-				Tools:    f.Tools,
-				Category: f.Category,
-				CVE:      f.CVE,
-				Package:  f.Package,
-				Severity: f.Severity.String(),
+				Tools:     f.Tools,
+				Category:  f.Category,
+				CVE:       f.CVE,
+				Package:   f.Package,
+				Severity:  f.Severity.String(),
+				RiskScore: f.RiskScore,
 			},
+		}
+		if f.Triage != nil {
+			res.Properties.TriageVerdict = f.Triage.Verdict
+			res.Properties.TriageRationale = f.Triage.Rationale
 		}
 		if loc, ok := resultLocation(f); ok {
 			res.Locations = []sarifLocation{loc}

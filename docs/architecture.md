@@ -10,7 +10,7 @@ scoring, and compliance mapping.
 [ scanners ]   semgrep · gitleaks · trivy        (Phase 3+: checkov/kics · zap · nuclei · codeql)
       |            adapters normalize → unified findings model
       v
-[ core ]       normalize · correlate/dedup · severity gate     (Phase 2+: AI triage · risk score · compliance map)
+[ core ]       normalize · correlate/dedup · AI triage · risk score · severity gate   (Phase 4+: compliance map)
       v
 [ surfaces ]   CLI · GitHub Action · SARIF / Markdown / JSON   (Phase 8: API server · dashboard)
 ```
@@ -25,7 +25,9 @@ scoring, and compliance mapping.
 | `internal/correlate` | dedup/correlation | security-critical: a wrong merge silently drops a finding |
 | `internal/report` | SARIF 2.1.0 / Markdown / JSON writers | SARIF writer is the GitHub code-scanning contract |
 | `internal/config` | `appsec.yml` loading + validation | |
-| `internal/triage` | AI-triage seam — interface + no-op impl | real implementation is Phase 2 |
+| `internal/triage` | AI triage: `Triager` interface, no-op impl, LLM impl (Phase 2) | security-critical: prompt assembly is the injection boundary, output validation is the only path model text enters reports; never drops/reorders findings |
+| `internal/llm` | provider-agnostic completion clients: Ollama (local, default) + Anthropic, plus a test fake | transport only — providers send prompts verbatim and return raw text; API keys env-only |
+| `internal/risk` | 0–10 risk score: deterministic baseline + bounded LLM adjustment | security-critical: the LLM can never set a score, only move it within `docs/risk-scoring.md` bounds |
 
 ## Data flow of `appsec scan <target>`
 
@@ -40,9 +42,20 @@ scoring, and compliance mapping.
 5. `model.FilterIgnored`: apply `ignore_paths` / `ignore_rules`; suppression
    counts are reported, never silent.
 6. `correlate.Correlate`: dedup/merge, deterministic sort.
-7. `triage.Triager` seam (no-op in Phase 1).
-8. Write the report (`--format sarif|markdown|json`).
-9. Severity gate: exit 1 if any finding meets/exceeds `--fail-severity`.
+7. `triage.Triager`: no-op unless `--triage`/`triage.enabled`. The LLM triager
+   sends each finding (metadata + a bounded source snippet, hostile-input
+   delimited) to the configured provider and records a validated verdict,
+   confidence, and rationale. Enrichment only: provider down → note + no-op;
+   per-finding failure → `uncertain`; findings are never dropped or reordered.
+8. `risk.Apply`: every finding gets a 0–10 risk score — heuristic baseline
+   always, plus the bounded verdict adjustment (`docs/risk-scoring.md`).
+9. Optional `--exclude-fp` (explicit opt-in, counted on stderr): drop
+   LLM-marked false positives from the report AND the gate. Default output
+   shows everything, verdicts included.
+10. Write the report (`--format sarif|markdown|json`).
+11. Severity gate: exit 1 if any finding meets/exceeds `--fail-severity`.
+    The gate reads `severity` only — never risk scores or verdicts (except
+    under the explicit `--exclude-fp`).
 
 ## Design rules
 
@@ -59,3 +72,17 @@ scoring, and compliance mapping.
   a custom engine (e.g. an AI-native SAST pass) without touching the core.
 - Tool availability is runtime-detected (`Available()`), so one binary works
   in any CI image and does as much as the image allows.
+- **Triage is enrichment, never a dependency.** The scan pipeline completes
+  identically with no LLM configured, reachable, or cooperative; triage adds
+  fields, and only the explicit `--exclude-fp` opt-in lets a verdict remove a
+  finding from output.
+- **Scanned code is hostile LLM input.** Finding text and snippets enter
+  prompts only between per-request CSPRNG boundary markers with standing
+  ignore-instructions; snippet reads are confined to the scan root after
+  symlink resolution; model output is parsed as strict JSON with enum/bounds
+  validation, free text surviving only as the sanitized, length-capped
+  rationale. Triage is strictly per-finding, so a hostile repo cannot steer
+  verdicts of other findings.
+- **Secrets never reach a cloud LLM.** SECRET findings triage with metadata
+  only (no snippet, even locally); non-local providers skip them entirely
+  unless the user sets `allow_secret_cloud: true`.

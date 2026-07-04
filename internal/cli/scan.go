@@ -15,8 +15,10 @@ import (
 
 	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/correlate"
+	"github.com/leaky-hub/appsec/internal/llm"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/report"
+	"github.com/leaky-hub/appsec/internal/risk"
 	"github.com/leaky-hub/appsec/internal/scanner"
 	"github.com/leaky-hub/appsec/internal/triage"
 )
@@ -32,6 +34,8 @@ func init() {
 	scanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
 	scanCmd.Flags().String("scanners", "", "Comma-separated list of scanner names to run (e.g., semgrep,gitleaks)")
 	scanCmd.Flags().Int("timeout", 0, "Per-scanner timeout in seconds")
+	scanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
+	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 }
 
 var scanCmd = &cobra.Command{
@@ -73,8 +77,35 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) suppressed by ignore rules\n", suppressed)
 	}
 	findings = correlate.Correlate(findings)
-	if findings, err = (triage.Noop{}).Triage(cmd.Context(), findings); err != nil {
-		return fmt.Errorf("triage: %w", err)
+
+	// Triage is enrichment, never a dependency: any error passes the findings
+	// through unmodified with a warning. It must not drop, reorder, or
+	// re-rank anything — verdicts and scores are additive fields only.
+	triager := buildTriager(cmd.Context(), cfg, target)
+	if _, isNoop := triager.(triage.Noop); !isNoop {
+		if cfg.Triage.MaxFindings > 0 && len(findings) > cfg.Triage.MaxFindings {
+			fmt.Fprintf(os.Stderr, "NOTE: triaging the %d most severe of %d findings (triage.max_findings)\n", cfg.Triage.MaxFindings, len(findings))
+		}
+		fmt.Fprintf(os.Stderr, "==> running AI triage (%s)\n", triager.Name())
+	}
+	if triaged, err := triager.Triage(cmd.Context(), findings); err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: triage failed, findings pass through unmodified: %v\n", err)
+	} else {
+		findings = triaged
+	}
+
+	// Every finding in every run gets a risk score, LLM or not.
+	risk.Apply(findings)
+
+	// Opt-in only: dropping LLM-marked false positives is explicit and
+	// counted, and applies to both the report and the gate. Default output
+	// shows everything, verdicts included.
+	if cfg.Triage.ExcludeFP {
+		var excluded int
+		findings, excluded = excludeFalsePositives(findings)
+		if excluded > 0 {
+			fmt.Fprintf(os.Stderr, "NOTE: %d LLM-marked false positive(s) excluded from report and gate (--exclude-fp)\n", excluded)
+		}
 	}
 
 	if err := writeReport(cmd, cfg.Format, findings); err != nil {
@@ -121,8 +152,60 @@ func loadConfig(cmd *cobra.Command) (config.Config, error) {
 			cfg.TimeoutSec = v
 		}
 	}
+	if cmd.Flags().Changed("triage") {
+		cfg.Triage.Enabled, _ = cmd.Flags().GetBool("triage")
+	}
+	if cmd.Flags().Changed("exclude-fp") {
+		cfg.Triage.ExcludeFP, _ = cmd.Flags().GetBool("exclude-fp")
+	}
 
 	return cfg, cfg.Validate()
+}
+
+// buildTriager constructs the configured LLM triager, or Noop when triage is
+// disabled or the provider is unreachable — a scan must always complete
+// without an LLM. API keys come from the environment only, never appsec.yml.
+func buildTriager(ctx context.Context, cfg config.Config, target string) triage.Triager {
+	if !cfg.Triage.Enabled {
+		return triage.Noop{}
+	}
+
+	timeout := time.Duration(cfg.Triage.TimeoutSec) * time.Second
+	var client llm.Client
+	switch cfg.Triage.Provider {
+	case "anthropic":
+		client = llm.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), cfg.Triage.Model, timeout)
+	default: // config validation only admits ollama|anthropic
+		client = llm.NewOllama(cfg.Triage.Endpoint, cfg.Triage.Model, timeout)
+	}
+
+	if p, ok := client.(interface{ Ping(context.Context) error }); ok {
+		if err := p.Ping(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "NOTE: AI triage disabled: %v\n", err)
+			return triage.Noop{}
+		}
+	}
+
+	return triage.NewLLM(client, triage.Options{
+		Root:             target,
+		Concurrency:      cfg.Triage.Concurrency,
+		MaxFindings:      cfg.Triage.MaxFindings,
+		RequestTimeout:   timeout,
+		AllowSecretCloud: cfg.Triage.AllowSecretCloud,
+	})
+}
+
+// excludeFalsePositives drops LLM-marked false positives. Only reachable via
+// the explicit --exclude-fp / triage.exclude_fp opt-in.
+func excludeFalsePositives(findings []model.Finding) ([]model.Finding, int) {
+	kept := make([]model.Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.Triage != nil && f.Triage.Verdict == model.VerdictFalsePositive {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, len(findings) - len(kept)
 }
 
 // selectAdapters filters the registry by config and availability.
@@ -238,4 +321,15 @@ func printSummary(findings []model.Finding) {
 		summary = "no findings"
 	}
 	fmt.Fprintf(os.Stderr, "\nSummary: %d total finding(s) (%s)\n", len(findings), summary)
+
+	verdicts := map[string]int{}
+	for _, f := range findings {
+		if f.Triage != nil {
+			verdicts[f.Triage.Verdict]++
+		}
+	}
+	if len(verdicts) > 0 {
+		fmt.Fprintf(os.Stderr, "Triage: %d true-positive, %d false-positive, %d uncertain\n",
+			verdicts[model.VerdictTruePositive], verdicts[model.VerdictFalsePositive], verdicts[model.VerdictUncertain])
+	}
 }

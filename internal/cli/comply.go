@@ -14,6 +14,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/correlate"
 	"github.com/leaky-hub/appsec/internal/model"
+	"github.com/leaky-hub/appsec/internal/pipeline"
 	"github.com/leaky-hub/appsec/internal/risk"
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/scanner"
@@ -116,12 +117,13 @@ func complyFindings(cmd *cobra.Command, target string) ([]model.Finding, string,
 		return nil, "", fmt.Errorf("invalid profile: %w", err)
 	}
 	rulesets := scanner.ResolveSemgrepRulesets(cfg.Profile, cfg.SemgrepRules)
-	adapters, err := selectAdapters(cfg, rulesets)
+	stderrProgress := func(line string) { fmt.Fprint(os.Stderr, line) }
+	adapters, err := pipeline.SelectAdapters(cfg, rulesets, stderrProgress)
 	if err != nil {
 		return nil, "", err
 	}
 
-	raw := runScanners(cmd.Context(), adapters, target, cfg.TimeoutSec)
+	raw := pipeline.RunScanners(cmd.Context(), adapters, target, cfg.TimeoutSec, stderrProgress)
 	findings := model.Normalize(raw)
 	findings, suppressed := model.FilterIgnored(findings, cfg.IgnorePaths, cfg.IgnoreRules)
 	if suppressed > 0 {

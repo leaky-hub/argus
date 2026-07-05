@@ -1,29 +1,21 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/sync/errgroup"
 
-	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/config"
-	"github.com/leaky-hub/appsec/internal/correlate"
-	"github.com/leaky-hub/appsec/internal/llm"
 	"github.com/leaky-hub/appsec/internal/model"
+	"github.com/leaky-hub/appsec/internal/pipeline"
 	"github.com/leaky-hub/appsec/internal/report"
-	"github.com/leaky-hub/appsec/internal/risk"
 	"github.com/leaky-hub/appsec/internal/runstore"
-	"github.com/leaky-hub/appsec/internal/scanner"
-	"github.com/leaky-hub/appsec/internal/triage"
 )
 
 // errGateFailed is the sentinel for "scan succeeded, findings exceed the
@@ -52,6 +44,10 @@ Defaults to scanning the current directory if no path is provided.`,
 	RunE: runScan,
 }
 
+// runScan is a thin wrapper over pipeline.Run: it parses flags into a config,
+// streams the pipeline's progress lines verbatim to stderr (byte-identical to
+// the pre-extraction output), then handles the CLI-only concerns — report
+// writing, optional run saving, the summary line, and the severity gate.
 func runScan(cmd *cobra.Command, args []string) error {
 	target := "."
 	if len(args) > 0 {
@@ -68,62 +64,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid fail-severity: %w", err)
 	}
 
-	if err := scanner.ValidateProfile(cfg.Profile); err != nil {
-		return fmt.Errorf("invalid profile: %w", err)
-	}
-	rulesets := scanner.ResolveSemgrepRulesets(cfg.Profile, cfg.SemgrepRules)
-
-	adapters, err := selectAdapters(cfg, rulesets)
+	res, err := pipeline.Run(cmd.Context(), pipeline.Options{Target: target, Config: cfg}, func(line string) {
+		fmt.Fprint(os.Stderr, line)
+	})
 	if err != nil {
 		return err
 	}
-
-	rawFindings := runScanners(cmd.Context(), adapters, target, cfg.TimeoutSec)
-
-	// Pipeline: normalize -> ignore-filter -> correlate -> triage seam.
-	findings := model.Normalize(rawFindings)
-	findings, suppressed := model.FilterIgnored(findings, cfg.IgnorePaths, cfg.IgnoreRules)
-	if suppressed > 0 {
-		fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) suppressed by ignore rules\n", suppressed)
-	}
-	findings = correlate.Correlate(findings)
-
-	// Triage is enrichment, never a dependency: any error passes the findings
-	// through unmodified with a warning. It must not drop, reorder, or
-	// re-rank anything — verdicts and scores are additive fields only.
-	triager := buildTriager(cmd.Context(), cfg, target)
-	if _, isNoop := triager.(triage.Noop); !isNoop {
-		if cfg.Triage.MaxFindings > 0 && len(findings) > cfg.Triage.MaxFindings {
-			fmt.Fprintf(os.Stderr, "NOTE: triaging the %d most severe of %d findings (triage.max_findings)\n", cfg.Triage.MaxFindings, len(findings))
-		}
-		fmt.Fprintf(os.Stderr, "==> running AI triage (%s)\n", triager.Name())
-	}
-	if triaged, err := triager.Triage(cmd.Context(), findings); err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: triage failed, findings pass through unmodified: %v\n", err)
-	} else {
-		findings = triaged
-	}
-
-	// Every finding in every run gets a risk score, LLM or not.
-	risk.Apply(findings)
-
-	// Compliance mapping is always on: deterministic, hand-curated, cheap.
-	// Like triage it is enrichment only — a mapping failure (a build defect
-	// in the embedded data) warns and passes findings through unmodified.
-	if err := compliance.Apply(findings); err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: compliance mapping failed, findings pass through unmapped: %v\n", err)
-	}
-
-	// Opt-in only: dropping LLM-marked false positives is explicit and
-	// counted, and applies to both the report and the gate. Default output
-	// shows everything, verdicts included.
-	if cfg.Triage.ExcludeFP {
-		var excluded int
-		findings, excluded = excludeFalsePositives(findings)
-		if excluded > 0 {
-			fmt.Fprintf(os.Stderr, "NOTE: %d LLM-marked false positive(s) excluded from report and gate (--exclude-fp)\n", excluded)
-		}
-	}
+	findings := res.Findings
 
 	if err := writeReport(cmd, cfg.Format, findings); err != nil {
 		return err
@@ -195,52 +142,6 @@ func loadConfig(cmd *cobra.Command) (config.Config, error) {
 	return cfg, cfg.Validate()
 }
 
-// buildTriager constructs the configured LLM triager, or Noop when triage is
-// disabled or the provider is unreachable — a scan must always complete
-// without an LLM. API keys come from the environment only, never appsec.yml.
-func buildTriager(ctx context.Context, cfg config.Config, target string) triage.Triager {
-	if !cfg.Triage.Enabled {
-		return triage.Noop{}
-	}
-
-	timeout := time.Duration(cfg.Triage.TimeoutSec) * time.Second
-	var client llm.Client
-	switch cfg.Triage.Provider {
-	case "anthropic":
-		client = llm.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), cfg.Triage.Model, timeout)
-	default: // config validation only admits ollama|anthropic
-		client = llm.NewOllama(cfg.Triage.Endpoint, cfg.Triage.Model, timeout)
-	}
-
-	if p, ok := client.(interface{ Ping(context.Context) error }); ok {
-		if err := p.Ping(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "NOTE: AI triage disabled: %v\n", err)
-			return triage.Noop{}
-		}
-	}
-
-	return triage.NewLLM(client, triage.Options{
-		Root:             target,
-		Concurrency:      cfg.Triage.Concurrency,
-		MaxFindings:      cfg.Triage.MaxFindings,
-		RequestTimeout:   timeout,
-		AllowSecretCloud: cfg.Triage.AllowSecretCloud,
-	})
-}
-
-// excludeFalsePositives drops LLM-marked false positives. Only reachable via
-// the explicit --exclude-fp / triage.exclude_fp opt-in.
-func excludeFalsePositives(findings []model.Finding) ([]model.Finding, int) {
-	kept := make([]model.Finding, 0, len(findings))
-	for _, f := range findings {
-		if f.Triage != nil && f.Triage.Verdict == model.VerdictFalsePositive {
-			continue
-		}
-		kept = append(kept, f)
-	}
-	return kept, len(findings) - len(kept)
-}
-
 // saveRun writes the current findings as a timestamped run file under the
 // scanned repo's .appsec/runs directory, for the `appsec serve` console. The
 // repo root is the scan target directory (or the file's directory).
@@ -250,66 +151,6 @@ func saveRun(target string, findings []model.Finding) (runstore.RunMeta, error) 
 		root = filepath.Dir(target)
 	}
 	return runstore.ForRepo(root).Save(findings, time.Now())
-}
-
-// selectAdapters filters the registry by config and availability. The resolved
-// semgrep ruleset packs configure the semgrep adapter's coverage.
-func selectAdapters(cfg config.Config, semgrepRulesets []string) ([]scanner.Adapter, error) {
-	var active []scanner.Adapter
-	for _, a := range scanner.All(semgrepRulesets) {
-		if len(cfg.Scanners) > 0 && !nameIn(a.Name(), cfg.Scanners) {
-			continue
-		}
-		if !a.Available() {
-			fmt.Fprintf(os.Stderr, "NOTE: %s not found on PATH — skipping %s scan\n", a.Name(), a.Category())
-			continue
-		}
-		active = append(active, a)
-	}
-	if len(active) == 0 {
-		return nil, fmt.Errorf("no available scanners to run (install semgrep, gitleaks, trivy, or checkov)")
-	}
-	return active, nil
-}
-
-func nameIn(name string, list []string) bool {
-	for _, s := range list {
-		if strings.EqualFold(name, s) {
-			return true
-		}
-	}
-	return false
-}
-
-// runScanners fans out to all adapters in parallel, each under its own
-// timeout. One scanner failing (or timing out) never aborts the others; the
-// failure is reported on stderr and the run continues with partial results.
-func runScanners(ctx context.Context, adapters []scanner.Adapter, target string, timeoutSec int) []model.RawFinding {
-	var (
-		mu  sync.Mutex
-		raw []model.RawFinding
-	)
-	g, gCtx := errgroup.WithContext(ctx)
-	for _, a := range adapters {
-		g.Go(func() error {
-			fmt.Fprintf(os.Stderr, "==> running %s (%s)\n", a.Name(), a.Category())
-			scanCtx, cancel := context.WithTimeout(gCtx, time.Duration(timeoutSec)*time.Second)
-			defer cancel()
-
-			findings, err := a.Scan(scanCtx, target)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "WARN: %s failed: %v\n", a.Name(), err)
-				return nil
-			}
-			mu.Lock()
-			raw = append(raw, findings...)
-			mu.Unlock()
-			fmt.Fprintf(os.Stderr, "%s: %d raw findings\n", a.Name(), len(findings))
-			return nil
-		})
-	}
-	_ = g.Wait() // goroutines only ever return nil; errors are reported above
-	return raw
 }
 
 // writeReport writes findings in the chosen format, to --output or stdout.

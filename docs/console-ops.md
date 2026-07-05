@@ -191,10 +191,16 @@ Notes:
   `GET /api/scans/{id}` is polled by the UI (no WebSockets by design).
 - **Execution**: the worker calls `pipeline.Run` — the same function the CLI
   `scan` command now wraps — with the target repo's own `appsec.yml` as the
-  config base. Findings are saved through the existing
-  `runstore.Save` path, so the run appears in the console's existing runs
-  list with no new read API. Report writing to stdout/files is a CLI
-  concern and does not happen for console-launched scans.
+  config base. Findings are saved through the existing `runstore.Save` path
+  **into the scanned target's own `.appsec/runs`**, exactly where
+  `appsec scan --save` would put them. When the target is the served repo
+  (the primary workflow: register the repo you're serving), the run appears
+  in the console's runs list with no new read API. A target pointing at a
+  different repo still scans and saves correctly, but its history lives with
+  that repo — serve it to browse it. Mixing several repos' runs into one
+  history would corrupt the delta/trend semantics, so we don't.
+  Report writing to stdout/files is a CLI concern and does not happen for
+  console-launched scans.
 - **Audit**: `scan.launch` (actor, target ID, options) on acceptance,
   `scan.finish` (job ID, run ID or error class) on completion.
 

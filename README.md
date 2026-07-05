@@ -39,13 +39,23 @@ appsec scan ./repo --profile standard --triage --save
 
 appsec comply  → per-framework compliance gap report: violated / clean / not assessable
 appsec serve   → local web console: Overview (GRC) · Findings (AppSec) · Runs (SecOps)
+                 + with users configured: login, scan launching, admin, audit
+appsec user    → console users: add | list | passwd | remove (bootstrap the first admin)
+appsec target  → registered scan targets the console may launch against
 ```
 
 ## The console
 
 `appsec serve` reads the runs you save and renders three persona views. Finding
 data (titles, paths, LLM rationales) is treated as hostile and rendered inert —
-escaping only, no HTML injection, strict CSP, no auth, binds `127.0.0.1`.
+escaping only, no HTML injection, strict CSP, binds `127.0.0.1`.
+
+Out of the box the console is a read-only viewer with no login. Create users
+(`appsec user add <name> --role admin`) and it becomes an **operational
+console**: login + roles (viewer/operator/admin), scan launching against
+registered targets (`appsec target add`) through a strictly serial job queue,
+user management, and an append-only audit log. Threat model and design:
+[docs/console-ops.md](docs/console-ops.md).
 
 | Overview — GRC / exec | Findings — AppSec | Runs — SecOps |
 |---|---|---|

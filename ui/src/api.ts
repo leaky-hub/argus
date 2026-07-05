@@ -157,3 +157,136 @@ export const api = {
 };
 
 export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
+
+// --- Console-ops (auth, targets, scan jobs, audit) ---
+// Field names mirror internal/server DTOs exactly; opsApi sends the
+// session CSRF token on every non-GET request.
+
+// --- New TypeScript types (exact JSON contract from the Go server) ---
+
+export interface UserInfo { id: string; username: string; role: string; createdAt: string; }
+export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; }
+export interface LoginResponse { user: UserInfo; csrfToken: string; }
+export interface Target { id: string; name: string; path: string; scanners?: string[]; profile?: string; createdAt: string; }
+export interface TargetsResponse { targets: Target[]; }
+export interface JobOptions { scanners?: string[]; profile?: string; triage?: boolean | null; }
+export type JobStatus = "queued" | "running" | "done" | "failed";
+export interface Job {
+  id: string; targetId: string; targetName: string; launchedBy: string;
+  options: JobOptions; status: JobStatus; queuedAt: string;
+  startedAt?: string; finishedAt?: string; progress: string[];
+  runId?: string; error?: string;
+}
+export interface JobsResponse { jobs: Job[]; }
+export interface AuditEntry { time: string; event: string; actor?: string; details?: Record<string, string>; }
+export interface AuditResponse { entries: AuditEntry[]; }
+
+// --- ApiError class ---
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+// --- Module-level CSRF state ---
+
+let csrfToken: string | null = null;
+
+export function setCsrfToken(t: string | null): void {
+  csrfToken = t;
+}
+
+// --- send helper ---
+
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (method !== "GET" && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    let errorMessage = `${path}: ${res.status} ${res.statusText}`;
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && "error" in errBody && typeof errBody.error === "string") {
+        errorMessage = errBody.error;
+      }
+    } catch {
+      // Ignore parse errors, use default message
+    }
+    throw new ApiError(res.status, errorMessage);
+  }
+
+  // Every success body in the contract is JSON; a non-JSON success is empty.
+  const contentType = res.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    return undefined as unknown as T;
+  }
+  return (await res.json()) as T;
+}
+
+// --- Constants ---
+
+export const KNOWN_SCANNERS = ["semgrep", "gitleaks", "trivy", "checkov"];
+export const PROFILES = ["fast", "standard", "max"];
+
+// --- opsApi implementation ---
+
+export const opsApi = {
+  me: (): Promise<MeResponse> => send<MeResponse>("GET", "api/auth/me"),
+  
+  login: (username: string, password: string): Promise<LoginResponse> => 
+    send<LoginResponse>("POST", "api/auth/login", { username, password }),
+  
+  logout: (): Promise<void> => 
+    send<void>("POST", "api/auth/logout"),
+  
+  users: (): Promise<{ users: UserInfo[] }> => 
+    send<{ users: UserInfo[] }>("GET", "api/users"),
+  
+  createUser: (username: string, password: string, role: string): Promise<UserInfo> => 
+    send<UserInfo>("POST", "api/users", { username, password, role }),
+  
+  updateUserRole: (id: string, role: string): Promise<UserInfo> => 
+    send<UserInfo>("PATCH", `api/users/${encodeURIComponent(id)}`, { role }),
+  
+  updateUserPassword: (id: string, password: string): Promise<UserInfo> => 
+    send<UserInfo>("PATCH", `api/users/${encodeURIComponent(id)}`, { password }),
+  
+  deleteUser: (id: string): Promise<void> => 
+    send<void>("DELETE", `api/users/${encodeURIComponent(id)}`),
+  
+  targets: (): Promise<TargetsResponse> => 
+    send<TargetsResponse>("GET", "api/targets"),
+  
+  createTarget: (t: { name: string; path: string; scanners?: string[]; profile?: string }): Promise<Target> => 
+    send<Target>("POST", "api/targets", t),
+  
+  deleteTarget: (id: string): Promise<void> => 
+    send<void>("DELETE", `api/targets/${encodeURIComponent(id)}`),
+  
+  jobs: (): Promise<JobsResponse> => 
+    send<JobsResponse>("GET", "api/scans"),
+  
+  job: (id: string): Promise<Job> => 
+    send<Job>(`GET`, `api/scans/${encodeURIComponent(id)}`),
+  
+  launchScan: (targetId: string, options: JobOptions): Promise<Job> => 
+    send<Job>("POST", "api/scans", { targetId, options }),
+  
+  audit: (n = 200): Promise<AuditResponse> => 
+    send<AuditResponse>(`GET`, `api/audit?n=${n}`),
+};

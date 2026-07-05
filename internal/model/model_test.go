@@ -179,8 +179,13 @@ func TestNormalize(t *testing.T) {
 	if len(f.CWEs) != 1 || f.CWEs[0] != "CWE-89" {
 		t.Errorf("CWEs = %v, want [CWE-89]", f.CWEs)
 	}
-	if f.ID == "" || f.Title != "r1" {
+	// 2.0.0 quality floor: an adapter with no title gets the humanized rule
+	// ID ("r1" → "R1"), and an empty description falls back to the title.
+	if f.ID == "" || f.Title != "R1" {
 		t.Errorf("ID/title not populated: %q / %q", f.ID, f.Title)
+	}
+	if f.Description != f.Title {
+		t.Errorf("description = %q, want title fallback", f.Description)
 	}
 }
 
@@ -241,5 +246,79 @@ func TestToolSeverityRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `"toolSeverity":"info"`) {
 		t.Errorf("a genuine info toolSeverity must be emitted, got %s", out)
+	}
+}
+
+// TestSanitizeTitle: titles derive from rule messages — repo-adjacent hostile
+// data that renders in reports, prompts and the console.
+func TestSanitizeTitle(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"clean", "SQL injection detected", "SQL injection detected"},
+		{"control chars stripped", "evil\x1b[31mANSI\x07 title\x00", "evilANSI title"},
+		{"newlines and runs collapse", "  line one\r\n\t line   two  ", "line one line two"},
+		{"replacement char dropped", "bad�byte", "badbyte"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		if got := SanitizeTitle(tt.in); got != tt.want {
+			t.Errorf("%s: SanitizeTitle(%q) = %q, want %q", tt.name, tt.in, got, tt.want)
+		}
+	}
+	// 120-rune cap, counted in runes (multibyte-safe), ellipsis marks the cut.
+	long := strings.Repeat("ä", 300)
+	got := SanitizeTitle(long)
+	if r := []rune(got); len(r) != 120 || r[119] != '…' {
+		t.Errorf("cap: got %d runes ending %q, want 120 ending …", len(r), string(r[len(r)-1]))
+	}
+	if SanitizeTitle(strings.Repeat("x", 120)) != strings.Repeat("x", 120) {
+		t.Error("exactly-120-rune titles must pass untruncated")
+	}
+}
+
+// TestHumanizeRuleID: the deterministic fallback title for tools that
+// provide none — never the raw dotted path, never mangled identifiers.
+func TestHumanizeRuleID(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"python.flask.security.injection.tainted-sql-string.tainted-sql-string", "Tainted sql string"},
+		{"generic-api-key", "Generic api key"},
+		{"detect_secrets", "Detect secrets"},
+		{"CVE-2020-14343", "CVE-2020-14343"}, // identifier-shaped: verbatim
+		{"DS-0031", "DS-0031"},
+		{"CKV_AWS_20", "CKV_AWS_20"},
+		{"AVD-AWS-0107", "AVD-AWS-0107"},
+		{"rules/xss", "Xss"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := HumanizeRuleID(tt.in); got != tt.want {
+			t.Errorf("HumanizeRuleID(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestNormalizeTitleFloor: every finding leaves Normalize with a non-empty
+// sanitized title, whatever the adapter provided — including hostile text.
+func TestNormalizeTitleFloor(t *testing.T) {
+	out := Normalize([]RawFinding{
+		{Tool: "semgrep", Category: CategorySAST, RuleID: "a.b.tainted-sql-string",
+			Title: "Detected user input in\na manually-constructed SQL\x1b[0m string."},
+		{Tool: "semgrep", Category: CategorySAST, RuleID: "a.b.tainted-sql-string"}, // no title
+		{Tool: "sometool", Category: CategorySCA},                                   // nothing at all
+	})
+	if got := out[0].Title; got != "Detected user input in a manually-constructed SQL string." {
+		t.Errorf("hostile title not sanitized: %q", got)
+	}
+	if got := out[1].Title; got != "Tainted sql string" {
+		t.Errorf("empty title fallback = %q, want humanized rule ID", got)
+	}
+	if got := out[2].Title; got != "sometool finding" {
+		t.Errorf("no-rule fallback = %q, want tool-name floor", got)
+	}
+	for i, f := range out {
+		if strings.TrimSpace(f.Title) == "" || strings.TrimSpace(f.Description) == "" {
+			t.Errorf("finding %d violates the quality floor: title=%q description=%q", i, f.Title, f.Description)
+		}
 	}
 }

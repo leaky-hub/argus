@@ -8,9 +8,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // SchemaVersion identifies the findings-model revision embedded in reports.
@@ -175,20 +177,95 @@ func Fingerprint(f Finding) string {
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
+// titleMaxRunes bounds every finding title. Titles derive from tool rule
+// messages — repo-adjacent hostile data — and render in reports, prompts and
+// the console, so they pass through SanitizeTitle unconditionally.
+const titleMaxRunes = 120
+
+// ansiSequence matches ANSI CSI escape sequences (e.g. color codes). Dropping
+// only the ESC control byte would leave visible "[31m" garbage in a title.
+var ansiSequence = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+// SanitizeTitle strips control characters and ANSI escape sequences,
+// collapses whitespace runs, and caps the result at titleMaxRunes runes
+// (ellipsis marks truncation). Deterministic; the single choke point every
+// title passes through in Normalize regardless of which adapter produced it.
+func SanitizeTitle(s string) string {
+	if strings.ContainsRune(s, '\x1b') {
+		s = ansiSequence.ReplaceAllString(s, "")
+	}
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		switch {
+		case unicode.IsSpace(r):
+			space = true
+		case unicode.IsControl(r) || r == unicode.ReplacementChar:
+			// dropped: control chars have no business in a title
+		default:
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			space = false
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	if runes := []rune(out); len(runes) > titleMaxRunes {
+		out = string(runes[:titleMaxRunes-1]) + "…"
+	}
+	return out
+}
+
+// HumanizeRuleID turns a rule identifier into a readable fallback title when
+// a tool provides none: the last dot/slash segment, dash/underscore-split,
+// sentence-cased — `python.flask.tainted-sql-string` → "Tainted sql string".
+// Identifier-shaped IDs with no lowercase letters (CVE-2020-14343, DS-0031,
+// CKV_AWS_20) stay verbatim: mangling them loses meaning. Deterministic,
+// never LLM.
+func HumanizeRuleID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	seg := id
+	if i := strings.LastIndexAny(seg, "./"); i >= 0 && i+1 < len(seg) {
+		seg = seg[i+1:]
+	}
+	if !strings.ContainsFunc(seg, func(r rune) bool { return r >= 'a' && r <= 'z' }) {
+		return seg
+	}
+	words := strings.FieldsFunc(seg, func(r rune) bool { return r == '-' || r == '_' })
+	if len(words) == 0 {
+		return seg
+	}
+	out := strings.Join(words, " ")
+	r := []rune(out)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
+
 // Normalize converts adapter output into normalized findings: severity
 // mapping, fingerprinting, and defensive cleanup. This is the only place a
 // RawFinding becomes a Finding.
+//
+// Quality floor (schema 2.0.0): every finding leaves here with a non-empty,
+// sanitized, deterministic title (adapter title → humanized rule ID → tool
+// name) and a non-empty description (falls back to the title). Remediation
+// is NOT floored: when a tool provides nothing, empty is the honest value —
+// inventing remediation text is out of scope by design.
 func Normalize(raws []RawFinding) []Finding {
 	findings := make([]Finding, 0, len(raws))
 	for _, r := range raws {
 		toolSev := NormalizeSeverity(r.Tool, r.RawSeverity)
+		title := SanitizeTitle(firstNonEmpty(r.Title, HumanizeRuleID(r.RuleID), r.Tool+" finding"))
 		f := Finding{
 			Tool:         r.Tool,
 			Tools:        []string{r.Tool},
 			Category:     r.Category,
 			RuleID:       r.RuleID,
-			Title:        firstNonEmpty(r.Title, r.RuleID),
-			Description:  r.Description,
+			Title:        title,
+			Description:  firstNonEmpty(r.Description, title),
 			Severity:     toolSev,
 			ToolSeverity: &toolSev,
 			RawSeverity:  r.RawSeverity,

@@ -262,3 +262,78 @@ func TestParseTrivy_NullResults(t *testing.T) {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
 }
+
+// TestSemgrepHumanTitles (schema 2.0.0, Q2): the title is the first sentence
+// of the rule message — never the dotted check_id path — and empty messages
+// fall back to the humanized rule ID after Normalize.
+func TestSemgrepHumanTitles(t *testing.T) {
+	semgrepJSON := `{"results": [
+		{"check_id": "python.flask.security.injection.tainted-sql-string.tainted-sql-string",
+		 "path": "app.py", "start": {"line": 1}, "end": {"line": 1},
+		 "extra": {"message": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection.", "severity": "ERROR"}},
+		{"check_id": "python.flask.security.audit.debug-enabled.debug-enabled",
+		 "path": "app.py", "start": {"line": 2}, "end": {"line": 2},
+		 "extra": {"message": "", "severity": "WARNING"}}
+	]}`
+	raws, err := parseSemgrep([]byte(semgrepJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := raws[0].Title; got != "Detected user input used to manually construct a SQL string." {
+		t.Errorf("title = %q, want first sentence of message", got)
+	}
+	// Description keeps the full message — the title cut loses nothing.
+	if len(raws[0].Description) <= len(raws[0].Title) {
+		t.Error("description must keep the full message")
+	}
+	out := model.Normalize(raws)
+	if got := out[1].Title; got != "Debug enabled" {
+		t.Errorf("empty-message fallback title = %q, want humanized check_id", got)
+	}
+	for _, f := range out {
+		if strings.Contains(f.Title, "python.flask") {
+			t.Errorf("dotted check_id leaked into a title: %q", f.Title)
+		}
+	}
+}
+
+func TestFirstSentence(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"One sentence only", "One sentence only"},
+		{"First. Second. Third.", "First."},
+		{"Ends with period.", "Ends with period."},
+		{"Line one\nline two", "Line one"},
+		{"Version 2.0 has no sentence break here", "Version 2.0 has no sentence break here"},
+		{"  padded  ", "padded"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := firstSentence(tt.in); got != tt.want {
+			t.Errorf("firstSentence(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestGitleaksHumanTitles: curated map for common rules; unmapped rules get
+// the deterministic humanizer after Normalize — never the raw rule ID.
+func TestGitleaksHumanTitles(t *testing.T) {
+	gitleaksJSON := `[
+		{"Description": "Generic API Key", "File": "a.env", "StartLine": 1, "EndLine": 1,
+		 "RuleID": "generic-api-key", "Match": "x", "Secret": "x", "Entropy": 4.0},
+		{"Description": "AWS", "File": "b.env", "StartLine": 1, "EndLine": 1,
+		 "RuleID": "aws-access-token", "Match": "x", "Secret": "x", "Entropy": 4.0},
+		{"Description": "Some future rule", "File": "c.env", "StartLine": 1, "EndLine": 1,
+		 "RuleID": "shiny-new-provider-token", "Match": "x", "Secret": "x", "Entropy": 4.0}
+	]`
+	raws, err := parseGitleaks([]byte(gitleaksJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := model.Normalize(raws)
+	want := []string{"Hard-coded API key", "AWS access key", "Shiny new provider token"}
+	for i, w := range want {
+		if out[i].Title != w {
+			t.Errorf("finding %d title = %q, want %q", i, out[i].Title, w)
+		}
+	}
+}

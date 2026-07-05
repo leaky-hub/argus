@@ -119,10 +119,14 @@ func parseSemgrepResult(raw json.RawMessage) (model.RawFinding, error) {
 	}
 
 	return model.RawFinding{
-		Tool:        "semgrep",
-		Category:    model.CategorySAST,
-		RuleID:      res.CheckID,
-		Title:       res.CheckID,
+		Tool:     "semgrep",
+		Category: model.CategorySAST,
+		RuleID:   res.CheckID,
+		// Human title (schema 2.0.0): the first sentence of the rule message,
+		// never the dotted check_id path. Empty messages fall back to a
+		// humanized check_id in Normalize; sanitization (control chars,
+		// whitespace, 120-rune cap) also happens there for every adapter.
+		Title:       firstSentence(res.Extra.Message),
 		Description: res.Extra.Message,
 		RawSeverity: res.Extra.Severity,
 		Confidence:  res.Extra.Metadata.Confidence,
@@ -134,6 +138,23 @@ func parseSemgrepResult(raw json.RawMessage) (model.RawFinding, error) {
 		Meta:        meta,
 		RawPayload:  raw,
 	}, nil
+}
+
+// firstSentence cuts a rule message at the first sentence boundary: a period
+// followed by whitespace, or a newline. A trailing period is kept. Messages
+// with no boundary pass through whole (Normalize caps the length).
+// Deterministic — titles are tool-derived, never generated.
+func firstSentence(s string) string {
+	s = strings.TrimSpace(s)
+	for i, r := range s {
+		if r == '\n' {
+			return strings.TrimSpace(s[:i])
+		}
+		if r == '.' && i+1 < len(s) && (s[i+1] == ' ' || s[i+1] == '\t') {
+			return s[:i+1]
+		}
+	}
+	return s
 }
 
 // flexStrings decodes a JSON value that may be a string, an array of strings,

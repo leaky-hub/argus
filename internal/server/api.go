@@ -224,15 +224,15 @@ func (s *Server) buildSummary() (SummaryResponse, error) {
 }
 
 // buildRuns lists all runs with their delta vs the immediately-previous run.
-func (s *Server) buildRuns() (RunsResponse, error) {
-	runs, err := s.store.List()
+func (s *Server) buildRuns(store runstore.Store) (RunsResponse, error) {
+	runs, err := store.List()
 	if err != nil {
 		return RunsResponse{}, err
 	}
 	var out RunsResponse
 	var prev *report.Document
 	for _, r := range runs {
-		doc, err := s.store.Load(r.ID)
+		doc, err := store.Load(r.ID)
 		if err != nil {
 			continue
 		}
@@ -255,19 +255,19 @@ func (s *Server) buildRuns() (RunsResponse, error) {
 }
 
 // buildRunDetail returns one run's findings plus its delta vs the previous run.
-func (s *Server) buildRunDetail(id string) (RunDetail, error) {
-	doc, err := s.store.Load(id)
+func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, error) {
+	doc, err := store.Load(id)
 	if err != nil {
 		return RunDetail{}, err
 	}
-	prev := s.previousDoc(id)
+	prev := previousDoc(store, id)
 	delta := runstore.ComputeDelta(prev, doc)
 
 	// Enrich at read time so runs saved before schema 1.2.0 still show control
 	// chips. Deterministic and idempotent; the stored file is untouched.
 	_ = compliance.Apply(doc.Findings)
 
-	runs, _ := s.store.List()
+	runs, _ := store.List()
 	createdAt := id
 	for _, r := range runs {
 		if r.ID == id {
@@ -294,8 +294,8 @@ func (s *Server) buildRunDetail(id string) (RunDetail, error) {
 }
 
 // previousDoc returns the run immediately before id chronologically, or nil.
-func (s *Server) previousDoc(id string) *report.Document {
-	runs, err := s.store.List()
+func previousDoc(store runstore.Store, id string) *report.Document {
+	runs, err := store.List()
 	if err != nil {
 		return nil
 	}
@@ -309,7 +309,7 @@ func (s *Server) previousDoc(id string) *report.Document {
 	if prevID == "" {
 		return nil
 	}
-	doc, err := s.store.Load(prevID)
+	doc, err := store.Load(prevID)
 	if err != nil {
 		return nil
 	}

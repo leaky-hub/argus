@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/leaky-hub/appsec/internal/audit"
+	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/jobs"
 	"github.com/leaky-hub/appsec/internal/scanner"
 	"github.com/leaky-hub/appsec/internal/server/auth"
@@ -215,6 +216,8 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name     string   `json:"name"`
 			Path     string   `json:"path"`
+			URL      string   `json:"url"`
+			Branch   string   `json:"branch"`
 			Scanners []string `json:"scanners"`
 			Profile  string   `json:"profile"`
 		}
@@ -226,14 +229,35 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		for i := range req.Scanners {
 			req.Scanners[i] = strings.ToLower(strings.TrimSpace(req.Scanners[i]))
 		}
-		// ValidatePath (inside Add) demands an absolute path: the server's
-		// CWD means nothing to a browser user, so nothing is resolved.
-		t, err := s.targets.Add(req.Name, req.Path, req.Scanners, req.Profile)
+		var t targets.Target
+		var err error
+		switch {
+		case req.URL != "" && req.Path != "":
+			writeErr(w, http.StatusBadRequest, "provide either path (directory target) or url (git target), not both")
+			return
+		case req.URL != "":
+			// ValidateGitURL (inside AddGit) enforces the S1 policy: https
+			// only, host present, no embedded credentials.
+			t, err = s.targets.AddGit(req.Name, req.URL, req.Branch, req.Scanners, req.Profile)
+		default:
+			// ValidatePath (inside Add) demands an absolute path: the server's
+			// CWD means nothing to a browser user, so nothing is resolved.
+			t, err = s.targets.Add(req.Name, req.Path, req.Scanners, req.Profile)
+		}
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.audit(audit.EventTargetCreate, actorFrom(r), map[string]string{"target": t.ID, "name": t.Name, "path": t.Path})
+		details := map[string]string{"target": t.ID, "name": t.Name, "type": t.Kind()}
+		if t.Kind() == targets.TypeGit {
+			details["url"] = t.URL
+			if t.Branch != "" {
+				details["branch"] = t.Branch
+			}
+		} else {
+			details["path"] = t.Path
+		}
+		s.audit(audit.EventTargetCreate, actorFrom(r), details)
 		writeJSON(w, http.StatusCreated, t)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -241,10 +265,6 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTargetByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	if s.targets == nil {
 		writeErr(w, http.StatusForbidden, bootstrapHint)
 		return
@@ -254,30 +274,89 @@ func (s *Server) handleTargetByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid target id")
 		return
 	}
-	t, err := s.targets.Remove(id)
+	switch r.Method {
+	case http.MethodPatch:
+		s.handleTargetUpdate(w, r, id)
+	case http.MethodDelete:
+		t, err := s.targets.Remove(id)
+		if err != nil {
+			if errors.Is(err, targets.ErrNotFound) {
+				writeErr(w, http.StatusNotFound, "target not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, "failed to remove target")
+			return
+		}
+		s.audit(audit.EventTargetDelete, actorFrom(r), map[string]string{"target": t.ID, "name": t.Name})
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleTargetUpdate is the console-managed scan configuration (S3):
+// name/scanners/profile plus the closed config block. Registration identity
+// (type/path/url/branch) is immutable here by design — re-pointing a target
+// is a delete + re-add, both audited.
+func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Name     *string         `json:"name"`
+		Scanners *[]string       `json:"scanners"`
+		Profile  *string         `json:"profile"`
+		Config   *targets.Config `json:"config"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32768)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Scanners != nil {
+		for i := range *req.Scanners {
+			(*req.Scanners)[i] = strings.ToLower(strings.TrimSpace((*req.Scanners)[i]))
+		}
+	}
+	t, changed, err := s.targets.Update(id, targets.Patch{
+		Name: req.Name, Scanners: req.Scanners, Profile: req.Profile, Config: req.Config,
+	})
 	if err != nil {
 		if errors.Is(err, targets.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "target not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "failed to remove target")
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(audit.EventTargetDelete, actorFrom(r), map[string]string{"target": t.ID, "name": t.Name})
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	if len(changed) > 0 {
+		details := map[string]string{"target": t.ID, "name": t.Name, "changed": strings.Join(changed, ",")}
+		// Suppression is the finding-killing knob: the audit line carries the
+		// pattern/rule text so every suppression is reviewable (S3).
+		if req.Config != nil {
+			if len(req.Config.IgnorePaths) > 0 {
+				details["ignorePaths"] = strings.Join(req.Config.IgnorePaths, ",")
+			}
+			if len(req.Config.IgnoreRules) > 0 {
+				details["ignoreRules"] = strings.Join(req.Config.IgnoreRules, ",")
+			}
+		}
+		s.audit(audit.EventTargetUpdate, actorFrom(r), details)
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 // --- scans ---
 
 // ScanRequest is POST /api/scans: an opaque target ID plus closed-enum
 // options. NO free-form strings in here ever reach a scanner invocation
-// (docs/console-ops.md T1/T2).
+// (docs/console-ops.md T1/T2). Scope is the one string that touches a path,
+// and only through targets.ResolveScope's confinement (S2).
 type ScanRequest struct {
 	TargetID string `json:"targetId"`
 	Options  struct {
-		Scanners []string `json:"scanners"`
-		Profile  string   `json:"profile"`
-		Triage   *bool    `json:"triage"`
+		Scanners   []string `json:"scanners"`
+		Profile    string   `json:"profile"`
+		Triage     *bool    `json:"triage"`
+		Scope      string   `json:"scope"`
+		Frameworks []string `json:"frameworks"`
 	} `json:"options"`
 }
 
@@ -346,11 +425,44 @@ func (s *Server) handleScanLaunch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// S2: confine the scope at enqueue. For dir targets the tree exists now,
+	// so this is the full check (existence included); for git targets the
+	// workspace may not exist yet, so enqueue rejects the syntactic attacks
+	// and the executor re-runs the full confinement against the fresh clone.
+	if req.Options.Scope != "" {
+		if t.Kind() == targets.TypeGit {
+			if err := targets.ValidateScopeSyntax(req.Options.Scope); err != nil {
+				writeErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		} else {
+			if _, err := targets.ResolveScope(s.targets.Root(t), req.Options.Scope); err != nil {
+				writeErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+	}
+
+	// S6: frameworks are a closed enum, and focusing must leave at least one
+	// relevant scanner in the effective set.
+	if len(req.Options.Frameworks) > 0 {
+		effective := scannersOpt
+		if len(effective) == 0 {
+			effective = allowed
+		}
+		if _, err := compliance.NarrowScanners(effective, req.Options.Frameworks); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	actor := actorFrom(r)
 	job, err := s.queue.Enqueue(t.ID, t.Name, actor, jobs.Options{
-		Scanners: scannersOpt,
-		Profile:  req.Options.Profile,
-		Triage:   req.Options.Triage,
+		Scanners:   scannersOpt,
+		Profile:    req.Options.Profile,
+		Triage:     req.Options.Triage,
+		Scope:      req.Options.Scope,
+		Frameworks: req.Options.Frameworks,
 	})
 	if err != nil {
 		if errors.Is(err, jobs.ErrQueueFull) {
@@ -361,18 +473,46 @@ func (s *Server) handleScanLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	details := map[string]string{"job": job.ID, "target": t.ID, "name": t.Name}
-	if len(scannersOpt) > 0 {
-		details["scanners"] = strings.Join(scannersOpt, ",")
-	}
-	if req.Options.Profile != "" {
-		details["profile"] = req.Options.Profile
-	}
-	if req.Options.Triage != nil {
-		details["triage"] = strconv.FormatBool(*req.Options.Triage)
-	}
-	s.audit(audit.EventScanLaunch, actor, details)
+	s.audit(audit.EventScanLaunch, actor, launchDetails(job, t))
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+// FrameworksResponse is GET /api/frameworks: the closed compliance enum the
+// launcher's framework picker offers.
+type FrameworksResponse struct {
+	Frameworks []FrameworkInfo `json:"frameworks"`
+}
+
+// FrameworkInfo describes one embedded framework and the scanners relevant
+// to it (the S6 narrowing table, surfaced so the UI can hint).
+type FrameworkInfo struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Version  string   `json:"version"`
+	Scanners []string `json:"scanners"`
+}
+
+func (s *Server) handleFrameworks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	fws, err := compliance.Frameworks()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "compliance data unavailable")
+		return
+	}
+	resp := FrameworksResponse{Frameworks: []FrameworkInfo{}}
+	for i := range fws {
+		relevant, _ := compliance.NarrowScanners(targets.KnownScanners(), []string{fws[i].ID})
+		if relevant == nil {
+			relevant = []string{}
+		}
+		resp.Frameworks = append(resp.Frameworks, FrameworkInfo{
+			ID: fws[i].ID, Name: fws[i].Name, Version: fws[i].Version, Scanners: relevant,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleScanByID(w http.ResponseWriter, r *http.Request) {

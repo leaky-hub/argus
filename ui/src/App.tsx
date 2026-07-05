@@ -9,6 +9,7 @@ import {
   RunDetail,
   RunsResponse,
   SummaryResponse,
+  Target,
 } from "./api";
 import { Loading, ErrorNote } from "./components";
 import { fmtTime } from "./theme";
@@ -46,8 +47,11 @@ export function App() {
   const [runs, setRuns] = useState<RunsResponse | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
+  const [selectedRunTarget, setSelectedRunTarget] = useState<string | undefined>(undefined);
+  const [selectedRunCommit, setSelectedRunCommit] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [targets, setTargets] = useState<Target[]>([]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -92,10 +96,16 @@ export function App() {
       .catch(onApiError);
   }, [authed, reloadKey, onApiError]);
 
+  // Fetch targets when ops is enabled
+  useEffect(() => {
+    if (!authed || !me?.authRequired) return;
+    opsApi.targets().then((r) => setTargets(r.targets)).catch(() => {});
+  }, [authed, me?.authRequired, reloadKey]);
+
   useEffect(() => {
     if (!authed || !selectedRun) return;
-    api.run(selectedRun).then(setDetail).catch(onApiError);
-  }, [authed, selectedRun, onApiError]);
+    api.run(selectedRun, selectedRunTarget).then(setDetail).catch(onApiError);
+  }, [authed, selectedRun, selectedRunTarget, onApiError]);
 
   const handleLogin = (u: UserInfo, csrf: string) => {
     setCsrfToken(csrf);
@@ -109,13 +119,17 @@ export function App() {
     setSummary(null);
     setRuns(null);
     setDetail(null);
+    setSelectedRunTarget(undefined);
+    setSelectedRunCommit(undefined);
     setTab("overview");
   };
 
   // A finished job links straight to its run: refresh the lists so the new
   // run exists in the picker, then open it in Findings.
-  const openRun = (runId: string) => {
+  const openRun = (runId: string, targetId?: string, commit?: string) => {
     setSelectedRun(runId);
+    setSelectedRunTarget(targetId);
+    setSelectedRunCommit(commit);
     setReloadKey((k) => k + 1);
     setTab("findings");
   };
@@ -128,6 +142,18 @@ export function App() {
   const role = user?.role ?? "";
   const opsEnabled = me.authRequired; // zero users = the read-only console
   const canLaunch = role === "operator" || role === "admin";
+  const canExplain = opsEnabled && (role === "operator" || role === "admin");
+
+  // Build origin for Findings if a target-scoped run is selected
+  let origin: { targetId?: string; gitUrl?: string; commit?: string } | undefined;
+  if (selectedRunTarget) {
+    const t = targets.find((t) => t.id === selectedRunTarget);
+    if (t) {
+      origin = { targetId: t.id, gitUrl: t.url, commit: selectedRunCommit };
+    } else {
+      origin = { targetId: selectedRunTarget, commit: selectedRunCommit };
+    }
+  }
 
   const tabs: { id: Tab; label: string; persona: string }[] = [
     { id: "overview", label: "Overview", persona: "GRC / exec" },
@@ -173,7 +199,11 @@ export function App() {
                 Run
                 <select
                   value={selectedRun ?? ""}
-                  onChange={(e) => setSelectedRun(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedRun(e.target.value);
+                    setSelectedRunTarget(undefined);
+                    setSelectedRunCommit(undefined);
+                  }}
                   className="max-w-[190px] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
                 >
                   {runs.runs.map((r) => (
@@ -212,13 +242,15 @@ export function App() {
       <main>
         {activeTab === "overview" && <Overview summary={summary} />}
         {activeTab === "findings" &&
-          (detail ? <Findings detail={detail} /> : <Loading what="findings" />)}
+          (detail ? <Findings detail={detail} origin={origin} canExplain={canExplain} /> : <Loading what="findings" />)}
         {activeTab === "runs" && (
           <Runs
             runs={runs}
             selectedId={selectedRun}
             onSelect={(id) => {
               setSelectedRun(id);
+              setSelectedRunTarget(undefined);
+              setSelectedRunCommit(undefined);
               setTab("findings");
             }}
           />

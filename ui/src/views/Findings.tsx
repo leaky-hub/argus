@@ -1,18 +1,37 @@
 import { useMemo, useState } from "react";
-import { Finding, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { ExplainResponse, Finding, opsApi, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
 const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
-export function Findings({ detail }: { detail: RunDetail }) {
+// Per-finding explain lifecycle; cached client-side so re-clicks don't refetch.
+type ExplainState = { loading: boolean; data?: ExplainResponse; error?: string };
+
+export function Findings({
+  detail,
+  origin,
+  canExplain,
+}: {
+  detail: RunDetail;
+  origin?: {
+    targetId?: string;
+    gitUrl?: string;
+    commit?: string;
+  };
+  canExplain?: boolean;
+}) {
   const [q, setQ] = useState("");
   const [sev, setSev] = useState<string>("all");
   const [cat, setCat] = useState<string>("all");
   const [tool, setTool] = useState<string>("all");
   const [verdict, setVerdict] = useState<string>("all");
   const [minRisk, setMinRisk] = useState(0);
+  const [framework, setFramework] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Explain state per finding
+  const [explainState, setExplainState] = useState<Record<string, ExplainState>>({});
 
   const newSet = useMemo(() => new Set(detail.newIds), [detail.newIds]);
   const tools = useMemo(
@@ -24,6 +43,20 @@ export function Findings({ detail }: { detail: RunDetail }) {
     [detail.findings],
   );
 
+  // Framework filter options: distinct prefixes from complianceControls
+  const frameworks = useMemo(() => {
+    const set = new Set<string>();
+    detail.findings.forEach((f) => {
+      if (f.complianceControls) {
+        f.complianceControls.forEach((c) => {
+          const idx = c.indexOf(":");
+          if (idx !== -1) set.add(c.slice(0, idx));
+        });
+      }
+    });
+    return Array.from(set).sort();
+  }, [detail.findings]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return detail.findings
@@ -32,6 +65,7 @@ export function Findings({ detail }: { detail: RunDetail }) {
       .filter((f) => tool === "all" || (f.tools ?? [f.tool]).includes(tool))
       .filter((f) => verdict === "all" || (verdict === "untriaged" ? !f.triage : f.triage?.verdict === verdict))
       .filter((f) => (f.riskScore ?? 0) >= minRisk)
+      .filter((f) => framework === "all" || (f.complianceControls ?? []).some((c) => c.startsWith(framework + ":")))
       .filter(
         (f) =>
           needle === "" ||
@@ -42,9 +76,24 @@ export function Findings({ detail }: { detail: RunDetail }) {
           (f.cwes ?? []).some((c) => c.toLowerCase().includes(needle)),
       )
       .sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0) || SEV_RANK[b.severity] - SEV_RANK[a.severity]);
-  }, [detail.findings, q, sev, cat, tool, verdict, minRisk]);
+  }, [detail.findings, q, sev, cat, tool, verdict, minRisk, framework]);
 
   const selected = filtered.find((f) => f.id === selectedId) ?? filtered[0] ?? null;
+
+  const handleExplain = async (f: Finding) => {
+    if (!canExplain) return;
+    setExplainState((prev) => ({
+      ...prev,
+      [f.id]: { loading: true, data: prev[f.id]?.data },
+    }));
+    try {
+      const res = await opsApi.explain({ targetId: origin?.targetId, runId: detail.id, findingId: f.id });
+      setExplainState((prev) => ({ ...prev, [f.id]: { loading: false, data: res } }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "explanation failed";
+      setExplainState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
+    }
+  };
 
   if (detail.findings.length === 0) {
     return <EmptyState title="No findings in this run" hint="This run recorded a clean scan. Nice." />;
@@ -74,6 +123,12 @@ export function Findings({ detail }: { detail: RunDetail }) {
               onChange={setVerdict}
               label="Verdict"
               options={["all", "true-positive", "false-positive", "uncertain", "untriaged"]}
+            />
+            <Select
+              value={framework}
+              onChange={setFramework}
+              label="Framework"
+              options={["all", ...frameworks]}
             />
             <label className="inline-flex items-center gap-1 text-xs text-gray-500">
               Min risk {minRisk.toFixed(0)}
@@ -150,13 +205,91 @@ export function Findings({ detail }: { detail: RunDetail }) {
 
       {/* Detail pane */}
       <div className="lg:col-span-2">
-        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} /> : null}
+        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} /> : null}
       </div>
     </div>
   );
 }
 
-function Detail({ f, isNew }: { f: Finding; isNew: boolean }) {
+function Detail({ f, isNew, origin, canExplain, explainState, onExplain }: {
+  f: Finding;
+  isNew: boolean;
+  origin?: { targetId?: string; gitUrl?: string; commit?: string };
+  canExplain?: boolean;
+  explainState?: ExplainState;
+  onExplain: () => void;
+}) {
+  // Forge deep link logic
+  let forgeLink = null;
+  if (origin?.gitUrl && origin?.commit && f.location.file) {
+    try {
+      const urlObj = new URL(origin.gitUrl);
+      if (urlObj.hostname === "github.com" || urlObj.hostname === "gitlab.com") {
+        // The link needs a repo-relative path: strip the server workspace
+        // prefix when present; a bare absolute path can't be mapped — no link.
+        let relativeFile: string | null = f.location.file;
+        const marker = origin.targetId ? `/workspace/${origin.targetId}/` : null;
+        if (marker && relativeFile.includes(marker)) {
+          relativeFile = relativeFile.slice(relativeFile.indexOf(marker) + marker.length);
+        } else if (relativeFile.startsWith("/")) {
+          relativeFile = null;
+        }
+
+        const gitUrlClean = origin.gitUrl.replace(/\.git$/, "");
+        let href = "";
+        if (relativeFile === null) {
+          href = "";
+        } else if (urlObj.hostname === "github.com") {
+          href = `${gitUrlClean}/blob/${origin.commit}/${relativeFile}#L${f.location.startLine ?? ""}`;
+        } else if (urlObj.hostname === "gitlab.com") {
+          href = `${gitUrlClean}/-/blob/${origin.commit}/${relativeFile}#L${f.location.startLine ?? ""}`;
+        }
+        
+        if (href) {
+          forgeLink = { href, shortSha: origin.commit.slice(0, 8) };
+        }
+      }
+    } catch {
+      // Invalid URL, ignore
+    }
+  }
+
+  // Group compliance controls by framework
+  const groupedControls: Record<string, string[]> = {};
+  if (f.complianceControls) {
+    f.complianceControls.forEach((c) => {
+      const idx = c.indexOf(":");
+      if (idx !== -1) {
+        const fw = c.slice(0, idx);
+        if (!groupedControls[fw]) groupedControls[fw] = [];
+        groupedControls[fw].push(c);
+      }
+    });
+  }
+
+  // CWE links helper
+  const renderCwe = (cwe: string) => {
+    const match = cwe.match(/^CWE-(\d+)$/);
+    if (match) {
+      return (
+        <a
+          key={cwe}
+          href={`https://cwe.mitre.org/data/definitions/${match[1]}.html`}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded bg-gray-100 px-1.5 py-0.5 text-xs hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 cursor-pointer"
+        >
+          {cwe}
+        </a>
+      );
+    }
+    return (
+      <span key={cwe} className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">
+        {cwe}
+      </span>
+    );
+  };
+
   return (
     <Panel title="Finding detail">
       <div className="space-y-3 text-sm">
@@ -171,6 +304,27 @@ function Detail({ f, isNew }: { f: Finding; isNew: boolean }) {
           )}
           <span className="text-xs text-gray-400">{(f.tools ?? [f.tool]).join(", ")}</span>
         </div>
+
+        {/* Code Frame */}
+        {f.location.snippet && (
+          <Row label="Code">
+            <div className="overflow-x-auto whitespace-pre font-mono text-xs bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-800">
+              {f.location.snippet.lines.map((line, i) => {
+                const lineNum = f.location.snippet!.startLine + i;
+                const start = f.location.startLine ?? 0;
+                const end = f.location.endLine ?? start;
+                const isHighlighted = start > 0 && lineNum >= start && lineNum <= end;
+                return (
+                  <div key={i} className={`flex ${isHighlighted ? "bg-amber-100 dark:bg-amber-900/30" : ""}`}>
+                    <span className="w-4 select-none text-amber-600 dark:text-amber-400">{isHighlighted ? ">" : " "}</span>
+                    <span className="w-10 select-none pr-2 text-right text-gray-400">{lineNum}</span>
+                    <span className={isHighlighted ? "text-gray-900 dark:text-white" : "text-gray-600 dark:text-gray-300"}>{line}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Row>
+        )}
 
         {/* All values below are hostile data rendered as escaped text only. */}
         <h3 className="break-words font-mono text-sm font-semibold">{f.title}</h3>
@@ -188,33 +342,90 @@ function Detail({ f, isNew }: { f: Finding; isNew: boolean }) {
         {f.cwes && f.cwes.length > 0 && (
           <Row label="CWE">
             <span className="flex flex-wrap gap-1">
-              {f.cwes.map((c) => (
-                <span key={c} className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">
-                  {c}
-                </span>
-              ))}
+              {f.cwes.map(renderCwe)}
             </span>
           </Row>
         )}
         {f.package && <Row label="Package"><code className="text-xs">{f.package}</code></Row>}
         {f.cve && <Row label="CVE"><code className="text-xs">{f.cve}</code></Row>}
-        {f.complianceControls && f.complianceControls.length > 0 && (
-          <Row label="Controls">
-            <span className="flex flex-wrap gap-1">
-              {f.complianceControls.map((c) => (
-                <span
-                  key={c}
-                  className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
-                  title="Framework control this finding violates (see `appsec comply`)"
-                >
-                  {c}
-                </span>
-              ))}
-            </span>
+        
+        {/* Grouped Compliance Controls */}
+        {Object.keys(groupedControls).length > 0 && (
+          Object.entries(groupedControls).map(([fw, controls]) => (
+            <Row key={fw} label={fw}>
+              <span className="flex flex-wrap gap-1">
+                {controls.map((c) => (
+                  <span
+                    key={c}
+                    className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+                    title="Framework control this finding violates (see `appsec comply`)"
+                  >
+                    {c}
+                  </span>
+                ))}
+              </span>
+            </Row>
+          ))
+        )}
+
+        {/* Forge Deep Link */}
+        {forgeLink && (
+          <Row label="Source">
+            <a
+              href={forgeLink.href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+            >
+              view at {forgeLink.shortSha} →
+            </a>
           </Row>
         )}
 
         <RiskSignals signals={f.riskSignals} />
+
+        {/* Explain Button & Result */}
+        {canExplain && (
+          <div className="mt-2">
+            {!explainState ? (
+              <button
+                onClick={onExplain}
+                className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+              >
+                Explain Finding
+              </button>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
+                {explainState.loading ? (
+                  <p className="text-xs text-gray-500">Explaining...</p>
+                ) : explainState.error ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-red-600 dark:text-red-400">{explainState.error}</p>
+                    <button onClick={onExplain} className="text-xs text-blue-600 hover:underline dark:text-blue-400">retry</button>
+                  </div>
+                ) : explainState.data ? (
+                  <>
+                    <p className="whitespace-pre-wrap break-words text-xs text-gray-800 dark:text-gray-200">
+                      {explainState.data.explanation}
+                    </p>
+                    {explainState.data.remediation && (
+                      <div className="mt-2">
+                        <span className="text-xs font-semibold text-gray-500">Fix:</span>
+                        <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">
+                          {explainState.data.remediation}
+                        </p>
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center gap-2 text-[10px] text-gray-400">
+                      <span>{explainState.data.model}</span>
+                      {explainState.data.cached && <span>(cached)</span>}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+        )}
 
         {f.triage && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
@@ -330,3 +541,4 @@ function Select({
     </label>
   );
 }
+

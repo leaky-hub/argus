@@ -10,6 +10,7 @@ export interface Location {
   startLine?: number;
   endLine?: number;
   url?: string;
+  snippet?: Snippet;
 }
 
 export interface Triage {
@@ -152,8 +153,20 @@ async function getJSON<T>(path: string): Promise<T> {
 
 export const api = {
   summary: () => getJSON<SummaryResponse>("api/summary"),
-  runs: () => getJSON<RunsResponse>("api/runs"),
-  run: (id: string) => getJSON<RunDetail>(`api/runs/${encodeURIComponent(id)}`),
+  runs: (targetId?: string) => {
+    const base = "api/runs";
+    if (targetId) {
+      return getJSON<RunsResponse>(`${base}?target=${encodeURIComponent(targetId)}`);
+    }
+    return getJSON<RunsResponse>(base);
+  },
+  run: (id: string, targetId?: string) => {
+    const base = `api/runs/${encodeURIComponent(id)}`;
+    if (targetId) {
+      return getJSON<RunDetail>(`${base}?target=${encodeURIComponent(targetId)}`);
+    }
+    return getJSON<RunDetail>(base);
+  },
 };
 
 export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
@@ -167,17 +180,41 @@ export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "inf
 export interface UserInfo { id: string; username: string; role: string; createdAt: string; }
 export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; }
 export interface LoginResponse { user: UserInfo; csrfToken: string; }
-export interface Target { id: string; name: string; path: string; scanners?: string[]; profile?: string; createdAt: string; }
+
+export interface Snippet { startLine: number; lines: string[] }
+
+export interface TargetConfig {
+  timeoutSec?: number;
+  triage?: boolean | null;
+  ignorePaths?: string[];
+  ignoreRules?: string[];
+}
+
+export interface Target {
+  id: string; name: string;
+  type?: "dir" | "git";
+  path?: string;
+  url?: string; branch?: string;
+  scanners?: string[]; profile?: string;
+  config?: TargetConfig;
+  createdAt: string;
+}
+
 export interface TargetsResponse { targets: Target[]; }
-export interface JobOptions { scanners?: string[]; profile?: string; triage?: boolean | null; }
+
+export interface JobOptions { scanners?: string[]; profile?: string; triage?: boolean | null; scope?: string; frameworks?: string[] }
+
 export type JobStatus = "queued" | "running" | "done" | "failed";
+
 export interface Job {
   id: string; targetId: string; targetName: string; launchedBy: string;
   options: JobOptions; status: JobStatus; queuedAt: string;
   startedAt?: string; finishedAt?: string; progress: string[];
-  runId?: string; error?: string;
+  runId?: string; error?: string; commit?: string;
 }
+
 export interface JobsResponse { jobs: Job[]; }
+
 export interface AuditEntry { time: string; event: string; actor?: string; details?: Record<string, string>; }
 export interface AuditResponse { entries: AuditEntry[]; }
 
@@ -240,10 +277,15 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
 
 // --- Constants ---
 
-export const KNOWN_SCANNERS = ["semgrep", "gitleaks", "trivy", "checkov"];
+export const KNOWN_SCANNERS = ["semgrep", "gitleaks", "trivy", "checkov", "trivy-config"];
 export const PROFILES = ["fast", "standard", "max"];
 
 // --- opsApi implementation ---
+
+export interface FrameworkInfo { id: string; name: string; version: string; scanners: string[] }
+export interface FrameworksResponse { frameworks: FrameworkInfo[] }
+
+export interface ExplainResponse { explanation: string; remediation?: string; model: string; cached: boolean }
 
 export const opsApi = {
   me: (): Promise<MeResponse> => send<MeResponse>("GET", "api/auth/me"),
@@ -272,11 +314,14 @@ export const opsApi = {
   targets: (): Promise<TargetsResponse> => 
     send<TargetsResponse>("GET", "api/targets"),
   
-  createTarget: (t: { name: string; path: string; scanners?: string[]; profile?: string }): Promise<Target> => 
+  createTarget: (t: { name: string; path?: string; url?: string; branch?: string; scanners?: string[]; profile?: string }): Promise<Target> => 
     send<Target>("POST", "api/targets", t),
   
   deleteTarget: (id: string): Promise<void> => 
     send<void>("DELETE", `api/targets/${encodeURIComponent(id)}`),
+  
+  updateTarget: (id: string, patch: { name?: string; scanners?: string[]; profile?: string; config?: TargetConfig }): Promise<Target> => 
+    send<Target>("PATCH", `api/targets/${encodeURIComponent(id)}`, patch),
   
   jobs: (): Promise<JobsResponse> => 
     send<JobsResponse>("GET", "api/scans"),
@@ -289,4 +334,10 @@ export const opsApi = {
   
   audit: (n = 200): Promise<AuditResponse> => 
     send<AuditResponse>(`GET`, `api/audit?n=${n}`),
+
+  frameworks: (): Promise<FrameworksResponse> =>
+    send<FrameworksResponse>("GET", "api/frameworks"),
+
+  explain: (req: { targetId?: string; runId: string; findingId: string }): Promise<ExplainResponse> =>
+    send<ExplainResponse>("POST", "api/explain", req),
 };

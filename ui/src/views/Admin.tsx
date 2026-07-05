@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { opsApi, UserInfo, Target, AuditEntry, ApiError, KNOWN_SCANNERS, PROFILES } from "../api";
+import { opsApi, UserInfo, Target, TargetConfig, AuditEntry, ApiError, KNOWN_SCANNERS, PROFILES } from "../api";
 import { Panel, Loading, ErrorNote, EmptyState } from "../components";
 import { fmtTime } from "../theme";
 
@@ -16,8 +16,34 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
   // Controlled add-forms (never read back through the DOM).
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "viewer" });
-  const [newTarget, setNewTarget] = useState({ name: "", path: "", profile: "" });
+  
+  // New Target Add Form State
+  const [newTargetType, setNewTargetType] = useState<"dir" | "git">("dir");
+  const [newTargetName, setNewTargetName] = useState("");
+  const [newTargetPath, setNewTargetPath] = useState("");
+  const [newTargetUrl, setNewTargetUrl] = useState("");
+  const [newTargetBranch, setNewTargetBranch] = useState("");
+  const [newTargetProfile, setNewTargetProfile] = useState("");
   const [newTargetScanners, setNewTargetScanners] = useState<Set<string>>(new Set());
+
+  // Configure Drawer State
+  const [configuringTargetId, setConfiguringTargetId] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState<{
+    scanners: string[];
+    profile: string;
+    timeoutSec: number | undefined;
+    triage: "default" | "on" | "off";
+    ignorePaths: string;
+    ignoreRules: string;
+  }>({
+    scanners: [],
+    profile: "",
+    timeoutSec: undefined,
+    triage: "default",
+    ignorePaths: "",
+    ignoreRules: "",
+  });
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
     reload(true);
@@ -124,7 +150,8 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           <thead className="text-xs uppercase text-gray-500">
             <tr>
               <th className="py-2 pr-3">Name</th>
-              <th className="py-2 pr-3">Path</th>
+              <th className="py-2 pr-3">Type</th>
+              <th className="py-2 pr-3">Path / URL</th>
               <th className="py-2 pr-3">Scanners</th>
               <th className="py-2 pr-3">Profile</th>
               <th className="py-2 pr-3">Actions</th>
@@ -134,12 +161,26 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
             {targets.map((t) => (
               <tr key={t.id} className="border-t border-gray-100 dark:border-gray-800">
                 <td className="py-2 pr-3 font-medium">{t.name}</td>
-                <td className="py-2 pr-3 font-mono text-xs text-gray-600 dark:text-gray-400">{t.path}</td>
+                <td className="py-2 pr-3 text-xs">
+                  <span className={`rounded px-1.5 py-0.5 ${t.type === 'git' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
+                    {t.type || "dir"}
+                  </span>
+                </td>
+                <td className="py-2 pr-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                  {t.type === 'git' ? t.url : t.path}
+                  {t.type === 'git' && t.branch && <span className="text-blue-600 dark:text-blue-400 ml-1">@{t.branch}</span>}
+                </td>
                 <td className="py-2 pr-3 text-xs">
                   {t.scanners && t.scanners.length > 0 ? t.scanners.join(", ") : "all"}
                 </td>
                 <td className="py-2 pr-3 text-xs">{t.profile || "standard"}</td>
                 <td className="py-2 pr-3">
+                  <button
+                    onClick={() => handleConfigureTarget(t)}
+                    className="mr-2 text-xs text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    configure
+                  </button>
                   <button
                     onClick={() => handleRemoveTarget(t.id)}
                     className="text-xs text-red-600 hover:underline dark:text-red-400"
@@ -152,33 +193,71 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           </tbody>
         </table>
         </div>
-        <div className="mt-4 space-y-2">
-          <div className="grid gap-2 md:grid-cols-3">
-            <input
-              type="text"
-              placeholder="Name"
-              value={newTarget.name}
-              onChange={(e) => setNewTarget({ ...newTarget, name: e.target.value })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-            />
+
+        {/* Add Target Form */}
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Type:</span>
+            <button
+              onClick={() => setNewTargetType("dir")}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'dir' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+            >
+              Directory
+            </button>
+            <button
+              onClick={() => setNewTargetType("git")}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'git' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+            >
+              Git Repo
+            </button>
+          </div>
+
+          <input
+            type="text"
+            placeholder="Name"
+            value={newTargetName}
+            onChange={(e) => setNewTargetName(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          />
+
+          {newTargetType === "dir" ? (
             <input
               type="text"
               placeholder="/abs/path/to/repo"
-              value={newTarget.path}
-              onChange={(e) => setNewTarget({ ...newTarget, path: e.target.value })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+              value={newTargetPath}
+              onChange={(e) => setNewTargetPath(e.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
             />
-            <select
-              value={newTarget.profile}
-              onChange={(e) => setNewTarget({ ...newTarget, profile: e.target.value })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-            >
-              <option value="">standard (default)</option>
-              {PROFILES.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2">
+              <input
+                type="text"
+                placeholder="https://host/org/repo.git"
+                value={newTargetUrl}
+                onChange={(e) => setNewTargetUrl(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+              <input
+                type="text"
+                placeholder="Branch (optional)"
+                value={newTargetBranch}
+                onChange={(e) => setNewTargetBranch(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+            </div>
+          )}
+
+          <select
+            value={newTargetProfile}
+            onChange={(e) => setNewTargetProfile(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          >
+            <option value="">standard (default)</option>
+            {PROFILES.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+
           <div className="flex flex-wrap gap-4">
             {KNOWN_SCANNERS.map((s) => (
               <label key={s} className="flex items-center gap-1 text-sm">
@@ -200,17 +279,133 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
             ))}
             <span className="text-xs text-gray-500 dark:text-gray-400">none checked = all allowed</span>
           </div>
+
           <button
             onClick={handleAddTarget}
-            disabled={!newTarget.name || !newTarget.path}
+            disabled={!newTargetName || (newTargetType === "dir" ? !newTargetPath : !newTargetUrl)}
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             Register target
           </button>
         </div>
+
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          Paths are validated server-side: absolute, existing directory, never /.
+          Paths are validated server-side: absolute, existing directory, never /. Git URLs must be accessible.
         </p>
+
+        {/* Configure Drawer */}
+        {configuringTargetId && (
+          <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Configure Target</h3>
+              <button onClick={() => setConfiguringTargetId(null)} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                Close
+              </button>
+            </div>
+            
+            {configError && <div className="mb-3 text-xs text-red-600 dark:text-red-400">{configError}</div>}
+
+            {/* Scanners */}
+            <div className="mb-4">
+              <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Allowed Scanners</label>
+              <div className="flex flex-wrap gap-2">
+                {KNOWN_SCANNERS.map((s) => (
+                  <label key={s} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800">
+                    <input
+                      type="checkbox"
+                      checked={configForm.scanners.includes(s)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...configForm.scanners, s]
+                          : configForm.scanners.filter(x => x !== s);
+                        setConfigForm({ ...configForm, scanners: next });
+                      }}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    <span>{s}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-gray-500">Leave all unchecked to allow all scanners.</p>
+            </div>
+
+            {/* Profile */}
+            <div className="mb-4 grid gap-2 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Profile</label>
+                <select
+                  value={configForm.profile}
+                  onChange={(e) => setConfigForm({ ...configForm, profile: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                >
+                  <option value="">default</option>
+                  {PROFILES.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Timeout (sec)</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={3600}
+                  placeholder="default"
+                  value={configForm.timeoutSec ?? ""}
+                  onChange={(e) => setConfigForm({ ...configForm, timeoutSec: e.target.value ? Number(e.target.value) : undefined })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                />
+              </div>
+            </div>
+
+            {/* Triage */}
+            <div className="mb-4">
+              <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Triage</label>
+              <select
+                value={configForm.triage}
+                onChange={(e) => setConfigForm({ ...configForm, triage: e.target.value as "default" | "on" | "off" })}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+              >
+                <option value="default">default</option>
+                <option value="on">on</option>
+                <option value="off">off</option>
+              </select>
+            </div>
+
+            {/* Ignore Paths */}
+            <div className="mb-4">
+              <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Ignore Paths (one glob per line)</label>
+              <textarea
+                rows={3}
+                value={configForm.ignorePaths}
+                onChange={(e) => setConfigForm({ ...configForm, ignorePaths: e.target.value })}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-mono dark:border-gray-600 dark:bg-gray-800"
+              />
+            </div>
+
+            {/* Ignore Rules */}
+            <div className="mb-4">
+              <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Ignore Rules (one rule id per line)</label>
+              <textarea
+                rows={3}
+                value={configForm.ignoreRules}
+                onChange={(e) => setConfigForm({ ...configForm, ignoreRules: e.target.value })}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-mono dark:border-gray-600 dark:bg-gray-800"
+              />
+            </div>
+
+            <p className="mb-4 text-[10px] text-orange-600 dark:text-orange-400">
+              Suppressions hide findings — every change is audited.
+            </p>
+
+            <button
+              onClick={() => handleSaveConfig(configuringTargetId)}
+              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              Save Configuration
+            </button>
+          </div>
+        )}
       </Panel>
 
       {/* Section 3: Audit */}
@@ -301,17 +496,33 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   }
 
   async function handleAddTarget() {
-    if (!newTarget.name || !newTarget.path) return;
+    if (!newTargetName || (newTargetType === "dir" ? !newTargetPath : !newTargetUrl)) return;
     setTargetError(null);
     try {
       const selected = Array.from(newTargetScanners);
-      await opsApi.createTarget({
-        name: newTarget.name,
-        path: newTarget.path,
-        scanners: selected.length > 0 ? selected : undefined,
-        profile: newTarget.profile || undefined,
-      });
-      setNewTarget({ name: "", path: "", profile: "" });
+      
+      if (newTargetType === "git") {
+        await opsApi.createTarget({
+          name: newTargetName,
+          url: newTargetUrl,
+          branch: newTargetBranch || undefined,
+          scanners: selected.length > 0 ? selected : undefined,
+          profile: newTargetProfile || undefined,
+        });
+      } else {
+        await opsApi.createTarget({
+          name: newTargetName,
+          path: newTargetPath,
+          scanners: selected.length > 0 ? selected : undefined,
+          profile: newTargetProfile || undefined,
+        });
+      }
+
+      setNewTargetName("");
+      setNewTargetPath("");
+      setNewTargetUrl("");
+      setNewTargetBranch("");
+      setNewTargetProfile("");
       setNewTargetScanners(new Set());
       await reload();
     } catch (err) {
@@ -327,6 +538,52 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       await reload();
     } catch (err) {
       setTargetError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  function handleConfigureTarget(t: Target) {
+    setConfiguringTargetId(t.id);
+    setConfigError(null);
+    
+    // Initialize form with current target values
+    const initialScanners = t.scanners && t.scanners.length > 0 
+      ? t.scanners 
+      : [];
+      
+    setConfigForm({
+      scanners: initialScanners,
+      profile: t.profile || "",
+      timeoutSec: t.config?.timeoutSec,
+      triage: t.config?.triage === true ? "on" : t.config?.triage === false ? "off" : "default",
+      ignorePaths: t.config?.ignorePaths?.join("\n") || "",
+      ignoreRules: t.config?.ignoreRules?.join("\n") || "",
+    });
+  }
+
+  async function handleSaveConfig(targetId: string) {
+    setConfigError(null);
+    try {
+      // The PATCH semantics are pointer-based server-side: a key that is
+      // PRESENT is applied (an empty array/string clears), a key that is
+      // absent is unchanged. The drawer always shows the full state, so it
+      // always sends scanners, profile, and the full config block.
+      const ignorePaths = configForm.ignorePaths.split("\n").map((s) => s.trim()).filter(Boolean);
+      const ignoreRules = configForm.ignoreRules.split("\n").map((s) => s.trim()).filter(Boolean);
+      const config: TargetConfig = {};
+      if (configForm.timeoutSec !== undefined) config.timeoutSec = configForm.timeoutSec;
+      if (configForm.triage !== "default") config.triage = configForm.triage === "on";
+      if (ignorePaths.length > 0) config.ignorePaths = ignorePaths;
+      if (ignoreRules.length > 0) config.ignoreRules = ignoreRules;
+
+      await opsApi.updateTarget(targetId, {
+        scanners: configForm.scanners,
+        profile: configForm.profile,
+        config,
+      });
+      setConfiguringTargetId(null);
+      await reload();
+    } catch (err) {
+      setConfigError(err instanceof ApiError ? err.message : String(err));
     }
   }
 }
@@ -411,3 +668,4 @@ function UserRow({
     </tr>
   );
 }
+

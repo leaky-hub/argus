@@ -5,10 +5,17 @@ before the code, the code is required to match it, and the tests pin both.
 It covers the threat model, the API surface, the authorization matrix, the
 session/CSRF design, the bootstrap flow, and the deployment posture.
 
-Scope shipped in this phase: login + sessions, three roles, registered-target
-scan launching through a strictly serial job queue, user/target CRUD, and an
-append-only audit log. The pipeline itself was extracted to
-`internal/pipeline` so the CLI and the server run the *same* code path.
+Scope shipped in the Console Ops phase: login + sessions, three roles,
+registered-target scan launching through a strictly serial job queue,
+user/target CRUD, and an append-only audit log. The pipeline itself was
+extracted to `internal/pipeline` so the CLI and the server run the *same*
+code path.
+
+Scope shipped in the Scan Studio phase (threat rows S1–S6, §12): remote git
+targets cloned into a server-owned workspace, per-launch scan scope
+(subpath/file) and compliance-framework focus, console-managed per-target
+scan configuration, captured code snippets in run files (schema 1.4.0), and
+an on-demand, never-persisted AI explanation per finding.
 
 ---
 
@@ -54,6 +61,12 @@ closes it. Tests referenced in §9 pin every row.
 | T8 | Existing users | Breaking the local-first read-only workflow | Zero-config behavior byte-identical to the previous release (see §1). The pre-auth server tests still pass unmodified against the zero-users mode. |
 | T9 | Session theft | Stolen/undying sessions | Opaque 256-bit random tokens (no JWT — revocable by deletion), server-side table, **idle expiry 2h, absolute expiry 24h**, session destroyed on logout, all sessions for a user destroyed on password change or delete. |
 | T10 | Audit log | Log forging / secret leakage | Audit lines are structured JSONL written server-side only (append-only file, 0600). User-controlled strings appear only as JSON string values. No password material, no tokens, no finding content. |
+| S1 | Remote git targets | SSRF via crafted URLs (internal hosts, cloud metadata IPs); `file://`/`ext::`/`ssh -oProxyCommand` transport tricks; argument injection via URL into git argv; disk exhaustion from huge repos | URLs are parsed with `net/url` at registration (admin-only, same gate as dir targets) and must be `https://` with a host and **no userinfo** — `ssh://`, `git://`, `file://`, and scp-style syntax are rejected outright. `git` runs with a **fixed argv** (`--` separator before the URL; the URL is never string-concatenated), `-c protocol.file.allow=never -c protocol.ext.allow=never` plus `GIT_ALLOW_PROTOCOL=https` (belt and braces), `--depth 1 --single-branch --no-tags`, a hard clone/refresh time budget, and a post-clone workspace size cap. Clones land ONLY in the server-owned `.appsec/workspace/<targetID>`. No credentials ever come from the browser: private repos authenticate via the host's ambient git credential helper over https, or are out of scope. Residual: an admin can still point the server at an internal https host — registration is an admin action and is audited, same trust as registering a directory. |
+| S2 | Scan scope (subpath/file) | Path traversal (`../`, absolute paths), symlink escape out of the target root, scoping into `.git/` or `.appsec/` bookkeeping | Scope is a **relative** path in the launch request, rejected at the API if absolute or containing `..` after `filepath.Clean`. It is joined server-side to the registered root and verified inside that root **after `EvalSymlinks`**, must exist, and must not enter `.git/` or `.appsec/`. Validated at enqueue AND re-validated at execution (the tree may change in between — always, for git targets, where the tree is refreshed per scan). The scanners receive the joined path exactly as the CLI's `[path]` argument works; no new argv shapes. |
+| S3 | Console-managed scan config | Config fields ARE code execution: rulesets reach scanner argv, triage endpoints are SSRF, `ignore_paths`/`ignore_rules` silently suppress findings, timeout/concurrency are resource abuse | The console edits a **structured, closed subset** stored on the registry entry (never written into the target repo): allowed scanners (known set), default profile (enum), per-scanner timeout (bounded 10–3600 s), triage on/off, and ignore rules/paths (admin-only; every change is an audit event carrying the pattern/rule text, because suppression is the finding-killing knob). Triage provider/model/endpoint/API keys and `semgrep_rulesets` are **never** console-editable — they come from the target repo's `appsec.yml` and the environment only. Precedence is fixed and table-tested: repo `appsec.yml` < registry overrides < per-launch options (§12.3). |
+| S4 | Code snippets in run files | Secret material persisted into `runs/*.json` (the gitleaks payload scrub exists precisely to prevent this); unbounded snippet size; hostile file content | Snippets are captured server-side at scan time by `internal/snippet` (the same symlink-confined reader triage uses — extracted, not re-derived), bounded per finding (≤10 lines, ≤2 KB) and per run (≤1 MiB total). **SECRET-category findings get NO snippet, ever** — metadata only, the same rule triage applies to prompts. Files that look binary (NUL in window) or minified (extreme line length) are skipped. A snippet is hostile data like any finding text: rendered as escaped text only, never HTML. |
+| S5 | On-demand AI explain | Prompt injection from hostile code; token/compute abuse from the browser; secret material sent to a cloud provider | Reuses the triage boundary machinery verbatim: CSPRNG boundary markers, sanitized length-capped inputs, strict output validation, snippet confinement, and the SECRET-never-to-cloud gate (metadata-only prompt for secrets; cloud providers refused unless the repo config opted in). Operator+ role, single-flight per finding, in-memory LRU cache, hard `MaxTokens` cap. Explanations are ephemeral enrichment returned to the browser — **never written into run files or the audit log** (the audit line records that an explanation was requested, not its content). Provider/model/endpoint come from the target repo's `appsec.yml` only. |
+| S6 | Compliance-scoped scans | Pretending a framework filter is an audit ("we scanned for PCI") when mapping is enrichment over whatever the scanners found | Frameworks are a **closed enum from the embedded compliance data**. Selecting them (a) filters reporting emphasis in the run detail view and (b) narrows scanner selection through a hand-curated framework→scanner-relevance table (§12.5) — it never changes mapping logic, and an empty intersection with the chosen scanners is a 400, not a silent no-op. The frameworks requested are recorded on the job and in the audit line — the run file shape is unchanged, and nothing anywhere claims "PCI-certified": a framework-scoped scan is the same scan with relevant scanners and a filtered lens. |
 
 Residual risk, stated plainly: no TLS in-process (§8); job/queue state is
 in-memory (a restart forgets queue history — completed runs and the audit
@@ -70,9 +83,10 @@ version control covers these too):
 | File | Contents | Mode |
 |------|----------|------|
 | `.appsec/users.json` | `{schema, users: [{id, username, hash, role, createdAt}]}` — argon2id encoded hashes | 0600 |
-| `.appsec/targets.json` | `{schema, targets: [{id, name, path, scanners, profile, createdAt}]}` | 0600 |
+| `.appsec/targets.json` | `{schema, targets: [{id, name, type, path?, url?, branch?, scanners, profile, config?, createdAt}]}` | 0600 |
 | `.appsec/audit.jsonl` | append-only, one JSON object per line | 0600 |
-| `.appsec/runs/*.json` | unchanged — frozen contract | 0644 |
+| `.appsec/runs/*.json` | additive schema 1.4.0 (optional `location.snippet`); shape otherwise frozen | 0644 |
+| `.appsec/workspace/<targetID>/` | server-owned working copy of a git target (shallow clone, refreshed per scan); its own `.appsec/runs` holds that target's run history | 0755 |
 
 Decision: the file is named `users.json` (not `console-users.json`) — it sits
 inside an already-ignored directory and there is only one kind of user.
@@ -109,14 +123,17 @@ console; `403+hint` = refused with a body naming `appsec user add`.
 | POST | `/api/auth/login` | none (exempt; rate-limited) | 403+hint |
 | POST | `/api/auth/logout` | viewer | 403+hint |
 | GET | `/api/summary` | viewer | open |
-| GET | `/api/runs` | viewer | open |
-| GET | `/api/runs/{id}` | viewer | open |
+| GET | `/api/runs` (`?target=<id>` reads a registered target's own history) | viewer | open |
+| GET | `/api/runs/{id}` (`?target=<id>` as above) | viewer | open |
+| GET | `/api/frameworks` | viewer | open |
 | GET | `/api/targets` | viewer | open |
 | POST | `/api/targets` | admin | 403+hint |
+| PATCH | `/api/targets/{id}` | admin | 403+hint |
 | DELETE | `/api/targets/{id}` | admin | 403+hint |
 | GET | `/api/scans` | viewer | open |
 | GET | `/api/scans/{id}` | viewer | open |
 | POST | `/api/scans` | operator | 403+hint |
+| POST | `/api/explain` | operator | 403+hint |
 | GET | `/api/users` | admin | 403+hint |
 | POST | `/api/users` | admin | 403+hint |
 | PATCH | `/api/users/{id}` | admin | 403+hint |
@@ -247,6 +264,14 @@ credentials will cross the network in cleartext without a TLS proxy.
 | Serial queue | two POSTed scans: second stays `queued` until first finishes; 11th pending → 429 |
 | Zero-users mode | pre-existing server tests unchanged; ops routes → 403 naming the bootstrap command |
 | Pipeline | golden capture: `appsec scan` stdout/stderr/exit codes byte-identical pre/post extraction |
+| Git URL policy (S1) | table-driven: `http://`, `ssh://`, `git://`, `file://`, scp-style, userinfo, no host, argument-injection shapes (`--upload-pack=…`) → rejected; plain https accepted |
+| Git executor (S1) | local bare-repo fixtures (`git init --bare` in tempdir; `file://` clones allowed ONLY via explicit test hook, never in production config); clone→scan→commit-SHA recorded; refresh preserves workspace `.appsec/runs`; no network in tests |
+| Scope confinement (S2) | table-driven: `../`, absolute, `.git/…`, `.appsec/…`, nonexistent, symlink-escape via a real symlink fixture → 400/failed; valid subdir and single file → scanned path = joined path |
+| Config merge (S3) | precedence table: repo yaml vs registry vs launch for every field; bounds (timeout, pattern count/length) rejected at API; `target.update` audit carries pattern text |
+| Snippets (S4) | SECRET finding has NO snippet asserted on the RAW run file bytes; per-finding and per-run caps; binary/minified skip; symlink escape yields no snippet |
+| Explain (S5) | authz (viewer 403); response never appears in run files (raw bytes asserted); single-flight and cache behavior; SECRET+cloud refused without opt-in |
+| Frameworks (S6) | unknown framework → 400; narrowing table intersection incl. empty → 400; framework list endpoint matches embedded data |
+| Authz extension | every new route × every role × zero-users appended to the existing matrix test (extended, not forked) |
 
 ## 10. Bootstrap walkthrough
 
@@ -275,9 +300,167 @@ appsec user add carol --role operator
 `appsec user list|passwd|remove` and `appsec target list|remove` complete
 the lifecycle. All user/target commands take `--dir` like `serve` does.
 
-## 11. Explicit non-goals (this phase)
+## 11. Explicit non-goals
 
 No OIDC/SSO/LDAP/passkeys (the session layer is deliberately swappable), no
 in-process TLS, no scheduling, no multi-tenancy, no per-target permissions,
-no scanner-arg or config upload from the UI, no finding suppression from the
-console, no WebSockets.
+no WebSockets.
+
+Scan Studio additions: no credentials for private repos from the browser
+(ambient host git auth only); no YAML upload/download or raw config text
+editing; no parallel scan execution; no writing anything into scanned repos
+(the workspace is server-owned; dir targets are read-only to the platform);
+no editing/suppressing individual findings from the console (ignore rules
+via target config are the only suppression path — admin-gated and audited);
+no PDF/exports.
+
+## 12. Scan Studio: versatile scan jobs & deep finding context
+
+### 12.1 Target types: `dir` and `git`
+
+One registry, one additive `type` field (`"dir"` | `"git"`; absent = `dir`,
+so existing files parse unchanged). A git target stores the validated URL
+and an optional branch instead of a path:
+
+- **URL policy (S1)**: parsed with `net/url`; scheme MUST be `https`, host
+  MUST be present, userinfo MUST be absent (a token in a URL would persist
+  into `targets.json` and argv). Everything else — `ssh://`, `git://`,
+  `file://`, scp-style `host:path` — is rejected at registration. Private
+  repos work through the host's ambient git credential helper (documented
+  here, deliberately not configurable from the console).
+- **Workspace**: the working copy lives at `.appsec/workspace/<targetID>`
+  under the SERVED repo (inside the already-gitignored `.appsec/`). The job
+  executor creates it with `git clone --depth 1 --single-branch --no-tags`
+  (plus `--branch <b>` when registered) and refreshes an existing one with
+  `git fetch --depth 1` + `git reset --hard FETCH_HEAD` — reset, not
+  `clean -fdx`, so the workspace's own untracked `.appsec/runs` history
+  survives refreshes. Fixed argv with a `--` separator; transport locked
+  with `-c protocol.file.allow=never -c protocol.ext.allow=never` and
+  `GIT_ALLOW_PROTOCOL=https`; hard time budget (10 min) on clone/refresh and
+  a post-clone size cap (1 GiB) that fails the job loudly.
+- **Commit provenance**: after refresh the executor records the scanned
+  commit (`git rev-parse HEAD`) in the job state (`commit`), a progress line
+  (`==> at commit <sha>`), and the `scan.finish` audit entry. A remote-repo
+  scan is a scan of a shallow clone at one commit — the record says exactly
+  that.
+- **Registration stays admin-only for BOTH types**: a remote clone is still
+  server-side code-adjacent activity. "Launch against any repo" is satisfied
+  by registration being a 10-second admin action in the same UI.
+- **Run history per target**: console-launched runs save into the scanned
+  target's own `.appsec/runs` (workspace for git targets). The read API
+  accepts `?target=<registryID>` on `GET /api/runs` and `GET /api/runs/{id}`
+  to browse a registered target's history — the target ID resolves through
+  the registry server-side, so no path ever comes from the browser. Without
+  the parameter the routes serve the served repo's history exactly as
+  before. Delta/trend semantics stay per-repo because each store is
+  separate.
+
+### 12.2 Scan scope (S2)
+
+`POST /api/scans` gains `options.scope`: a **relative** subpath or single
+file inside the target, validated per threat row S2 (relative, cleaned, no
+`..`, exists, inside root after `EvalSymlinks`, not into `.git/` or
+`.appsec/`) at enqueue and re-validated at execution. The pipeline receives
+the joined path the same way `appsec scan <path>` does. Scope is recorded on
+the job and in the `scan.launch` audit line. The run is saved to the
+TARGET's run store (not the scope subdirectory) — a scoped run is part of
+the target's history, labeled by its job. No CLI change: `appsec scan
+<path>` already is scope.
+
+### 12.3 Config layering (S3)
+
+Registry entries gain a structured `config` block, editable only via
+`PATCH /api/targets/{id}` (admin) or `appsec target` CLI:
+
+```
+config: {
+  timeoutSec:  int      // per-scanner timeout, 10–3600
+  triage:      bool?    // default triage on/off for this target
+  ignorePaths: []string // glob patterns, ≤50 entries, ≤200 chars each
+  ignoreRules: []string // exact rule IDs, same bounds
+}
+```
+
+Allowed scanners and default profile remain the existing top-level target
+fields, editable through the same PATCH. Everything else in `appsec.yml` —
+triage provider/model/endpoint, semgrep rulesets, fail severity, format —
+is NOT reachable from the console.
+
+Precedence, owned by ONE merge function and table-tested:
+
+```
+repo appsec.yml  <  registry entry (scanners/profile/config)  <  per-launch options
+```
+
+One deliberate exception to "later layer wins": **ignore lists are
+additive** — registry `ignorePaths`/`ignoreRules` APPEND to whatever the
+repo's `appsec.yml` declares. Console config can add suppressions; it can
+never silently undo the repo's own.
+
+Every config change writes a `target.update` audit event listing the changed
+fields; ignore-rule/path changes include the pattern text in the audit line
+(suppression must be reviewable). Git targets always scan with a
+`<scan-root>/.appsec/**` ignore appended (anchored to the root exactly as
+scanners report paths — a bare `.appsec/**` would match the workspace's own
+path prefix under a relative serve dir and suppress everything) so a
+workspace's run history never feeds back into findings.
+
+### 12.4 Snippets in run files (S4)
+
+`internal/snippet` captures a bounded code frame per finding after the
+pipeline completes and before the run is saved (both the console executor
+and CLI `--save` do this, so run files are consistent; report stdout is
+unchanged). Schema 1.4.0, additive: `location.snippet: {startLine, lines}`.
+Rules: SECRET findings are always metadata-only; ≤10 lines / ≤2 KB per
+finding; ≤1 MiB per run (capture stops, remaining findings stay
+snippet-less); binary and minified files skipped; confinement by the same
+symlink-resolving reader triage uses. Old runs render fine without snippets
+(feature detection, no migration). See docs/findings-model.md.
+
+### 12.5 Compliance focus (S6)
+
+`options.frameworks: []string` on `POST /api/scans`, validated against the
+closed enum from the embedded compliance data (`GET /api/frameworks` lists
+it). Effect: (a) the run detail view gains a per-framework filter lens, and
+(b) scanner selection narrows through this hand-curated relevance table
+(intersection with the chosen/allowed scanners; empty intersection → 400):
+
+| Framework | Relevant scanners | Why |
+|---|---|---|
+| ASVS | semgrep, gitleaks, trivy | scope SAST/SECRET/SCA — code, secrets, dependencies |
+| PCI-DSS | semgrep, gitleaks, trivy, checkov, trivy-config | scope covers all four categories |
+| CIS-AWS | checkov, trivy-config | IAC-only scope, AWS rule families |
+| CIS-DOCKER | checkov, trivy-config | IAC-only scope, Docker rule families |
+| CIS-K8S | checkov, trivy-config | IAC-only scope, Kubernetes rule families |
+
+The table lives next to the compliance data and must be updated when a
+framework file is added (a loader test pins the correspondence). Frameworks
+are recorded on the job and audit line, NOT in the run file (same rule as
+`launchedBy`: run files are the frozen `report.Document`). CLI parity:
+`appsec scan --frameworks PCI-DSS` validates and narrows identically, with a
+NOTE progress line naming the narrowed scanner set.
+
+### 12.6 On-demand explain (S5)
+
+`POST /api/explain {targetId?, runId, findingId}` (operator+; no `targetId`
+= the served repo's history): loads the finding from the named run and asks
+the target repo's configured triage LLM for a structured explanation. The
+code context is the snippet already captured IN the run file (schema 1.4.0,
+bounded and confined at scan time) — explain performs no new filesystem
+reads on behalf of a browser request; findings without a stored snippet get
+a metadata-only explanation. The boundary is the triage machinery
+reused verbatim: CSPRNG delimiters, sanitized bounded inputs, strict JSON
+output validation, sanitized length-capped output text, SECRET metadata-only
++ never-to-cloud gate. Single-flight per (target,run,finding), bounded
+in-memory cache, `MaxTokens` hard cap. The response
+`{explanation, model, cached}` is ephemeral — never persisted to run files;
+the `scan.explain` audit event records actor/target/run/finding, never
+content. No configured/reachable provider → 503 with an honest message.
+
+### 12.7 New audit events
+
+| Event | When | Details carried |
+|---|---|---|
+| `target.update` | PATCH target (config/scanners/profile/name) | target ID, changed fields; ignore patterns verbatim |
+| `scan.explain` | explain requested (cache miss or hit) | target, run, finding ID, cached flag |
+| `scan.launch` / `scan.finish` | unchanged | + `scope`, `frameworks` on launch; + `commit` on finish for git targets |

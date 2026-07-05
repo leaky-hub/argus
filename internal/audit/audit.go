@@ -28,9 +28,11 @@ const (
 	EventUserUpdate   = "user.update"
 	EventUserDelete   = "user.delete"
 	EventTargetCreate = "target.create"
+	EventTargetUpdate = "target.update"
 	EventTargetDelete = "target.delete"
 	EventScanLaunch   = "scan.launch"
 	EventScanFinish   = "scan.finish"
+	EventScanExplain  = "scan.explain"
 )
 
 // Entry is one audit line.

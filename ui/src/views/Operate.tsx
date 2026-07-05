@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { opsApi, Target, Job, JobOptions, ApiError, KNOWN_SCANNERS, PROFILES } from "../api";
+import { opsApi, Target, Job, JobOptions, ApiError, KNOWN_SCANNERS, PROFILES, FrameworkInfo } from "../api";
 import { Panel, Loading, ErrorNote, EmptyState } from "../components";
 import { fmtTime } from "../theme";
 
-export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRun: (runId: string) => void }) {
+export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRun: (runId: string, targetId?: string, commit?: string) => void }) {
   const [targets, setTargets] = useState<Target[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +19,13 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
 
   // Expanded job state
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Frameworks state
+  const [frameworks, setFrameworks] = useState<FrameworkInfo[]>([]);
+  const [selectedFrameworks, setSelectedFrameworks] = useState<Set<string>>(new Set());
+
+  // Scope input state
+  const [scope, setScope] = useState("");
 
   // One stable effect: initial load plus a fixed-interval poll (the queue
   // advances server-side). A transient poll failure never blanks the page —
@@ -52,11 +59,23 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
     };
   }, []);
 
-  // Reset scanners when target changes
+  // Fetch frameworks once on mount
+  useEffect(() => {
+    let alive = true;
+    opsApi.frameworks().then((res) => {
+      if (alive) setFrameworks(res.frameworks);
+    }).catch(() => {
+      // ignore framework fetch errors gracefully
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // Reset scanners and frameworks when target changes
   const handleTargetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newId = e.target.value;
     setSelectedTargetId(newId);
     setScanners(new Set());
+    setSelectedFrameworks(new Set());
   };
 
   const toggleScanner = (scanner: string) => {
@@ -64,6 +83,15 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
       const next = new Set(prev);
       if (next.has(scanner)) next.delete(scanner);
       else next.add(scanner);
+      return next;
+    });
+  };
+
+  const toggleFramework = (id: string) => {
+    setSelectedFrameworks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -77,6 +105,8 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
       if (scanners.size > 0) options.scanners = Array.from(scanners);
       if (profile) options.profile = profile;
       if (triage !== "default") options.triage = triage === "on";
+      if (scope.trim()) options.scope = scope.trim();
+      if (selectedFrameworks.size > 0) options.frameworks = Array.from(selectedFrameworks);
 
       const job = await opsApi.launchScan(selectedTargetId, options);
       setJobs((prev) => [job, ...prev]);
@@ -98,6 +128,31 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
   const queuedCount = jobs.filter((j) => j.status === "queued").length;
   const runningCount = jobs.filter((j) => j.status === "running").length;
 
+  // Config summary pieces
+  const configPieces: string[] = [];
+  if (selectedTarget?.config) {
+    if (selectedTarget.config.timeoutSec && selectedTarget.config.timeoutSec !== 0) {
+      configPieces.push(`timeout ${selectedTarget.config.timeoutSec}s`);
+    }
+    if (selectedTarget.config.triage === true) {
+      configPieces.push("triage on");
+    } else if (selectedTarget.config.triage === false) {
+      configPieces.push("triage off");
+    }
+    if (selectedTarget.config.ignorePaths && selectedTarget.config.ignorePaths.length > 0) {
+      configPieces.push(`${selectedTarget.config.ignorePaths.length} ignore path(s)`);
+    }
+    if (selectedTarget.config.ignoreRules && selectedTarget.config.ignoreRules.length > 0) {
+      configPieces.push(`${selectedTarget.config.ignoreRules.length} ignore rule(s)`);
+    }
+  }
+  if (selectedTarget?.scanners && selectedTarget.scanners.length > 0) {
+    configPieces.push(`${selectedTarget.scanners.length} scanner(s)`);
+  }
+  if (selectedTarget?.profile) {
+    configPieces.push(`profile ${selectedTarget.profile}`);
+  }
+
   return (
     <div className="space-y-6">
       {canLaunch && (
@@ -118,9 +173,14 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                   className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
                 >
                   {targets.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
+                    <option key={t.id} value={t.id}>{t.type === "git" ? `${t.name} (git)` : t.name}</option>
                   ))}
                 </select>
+                {selectedTarget?.type === "git" && selectedTarget.url && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {selectedTarget.url}{selectedTarget.branch ? `@${selectedTarget.branch}` : ""}
+                  </p>
+                )}
               </div>
 
               {/* Scanners Checkboxes */}
@@ -144,6 +204,46 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                     None checked = target default (all allowed scanners run)
                   </p>
                 )}
+              </div>
+
+              {/* Frameworks Multi-select */}
+              {frameworks.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Frameworks</label>
+                  <div className="flex flex-wrap gap-3">
+                    {frameworks.map((f) => (
+                      <label key={f.id} className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none" title={`${f.name} ${f.version} — scanners: ${f.scanners.join(", ")}`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedFrameworks.has(f.id)}
+                          onChange={() => toggleFramework(f.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                        />
+                        <span>{f.id}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedFrameworks.size > 0 && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Focuses reporting and narrows scanners to the relevant set
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Scope Input */}
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Scope (optional)</label>
+                <input
+                  type="text"
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value)}
+                  placeholder="subpath/or/file inside the target"
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  relative path; validated server-side
+                </p>
               </div>
 
               {/* Profile Select */}
@@ -177,6 +277,15 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                   Model/provider always come from the repo's appsec.yml
                 </p>
               </div>
+
+              {/* Config Summary */}
+              {configPieces.length > 0 && (
+                <div className="md:col-span-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    config: {configPieces.join(" · ")}
+                  </p>
+                </div>
+              )}
 
               {/* Launch Button */}
               <div className="md:col-span-2 flex items-end justify-start">
@@ -246,7 +355,7 @@ function JobRow({
   job: Job;
   expandedId: string | null;
   onToggle: () => void;
-  onOpenRun: (id: string) => void;
+  onOpenRun: (runId: string, targetId?: string, commit?: string) => void;
 }) {
   const isExpanded = expandedId === job.id;
 
@@ -267,6 +376,23 @@ function JobRow({
     dotColor = "bg-red-500";
   }
 
+  // Job metadata chips
+  const scopeSuffix = job.options?.scope ? <span className="ml-1 text-gray-400">/{job.options.scope}</span> : null;
+  const commitChip = job.commit ? (
+    <span title={job.commit} className="ml-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+      {job.commit.slice(0, 8)}
+    </span>
+  ) : null;
+  const frameworkChips = job.options?.frameworks && job.options.frameworks.length > 0 ? (
+    <span className="ml-1 inline-flex gap-1">
+      {job.options.frameworks.map((f) => (
+        <span key={f} className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+          {f}
+        </span>
+      ))}
+    </span>
+  ) : null;
+
   return (
     <>
       <tr
@@ -279,7 +405,9 @@ function JobRow({
             {job.status}
           </span>
         </td>
-        <td className="py-2.5 pr-3 font-medium">{job.targetName}</td>
+        <td className="py-2.5 pr-3 font-medium">
+          {job.targetName}{scopeSuffix}{commitChip}{frameworkChips}
+        </td>
         <td className="py-2.5 pr-3 text-gray-600 dark:text-gray-400">{job.launchedBy}</td>
         <td className="py-2.5 pr-3 text-gray-600 dark:text-gray-400">
           {fmtTime(job.queuedAt)}
@@ -290,7 +418,7 @@ function JobRow({
         <td className="py-2.5 pr-3">
           {job.runId ? (
             <button
-              onClick={(e) => { e.stopPropagation(); onOpenRun(job.runId!); }}
+              onClick={(e) => { e.stopPropagation(); onOpenRun(job.runId!, job.targetId, job.commit); }}
               className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
             >
               view run →

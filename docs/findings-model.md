@@ -1,6 +1,6 @@
 # Unified Findings Model
 
-**Schema version: 1.3.0** (`model.SchemaVersion`)
+**Schema version: 1.4.0** (`model.SchemaVersion`)
 
 This is the single most important contract in the platform. Every scanner
 adapter maps its native output *into* this model; every downstream stage —
@@ -52,7 +52,7 @@ Produced by `model.Normalize`. JSON field names are camelCase as tagged in
 | `severity` | Normalized scale: `critical` > `high` > `medium` > `low` > `info` |
 | `rawSeverity` | Tool-native string, preserved for audit |
 | `confidence` | Tool-reported, free-form for now |
-| `location` | `{file, startLine, endLine, url}` — `url` reserved for DAST |
+| `location` | `{file, startLine, endLine, url, snippet}` — `url` reserved for DAST; `snippet` optional (1.4.0, see below) |
 | `package`, `cve`, `cwes` | SCA / classification identity |
 | `remediation` | |
 | `meta`, `rawPayload` | Tool passthrough |
@@ -65,6 +65,30 @@ Triage semantics are strictly additive: a verdict never changes `severity`,
 never feeds the default severity gate, and never removes a finding (the
 explicit `--exclude-fp` opt-in filters at report time; the model itself is
 untouched).
+
+## location.snippet (1.4.0)
+
+Optional captured code frame around the finding, so a reader can see the
+offending code without access to the scanned tree:
+
+```json
+"location": {
+  "file": "src/db.py", "startLine": 42, "endLine": 42,
+  "snippet": { "startLine": 39, "lines": ["def get(uid):", "  q = \"SELECT …\"", "…"] }
+}
+```
+
+Captured by `internal/snippet` post-pipeline / pre-save (console executor
+and CLI `--save`), NOT by `Normalize` — a snippet is presentation context,
+not finding identity, and never enters the fingerprint. Rules (spec:
+docs/console-ops.md S4/§12.4): **SECRET-category findings never carry a
+snippet** (same rule as triage prompts — secret material must not persist
+into run files); ≤10 lines and ≤2 KB per finding, ≤1 MiB per run; binary and
+minified files skipped; the read is confined to the scan root after symlink
+resolution. `snippet.startLine` is the 1-based line number of `lines[0]`;
+lines are raw file text (rune-capped per line), hostile data, rendered
+escaped-only. Absent slot = "not captured" (old document, secret, capped, or
+unreadable) — readers must feature-detect, never assume.
 
 ## Severity normalization
 
@@ -137,6 +161,10 @@ can have. When in doubt, don't merge.
 ## Versioning rules
 
 - `SchemaVersion` (semver) is embedded in JSON reports.
+- **1.4.0** (Scan Studio): added optional `location.snippet` (captured code
+  frame; format and capture rules documented above). Additive only; 1.3.0
+  documents remain valid, and readers must treat a missing snippet as "not
+  captured", never as "no code".
 - **1.3.0** (Risk v2): added optional `riskSignals` (context-signal evidence
   for the risk score; format documented above). Additive only; 1.2.0
   documents remain valid, and readers must treat a missing slot as "no

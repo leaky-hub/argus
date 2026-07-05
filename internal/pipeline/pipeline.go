@@ -128,13 +128,7 @@ func buildTriager(ctx context.Context, cfg config.Config, target string, progres
 	}
 
 	timeout := time.Duration(cfg.Triage.TimeoutSec) * time.Second
-	var client llm.Client
-	switch cfg.Triage.Provider {
-	case "anthropic":
-		client = llm.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), cfg.Triage.Model, timeout)
-	default: // config validation only admits ollama|anthropic
-		client = llm.NewOllama(cfg.Triage.Endpoint, cfg.Triage.Model, timeout)
-	}
+	client := NewLLMClient(cfg)
 
 	if p, ok := client.(interface{ Ping(context.Context) error }); ok {
 		if err := p.Ping(ctx); err != nil {
@@ -150,6 +144,20 @@ func buildTriager(ctx context.Context, cfg config.Config, target string, progres
 		RequestTimeout:   timeout,
 		AllowSecretCloud: cfg.Triage.AllowSecretCloud,
 	})
+}
+
+// NewLLMClient builds the LLM client the config names — transport only, the
+// same selection triage uses (the console's explain endpoint shares it so
+// provider/model/endpoint always come from the repo config, never a
+// request). API keys come from the environment only, never appsec.yml.
+func NewLLMClient(cfg config.Config) llm.Client {
+	timeout := time.Duration(cfg.Triage.TimeoutSec) * time.Second
+	switch cfg.Triage.Provider {
+	case "anthropic":
+		return llm.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), cfg.Triage.Model, timeout)
+	default: // config validation only admits ollama|anthropic
+		return llm.NewOllama(cfg.Triage.Endpoint, cfg.Triage.Model, timeout)
+	}
 }
 
 // ExcludeFalsePositives drops LLM-marked false positives. Only reachable via

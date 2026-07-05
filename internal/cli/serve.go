@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/leaky-hub/appsec/internal/audit"
+	"github.com/leaky-hub/appsec/internal/gitws"
 	"github.com/leaky-hub/appsec/internal/jobs"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/runstore"
@@ -37,9 +38,16 @@ Authentication is decided by <dir>/.appsec/users.json:
     bootstrap command.
   - ONE OR MORE users: every API route requires a login (viewer, operator,
     or admin role). Operators launch scans against registered targets
-    ('appsec target add') through a strictly serial job queue; admins manage
-    users, targets, and the audit log. Bootstrap the first admin with
-    'appsec user add <name> --role admin'.
+    ('appsec target add' — a local directory or a remote https git repo)
+    through a strictly serial job queue, optionally scoped to a subpath or
+    focused on compliance frameworks; admins manage users, targets,
+    per-target scan configuration, and the audit log. Bootstrap the first
+    admin with 'appsec user add <name> --role admin'.
+
+Remote git targets are cloned shallowly into <dir>/.appsec/workspace/<id>
+(https only; the scanned commit is recorded on the job and in the audit
+log). Findings can be explained on demand by the target repo's configured
+triage LLM; explanations are never persisted.
 
 The server terminates no TLS. It binds 127.0.0.1 by default; the supported
 way to expose it further is a TLS-terminating reverse proxy in front
@@ -66,11 +74,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	users := auth.ForRepo(dir)
 	registry := targets.ForRepo(dir)
 	auditLog := audit.ForRepo(dir)
-	queue := jobs.New(server.ScanExecutor(registry, auditLog))
+	queue := jobs.New(server.ScanExecutor(registry, auditLog, gitws.New()))
 	queue.Start(cmd.Context())
 
 	srv := server.New(server.Options{
 		Store:    runstore.ForRepo(dir),
+		Dir:      dir,
 		Gate:     gate,
 		GateName: gateStr,
 		Static:   static,

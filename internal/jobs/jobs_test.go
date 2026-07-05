@@ -12,10 +12,10 @@ func TestStrictlySerial(t *testing.T) {
 	started := make(chan string, 4)
 	release := make(chan struct{})
 
-	q := New(func(ctx context.Context, job Job, progress func(string)) (string, error) {
+	q := New(func(ctx context.Context, job Job, progress func(string)) (Result, error) {
 		started <- job.ID
 		<-release
-		return "run-" + job.ID, nil
+		return Result{RunID: "run-" + job.ID}, nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -75,9 +75,9 @@ func TestStrictlySerial(t *testing.T) {
 func TestQueueBoundRejects(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
-	q := New(func(ctx context.Context, job Job, progress func(string)) (string, error) {
+	q := New(func(ctx context.Context, job Job, progress func(string)) (Result, error) {
 		<-block
-		return "", nil
+		return Result{}, nil
 	})
 	// No Start: nothing drains the channel, so exactly maxPending fit.
 	for i := 0; i < maxPending; i++ {
@@ -91,9 +91,9 @@ func TestQueueBoundRejects(t *testing.T) {
 }
 
 func TestFailedJobRecordsError(t *testing.T) {
-	q := New(func(ctx context.Context, job Job, progress func(string)) (string, error) {
+	q := New(func(ctx context.Context, job Job, progress func(string)) (Result, error) {
 		progress("==> running gitleaks (SECRET)\n")
-		return "", context.DeadlineExceeded
+		return Result{}, context.DeadlineExceeded
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

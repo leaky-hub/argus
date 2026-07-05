@@ -37,9 +37,11 @@ console's serial job queue. Both run the same code path end to end.
 | `internal/runstore` | timestamped run files + run-to-run deltas (`.appsec/runs`) | security-critical: delta rules are the one place a finding could vanish from view; JSON shape frozen |
 | `internal/server` | web console: read API, authz table + middleware, login/session handlers, ops API, scan executor | security-critical: the authz table in `authz.go` is the entire authorization policy (`docs/console-ops.md`) |
 | `internal/server/auth` | argon2id user store, opaque-token sessions + CSRF, login rate limiter | security-critical: hashes/tokens never serialized out; constant-time compares; fail closed |
-| `internal/targets` | registered scan-target allowlist (`.appsec/targets.json`) | security-critical: the only bridge from a browser request to a filesystem path; validation at registration only |
+| `internal/targets` | registered scan-target allowlist (`.appsec/targets.json`): dir + git targets, per-target config block, scope confinement | security-critical: the only bridge from a browser request to a filesystem path or clone URL; git URL policy and scope rules per `docs/console-ops.md` S1/S2/S3 |
+| `internal/gitws` | server-owned git workspaces for remote targets: shallow clone/refresh, commit provenance | security-critical: fixed argv + `--` separator, transport locked to https (argv AND env), time/size budgets, no credential prompts |
+| `internal/snippet` | bounded code-frame capture into run files (schema 1.4.0) + the shared path-confinement primitive | security-critical: SECRET findings never get snippets; symlink-resolved containment shared with triage — one implementation, not two |
 | `internal/jobs` | strictly serial scan queue, bounded pending, in-memory state | one scan at a time protects the runstore and the single-queue Ollama triage |
-| `internal/audit` | append-only `.appsec/audit.jsonl` (logins, CRUD, scan launch/finish) | the durable provenance record — run files carry no launchedBy |
+| `internal/audit` | append-only `.appsec/audit.jsonl` (logins, CRUD, config changes, scan launch/finish/explain) | the durable provenance record — run files carry no launchedBy |
 
 ## Data flow of `appsec scan <target>`
 

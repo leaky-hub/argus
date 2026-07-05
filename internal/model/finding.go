@@ -18,7 +18,9 @@ import (
 // 1.2.0: ComplianceControls is now populated ("<FRAMEWORK>:<control-id>"
 // values, Phase 5 compliance mapping). Additive; the field existed empty
 // since 1.0.0.
-const SchemaVersion = "1.2.0"
+// 1.3.0: added optional RiskSignals (risk scoring v2 context evidence).
+// Additive; see docs/risk-scoring.md.
+const SchemaVersion = "1.3.0"
 
 // Finding categories. String-typed (not iota) because they appear verbatim in
 // JSON/SARIF output and in config files.
@@ -78,6 +80,17 @@ type Triage struct {
 	Model      string  `json:"model,omitempty"`
 }
 
+// RiskSignal is one named context-signal contribution to the risk score
+// (stage 2 of docs/risk-scoring.md). Code and Note are fixed strings from the
+// reviewed signal tables in internal/risk — never model output, never scanned
+// file content. Deltas sum (with the synthetic cap/ceiling rows) to exactly
+// the applied stage-2 change, so the score is evidence, not assertion.
+type RiskSignal struct {
+	Code  string  `json:"code"`
+	Delta float64 `json:"delta"`
+	Note  string  `json:"note,omitempty"`
+}
+
 // Finding is the normalized, enriched record. Everything downstream of the
 // adapters — correlation, gating, every reporter — operates on this type only.
 type Finding struct {
@@ -104,6 +117,9 @@ type Finding struct {
 	ComplianceControls []string `json:"complianceControls,omitempty"` // Phase 5: "<FRAMEWORK>:<control-id>" values, e.g. "ASVS:V5.3.4"
 	Triage             *Triage  `json:"triage,omitempty"`             // Phase 2
 	RiskScore          *float64 `json:"riskScore,omitempty"`          // Phase 2
+	// RiskSignals is the stage-2 context evidence behind RiskScore (schema
+	// 1.3.0, risk v2). Empty when no context signal fired.
+	RiskSignals []RiskSignal `json:"riskSignals,omitempty"`
 }
 
 // Fingerprint computes the stable identity of a finding. Two runs over the

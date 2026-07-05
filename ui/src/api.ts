@@ -19,6 +19,14 @@ export interface Triage {
   model?: string;
 }
 
+// Stage-2 context evidence behind riskScore (schema 1.3.0, risk v2).
+// code/note are fixed strings from the reviewed signal tables in Go.
+export interface RiskSignal {
+  code: string;
+  delta: number;
+  note?: string;
+}
+
 export interface Finding {
   id: string;
   tool: string;
@@ -38,6 +46,7 @@ export interface Finding {
   complianceControls?: string[];
   triage?: Triage;
   riskScore?: number;
+  riskSignals?: RiskSignal[];
 }
 
 export interface OwaspCategory {

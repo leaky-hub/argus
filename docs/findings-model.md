@@ -1,6 +1,6 @@
 # Unified Findings Model
 
-**Schema version: 1.2.0** (`model.SchemaVersion`)
+**Schema version: 1.3.0** (`model.SchemaVersion`)
 
 This is the single most important contract in the platform. Every scanner
 adapter maps its native output *into* this model; every downstream stage —
@@ -59,6 +59,7 @@ Produced by `model.Normalize`. JSON field names are camelCase as tagged in
 | `complianceControls` | **Enrichment slot** — populated by Phase 5 compliance mapping on every finding in every run. Sorted, deduplicated `"<FRAMEWORK>:<control-id>"` values (e.g. `ASVS:V5.3.4`, `PCI-DSS:6.2.4`, `CIS-AWS:2.1`); framework IDs and control IDs come from the version-pinned data files in `internal/compliance/data/` (see `docs/compliance.md`). Deterministic and hand-curated — no LLM involvement. Empty/omitted when no framework maps the finding (the gap report shows it as *unmapped*, never hides it). Never feeds the severity gate |
 | `triage` | **Enrichment slot** — populated by Phase 2 AI triage: `{verdict, confidence, rationale, model}`. `verdict` ∈ `true-positive` \| `false-positive` \| `uncertain`; `confidence` ∈ [0,1] (validated/clamped at parse time, bounds the risk adjustment); `rationale` is sanitized, length-capped model text; `model` is the provider/model audit tag |
 | `riskScore` | **Enrichment slot** — populated by Phase 2 for every finding in every run (0–10, one decimal; see `docs/risk-scoring.md`). `nil` only in pre-Phase-2 documents |
+| `riskSignals` | **Enrichment slot** (1.3.0, risk v2) — the stage-2 context evidence behind `riskScore`: `[{code, delta, note}]` rows from the reviewed signal tables in `internal/risk` (see `docs/risk-scoring.md`). `code`/`note` are fixed table strings — never model output, never scanned-file content; deltas (with the synthetic cap/ceiling rows) sum to exactly the applied context change. Empty/omitted when no signal fired. Never feeds the severity gate |
 
 Triage semantics are strictly additive: a verdict never changes `severity`,
 never feeds the default severity gate, and never removes a finding (the
@@ -136,6 +137,10 @@ can have. When in doubt, don't merge.
 ## Versioning rules
 
 - `SchemaVersion` (semver) is embedded in JSON reports.
+- **1.3.0** (Risk v2): added optional `riskSignals` (context-signal evidence
+  for the risk score; format documented above). Additive only; 1.2.0
+  documents remain valid, and readers must treat a missing slot as "no
+  context signal fired", never as "unscored".
 - **1.2.0** (Phase 5): `complianceControls` is now populated (it existed,
   always empty, since 1.0.0 — writing it is a semantic change, hence the
   minor bump). Value format documented above. Additive only; 1.1.0 documents

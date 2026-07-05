@@ -218,8 +218,8 @@ func TestSecretFindingHasNoSnippetInRawRunFile(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.SchemaVersion != "1.4.0" {
-		t.Errorf("schemaVersion = %s", doc.SchemaVersion)
+	if doc.SchemaVersion != model.SchemaVersion {
+		t.Errorf("schemaVersion = %s, want %s", doc.SchemaVersion, model.SchemaVersion)
 	}
 	for _, f := range doc.Findings {
 		if f.Category == model.CategorySecret && f.Location.Snippet != nil {

@@ -95,8 +95,14 @@ func Run(ctx context.Context, opts Options, progress Progress) (Result, error) {
 		findings = triaged
 	}
 
-	// Every finding in every run gets a risk score, LLM or not.
-	risk.Apply(findings)
+	// Every finding in every run gets a risk score, LLM or not. Severity is
+	// banded from the returned STAGE-2 deterministic score (schema 2.0.0,
+	// docs/risk-scoring.md "Severity banding") — never from the stored
+	// stage-3 riskScore, so a triage verdict can move the score but never a
+	// severity, and never the gate. Re-sort afterwards: reporters rely on
+	// severity-descending order, and banding is what severity now means.
+	risk.ApplyAndBand(findings)
+	model.Sort(findings)
 
 	// Compliance mapping is always on: deterministic, hand-curated, cheap.
 	// Like triage it is enrichment only — a mapping failure (a build defect

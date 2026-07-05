@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +42,41 @@ func TestNormalizeSeverity(t *testing.T) {
 		if got := NormalizeSeverity(tt.tool, tt.raw); got != tt.want {
 			t.Errorf("NormalizeSeverity(%q, %q) = %v, want %v", tt.tool, tt.raw, got, tt.want)
 		}
+	}
+}
+
+// TestSeverityForScore pins every band boundary of the canonical table in
+// docs/risk-scoring.md. Scores are one-decimal, so these are ALL the edges.
+func TestSeverityForScore(t *testing.T) {
+	tests := []struct {
+		score float64
+		want  Severity
+	}{
+		{0.0, SeverityInfo}, // reachable: stage-1 floor is 0.0
+		{0.1, SeverityLow},
+		{3.9, SeverityLow},
+		{4.0, SeverityMedium},
+		{6.9, SeverityMedium},
+		{7.0, SeverityHigh},
+		{8.9, SeverityHigh},
+		{9.0, SeverityCritical},
+		{10.0, SeverityCritical},
+		// Defensive: out-of-range inputs clamp into the scale.
+		{-1.0, SeverityInfo},
+		{11.0, SeverityCritical},
+	}
+	for _, tt := range tests {
+		if got := SeverityForScore(tt.score); got != tt.want {
+			t.Errorf("SeverityForScore(%.1f) = %v, want %v", tt.score, got, tt.want)
+		}
+	}
+	// Float-representation hostility: values arithmetically equal to a
+	// boundary must band identically however they were computed.
+	if got := SeverityForScore(6.9999999999); got != SeverityHigh {
+		t.Errorf("SeverityForScore(≈7.0) = %v, want high (decisecond rounding)", got)
+	}
+	if got := SeverityForScore(8.9000000000000004); got != SeverityHigh {
+		t.Errorf("SeverityForScore(8.9 as float64) = %v, want high", got)
 	}
 }
 
@@ -89,10 +126,17 @@ func TestFingerprintStability(t *testing.T) {
 		Location: Location{File: "app.py", StartLine: 10},
 	}
 	id1 := Fingerprint(f)
+	// 2.0.0 relies on this: titles became human-derived and severity became
+	// risk-banded, and BOTH may change without breaking run deltas. Prove the
+	// fingerprint never sees them.
+	f.Title = "SQL injection from tainted string"
 	f.Description = "reworded by a new tool version"
 	f.Severity = SeverityCritical
+	low := SeverityLow
+	f.ToolSeverity = &low
+	f.RawSeverity = "ERROR"
 	if Fingerprint(f) != id1 {
-		t.Error("fingerprint must ignore description/severity")
+		t.Error("fingerprint must ignore title/description/severity/toolSeverity")
 	}
 	f.Location.StartLine = 11
 	if Fingerprint(f) == id1 {
@@ -122,6 +166,9 @@ func TestNormalize(t *testing.T) {
 	}
 	if f.RawSeverity != "ERROR" {
 		t.Error("raw severity must be preserved verbatim")
+	}
+	if f.ToolSeverity == nil || *f.ToolSeverity != SeverityHigh {
+		t.Errorf("toolSeverity = %v, want high (always set by Normalize)", f.ToolSeverity)
 	}
 	if f.Location.File != "a/b.py" {
 		t.Errorf("file = %q, want forward slashes", f.Location.File)
@@ -162,5 +209,37 @@ func TestFilterIgnored(t *testing.T) {
 	kept, suppressed = FilterIgnored(findings, nil, nil)
 	if len(kept) != 5 || suppressed != 0 {
 		t.Error("empty ignore lists must keep all findings")
+	}
+}
+
+// TestToolSeverityRoundTrip pins the ≤1.4.0 compatibility contract: an old
+// document without toolSeverity must round-trip as ABSENT (nil pointer, key
+// omitted) — never as a fabricated "info" — while new findings emit it even
+// when it is genuinely info.
+func TestToolSeverityRoundTrip(t *testing.T) {
+	old := []byte(`{"id":"x","tool":"semgrep","category":"SAST","ruleId":"r","title":"t","severity":"high","location":{}}`)
+	var f Finding
+	if err := json.Unmarshal(old, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f.ToolSeverity != nil {
+		t.Fatalf("old document must yield nil toolSeverity, got %v", *f.ToolSeverity)
+	}
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "toolSeverity") {
+		t.Error("re-marshaled old finding must not fabricate a toolSeverity")
+	}
+
+	info := SeverityInfo
+	f.ToolSeverity = &info
+	out, err = json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"toolSeverity":"info"`) {
+		t.Errorf("a genuine info toolSeverity must be emitted, got %s", out)
 	}
 }

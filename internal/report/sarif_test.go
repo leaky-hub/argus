@@ -162,3 +162,34 @@ func TestSARIFEmptyFindings(t *testing.T) {
 		t.Error("results must serialize as [], not null")
 	}
 }
+
+// TestSARIFToolSeverityProperty: schema 2.0.0 — banded severity drives
+// level/security-severity, and the tool-normalized value is preserved as
+// properties.toolSeverity for audit. Absent toolSeverity (old documents)
+// must not fabricate the property.
+func TestSARIFToolSeverityProperty(t *testing.T) {
+	high := model.SeverityHigh
+	findings := []model.Finding{
+		{ID: "a", Tool: "gitleaks", Category: model.CategorySecret,
+			RuleID: "aws-access-token", Title: "AWS access key",
+			Severity: model.SeverityMedium, ToolSeverity: &high,
+			Location: model.Location{File: "testdata/creds.env", StartLine: 1}},
+		{ID: "b", Tool: "semgrep", Category: model.CategorySAST,
+			RuleID: "r.x", Title: "X", Severity: model.SeverityLow},
+	}
+	doc := writeSARIF(t, findings)
+	results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+
+	p0 := results[0].(map[string]any)["properties"].(map[string]any)
+	if p0["severity"] != "medium" || p0["toolSeverity"] != "high" {
+		t.Errorf("banded+tool severity = %v / %v, want medium / high", p0["severity"], p0["toolSeverity"])
+	}
+	// Level follows the BANDED severity, not the tool's.
+	if lvl := results[0].(map[string]any)["level"]; lvl != "warning" {
+		t.Errorf("level = %v, want warning (banded medium)", lvl)
+	}
+	p1 := results[1].(map[string]any)["properties"].(map[string]any)
+	if _, present := p1["toolSeverity"]; present {
+		t.Error("nil toolSeverity must be omitted, never fabricated")
+	}
+}

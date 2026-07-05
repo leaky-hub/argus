@@ -22,7 +22,14 @@ import (
 // Additive; see docs/risk-scoring.md.
 // 1.4.0: added optional Location.Snippet (captured code frame, Scan Studio).
 // Additive; capture rules in docs/findings-model.md and docs/console-ops.md S4.
-const SchemaVersion = "1.4.0"
+// 2.0.0: severity semantics changed (MAJOR) — Severity is now the banded
+// deterministic risk score (SeverityForScore, canonical table in
+// docs/risk-scoring.md); the tool-normalized value moved to the new
+// ToolSeverity field. Documents ≤1.4.0 stay readable (their severity is
+// tool-normalized, displayed as-is, never re-banded); fingerprints never
+// contained severity or title, so run deltas keep working. Migration note in
+// docs/findings-model.md.
+const SchemaVersion = "2.0.0"
 
 // Finding categories. String-typed (not iota) because they appear verbatim in
 // JSON/SARIF output and in config files.
@@ -115,8 +122,17 @@ type Finding struct {
 	RuleID      string   `json:"ruleId"`
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`
-	Severity    Severity `json:"severity"`
-	RawSeverity string   `json:"rawSeverity,omitempty"` // native string, for audit
+	// Severity is the banded deterministic risk score (schema 2.0.0): set by
+	// the pipeline via SeverityForScore after risk scoring, LLM-free by
+	// construction. Normalize seeds it with the tool-normalized value so a
+	// finding that never reaches risk scoring still has an honest severity.
+	Severity Severity `json:"severity"`
+	// ToolSeverity is what NormalizeSeverity produced (schema 2.0.0): the
+	// stage-1 risk input and "tool said" audit trail. A pointer so documents
+	// older than 2.0.0 — which have no such field — round-trip as absent
+	// instead of a fabricated "info".
+	ToolSeverity *Severity `json:"toolSeverity,omitempty"`
+	RawSeverity  string    `json:"rawSeverity,omitempty"` // native string, for audit
 	Confidence  string   `json:"confidence,omitempty"`
 	Location    Location `json:"location"`
 	Package     string   `json:"package,omitempty"`
@@ -165,15 +181,17 @@ func Fingerprint(f Finding) string {
 func Normalize(raws []RawFinding) []Finding {
 	findings := make([]Finding, 0, len(raws))
 	for _, r := range raws {
+		toolSev := NormalizeSeverity(r.Tool, r.RawSeverity)
 		f := Finding{
-			Tool:        r.Tool,
-			Tools:       []string{r.Tool},
-			Category:    r.Category,
-			RuleID:      r.RuleID,
-			Title:       firstNonEmpty(r.Title, r.RuleID),
-			Description: r.Description,
-			Severity:    NormalizeSeverity(r.Tool, r.RawSeverity),
-			RawSeverity: r.RawSeverity,
+			Tool:         r.Tool,
+			Tools:        []string{r.Tool},
+			Category:     r.Category,
+			RuleID:       r.RuleID,
+			Title:        firstNonEmpty(r.Title, r.RuleID),
+			Description:  r.Description,
+			Severity:     toolSev,
+			ToolSeverity: &toolSev,
+			RawSeverity:  r.RawSeverity,
 			Confidence:  r.Confidence,
 			Location: Location{
 				File:      filepathToSlash(r.File),

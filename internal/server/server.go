@@ -24,11 +24,14 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/leaky-hub/appsec/internal/audit"
+	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/jobs"
+	"github.com/leaky-hub/appsec/internal/llm"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server/auth"
@@ -38,9 +41,17 @@ import (
 // Server serves the console API and static UI over one repo's run history.
 type Server struct {
 	store    runstore.Store
+	dir      string          // served repo root (the default run history's home)
 	gate     *model.Severity // gate threshold for computed pass/fail (nil = never fails)
 	gateName string          // human label for the threshold
 	static   fs.FS           // embedded UI file system (index.html at root)
+
+	// explains is the bounded single-flight cache behind POST /api/explain —
+	// the ONLY place explanations live (never run files, never audit).
+	explains explainCache
+	// llmFactory overrides the explain client construction IN TESTS ONLY;
+	// nil means pipeline.NewLLMClient (provider always from the repo config).
+	llmFactory func(config.Config) llm.Client
 
 	// Console-ops components. All nil is the legacy read-only construction
 	// and behaves exactly like the zero-users mode (reads open, ops 403).
@@ -55,6 +66,7 @@ type Server struct {
 // Options configure a Server.
 type Options struct {
 	Store    runstore.Store
+	Dir      string // served repo root; empty falls back to the store's parent
 	Gate     *model.Severity
 	GateName string
 	Static   fs.FS
@@ -70,8 +82,13 @@ type Options struct {
 
 // New builds a Server and its routes.
 func New(opts Options) *Server {
+	dir := opts.Dir
+	if dir == "" {
+		// Store.Dir is <root>/.appsec/runs; the served root is two up.
+		dir = filepath.Dir(filepath.Dir(opts.Store.Dir))
+	}
 	s := &Server{
-		store: opts.Store, gate: opts.Gate, gateName: opts.GateName, static: opts.Static,
+		store: opts.Store, dir: dir, gate: opts.Gate, gateName: opts.GateName, static: opts.Static,
 		users: opts.Users, sessions: opts.Sessions, limiter: opts.Limiter,
 		targets: opts.Targets, auditLog: opts.Audit, queue: opts.Queue,
 	}
@@ -95,6 +112,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/targets/", s.handleTargetByID) // DELETE (admin)
 	mux.HandleFunc("/api/scans", s.handleScans)        // GET (viewer), POST (operator)
 	mux.HandleFunc("/api/scans/", s.handleScanByID)    // GET /api/scans/{jobId}
+	mux.HandleFunc("/api/frameworks", s.handleFrameworks) // GET (viewer)
+	mux.HandleFunc("/api/explain", s.handleExplain)    // POST (operator)
 	mux.HandleFunc("/api/audit", s.handleAudit)        // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))
@@ -156,7 +175,11 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.buildRuns()
+	store, ok := s.runStoreFor(w, r)
+	if !ok {
+		return
+	}
+	resp, err := s.buildRuns(store)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list runs")
 		return
@@ -170,7 +193,11 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid run id")
 		return
 	}
-	detail, err := s.buildRunDetail(id)
+	store, ok := s.runStoreFor(w, r)
+	if !ok {
+		return
+	}
+	detail, err := s.buildRunDetail(store, id)
 	if err != nil {
 		// Load validates the id and confines the path; a failure here is a
 		// missing/invalid run, not a server fault.
@@ -178,6 +205,28 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// runStoreFor resolves which run history a read serves: the served repo's
+// (default), or — with ?target=<registryID> — a registered target's own
+// store (docs/console-ops.md §12.1). The ID resolves through the registry
+// server-side; no path ever comes from the browser. On failure it writes
+// the response and returns ok=false.
+func (s *Server) runStoreFor(w http.ResponseWriter, r *http.Request) (runstore.Store, bool) {
+	tid := r.URL.Query().Get("target")
+	if tid == "" {
+		return s.store, true
+	}
+	if s.targets == nil {
+		writeErr(w, http.StatusNotFound, "target not found")
+		return runstore.Store{}, false
+	}
+	t, err := s.targets.Get(tid)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "target not found")
+		return runstore.Store{}, false
+	}
+	return runstore.ForRepo(s.targets.Root(t)), true
 }
 
 // handleStatic serves the embedded UI with SPA fallback: unknown non-API paths

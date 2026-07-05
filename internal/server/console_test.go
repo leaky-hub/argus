@@ -27,6 +27,7 @@ import (
 
 type consoleFixture struct {
 	t        *testing.T
+	srv      *Server
 	handler  http.Handler
 	users    *auth.Store
 	registry *targets.Registry
@@ -57,9 +58,9 @@ func newConsole(t *testing.T, exec jobs.ExecFunc) *consoleFixture {
 		t.Fatal(err)
 	}
 	if exec == nil {
-		exec = func(ctx context.Context, job jobs.Job, progress func(string)) (string, error) {
+		exec = func(ctx context.Context, job jobs.Job, progress func(string)) (jobs.Result, error) {
 			progress("==> running gitleaks (SECRET)\n")
-			return "run-ok", nil
+			return jobs.Result{RunID: "run-ok"}, nil
 		}
 	}
 	queue := jobs.New(exec)
@@ -78,7 +79,7 @@ func newConsole(t *testing.T, exec jobs.ExecFunc) *consoleFixture {
 		Audit:    audit.ForRepo(dir),
 		Queue:    queue,
 	})
-	f := &consoleFixture{t: t, handler: srv.Handler(), users: users, registry: registry, queue: queue, dir: dir, scanDir: scanDir}
+	f := &consoleFixture{t: t, srv: srv, handler: srv.Handler(), users: users, registry: registry, queue: queue, dir: dir, scanDir: scanDir}
 	f.targetID = tgt.ID
 	return f
 }
@@ -163,13 +164,17 @@ func TestAuthzMatrix(t *testing.T) {
 		{"GET", "/api/runs", 401, pass, pass, pass},
 		{"GET", "/api/runs/2026-01-01T00-00-00Z", 401, pass, pass, pass},
 
+		{"GET", "/api/frameworks", 401, pass, pass, pass},
+
 		{"GET", "/api/targets", 401, pass, pass, pass},
 		{"POST", "/api/targets", 401, 403, 403, pass},
+		{"PATCH", "/api/targets/t-000000", 401, 403, 403, pass},
 		{"DELETE", "/api/targets/t-000000", 401, 403, 403, pass},
 
 		{"GET", "/api/scans", 401, pass, pass, pass},
 		{"GET", "/api/scans/j-000000", 401, pass, pass, pass},
 		{"POST", "/api/scans", 401, 403, pass, pass},
+		{"POST", "/api/explain", 401, 403, pass, pass},
 
 		{"GET", "/api/users", 401, 403, 403, pass},
 		{"POST", "/api/users", 401, 403, 403, pass},
@@ -224,7 +229,7 @@ func TestZeroUsersMode(t *testing.T) {
 		Limiter:  auth.NewLoginLimiter(),
 		Targets:  targets.ForRepo(dir),
 		Audit:    audit.ForRepo(dir),
-		Queue:    jobs.New(func(context.Context, jobs.Job, func(string)) (string, error) { return "", nil }),
+		Queue:    jobs.New(func(context.Context, jobs.Job, func(string)) (jobs.Result, error) { return jobs.Result{}, nil }),
 	})
 	h := srv.Handler()
 
@@ -401,10 +406,10 @@ func TestScanLaunchValidation(t *testing.T) {
 // execution and the queued->running->done progression.
 func TestScanJobLifecycleAndSerialityOverAPI(t *testing.T) {
 	release := make(chan struct{})
-	exec := func(ctx context.Context, job jobs.Job, progress func(string)) (string, error) {
+	exec := func(ctx context.Context, job jobs.Job, progress func(string)) (jobs.Result, error) {
 		progress("==> running gitleaks (SECRET)\n")
 		<-release
-		return "run-" + job.ID, nil
+		return jobs.Result{RunID: "run-" + job.ID}, nil
 	}
 	f := newConsole(t, exec)
 	oper := f.mustLogin("oscar")
@@ -501,9 +506,9 @@ func TestSessionRevocationOnPasswordChange(t *testing.T) {
 func TestQueueFullOverAPI(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
-	f := newConsole(t, func(ctx context.Context, job jobs.Job, progress func(string)) (string, error) {
+	f := newConsole(t, func(ctx context.Context, job jobs.Job, progress func(string)) (jobs.Result, error) {
 		<-block
-		return "", nil
+		return jobs.Result{}, nil
 	})
 	oper := f.mustLogin("oscar")
 	body := fmt.Sprintf(`{"targetId":%q}`, f.targetID)

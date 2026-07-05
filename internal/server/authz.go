@@ -38,13 +38,17 @@ var authzTable = []authzRule{
 	{http.MethodGet, "/api/runs", auth.RoleViewer, true},
 	{http.MethodGet, "/api/runs/", auth.RoleViewer, true},
 
+	{http.MethodGet, "/api/frameworks", auth.RoleViewer, true},
+
 	{http.MethodGet, "/api/targets", auth.RoleViewer, true},
 	{http.MethodPost, "/api/targets", auth.RoleAdmin, false},
+	{http.MethodPatch, "/api/targets/", auth.RoleAdmin, false},
 	{http.MethodDelete, "/api/targets/", auth.RoleAdmin, false},
 
 	{http.MethodGet, "/api/scans", auth.RoleViewer, true},
 	{http.MethodGet, "/api/scans/", auth.RoleViewer, true},
 	{http.MethodPost, "/api/scans", auth.RoleOperator, false},
+	{http.MethodPost, "/api/explain", auth.RoleOperator, false},
 
 	{http.MethodGet, "/api/users", auth.RoleAdmin, false},
 	{http.MethodPost, "/api/users", auth.RoleAdmin, false},

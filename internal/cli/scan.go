@@ -11,11 +11,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/pipeline"
 	"github.com/leaky-hub/appsec/internal/report"
 	"github.com/leaky-hub/appsec/internal/runstore"
+	"github.com/leaky-hub/appsec/internal/snippet"
+	"github.com/leaky-hub/appsec/internal/targets"
 )
 
 // errGateFailed is the sentinel for "scan succeeded, findings exceed the
@@ -33,6 +36,7 @@ func init() {
 	scanCmd.Flags().Int("timeout", 0, "Per-scanner timeout in seconds")
 	scanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
+	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `appsec comply`)")
 }
 
 var scanCmd = &cobra.Command{
@@ -57,6 +61,27 @@ func runScan(cmd *cobra.Command, args []string) error {
 	cfg, err := loadConfig(cmd)
 	if err != nil {
 		return err
+	}
+
+	// Compliance focus (docs/console-ops.md S6): a closed-enum validation
+	// plus scanner narrowing through the curated relevance table — the same
+	// helper the console uses, applied BEFORE the pipeline so the shared
+	// pipeline itself is untouched.
+	if v, _ := cmd.Flags().GetString("frameworks"); v != "" {
+		var fws []string
+		for _, f := range strings.Split(v, ",") {
+			fws = append(fws, strings.TrimSpace(f))
+		}
+		effective := cfg.Scanners
+		if len(effective) == 0 {
+			effective = targets.KnownScanners()
+		}
+		narrowed, err := compliance.NarrowScanners(effective, fws)
+		if err != nil {
+			return err
+		}
+		cfg.Scanners = narrowed
+		fmt.Fprintf(os.Stderr, "NOTE: framework focus (%s) narrows scanners to: %s\n", strings.Join(fws, ","), strings.Join(narrowed, ", "))
 	}
 
 	gate, err := model.ParseGate(cfg.FailSeverity)
@@ -145,7 +170,10 @@ func loadConfig(cmd *cobra.Command) (config.Config, error) {
 // saveRun writes the current findings as a timestamped run file under the
 // scanned repo's .appsec/runs directory, for the `appsec serve` console. The
 // repo root is the scan target directory (or the file's directory).
+// Snippets (schema 1.4.0) are captured only on the save path: the stdout
+// report is unchanged, run files gain the code frames the console renders.
 func saveRun(target string, findings []model.Finding) (runstore.RunMeta, error) {
+	snippet.Capture(target, findings)
 	root := target
 	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
 		root = filepath.Dir(target)

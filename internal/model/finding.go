@@ -20,7 +20,9 @@ import (
 // since 1.0.0.
 // 1.3.0: added optional RiskSignals (risk scoring v2 context evidence).
 // Additive; see docs/risk-scoring.md.
-const SchemaVersion = "1.3.0"
+// 1.4.0: added optional Location.Snippet (captured code frame, Scan Studio).
+// Additive; capture rules in docs/findings-model.md and docs/console-ops.md S4.
+const SchemaVersion = "1.4.0"
 
 // Finding categories. String-typed (not iota) because they appear verbatim in
 // JSON/SARIF output and in config files.
@@ -60,6 +62,18 @@ type Location struct {
 	StartLine int    `json:"startLine,omitempty"`
 	EndLine   int    `json:"endLine,omitempty"`
 	URL       string `json:"url,omitempty"` // DAST findings (Phase 5)
+	// Snippet is the captured code frame (schema 1.4.0), set post-pipeline by
+	// internal/snippet — never by adapters or Normalize, and never part of the
+	// fingerprint. SECRET findings never carry one.
+	Snippet *Snippet `json:"snippet,omitempty"`
+}
+
+// Snippet is a bounded frame of source lines around a finding. Lines are raw
+// file text: hostile data, rendered escaped-only, capture bounds enforced by
+// internal/snippet (docs/console-ops.md S4).
+type Snippet struct {
+	StartLine int      `json:"startLine"` // 1-based line number of Lines[0]
+	Lines     []string `json:"lines"`
 }
 
 // Triage verdict values. String-typed: they appear verbatim in reports.

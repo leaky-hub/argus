@@ -40,6 +40,12 @@ type Options struct {
 	Scanners []string `json:"scanners,omitempty"` // subset of the target's allowed scanners; empty = target default
 	Profile  string   `json:"profile,omitempty"`  // fast|standard|max; empty = target default
 	Triage   *bool    `json:"triage,omitempty"`   // nil = repo-config default; the provider/model always come from config
+	// Scope is a relative subpath/file inside the target, confined per
+	// docs/console-ops.md S2 at enqueue AND at execution. Empty = whole target.
+	Scope string `json:"scope,omitempty"`
+	// Frameworks focus the scan on compliance frameworks (closed enum from
+	// the embedded compliance data, docs/console-ops.md S6).
+	Frameworks []string `json:"frameworks,omitempty"`
 }
 
 // Job is one queued/executed scan. Snapshots returned by the queue are
@@ -56,13 +62,22 @@ type Job struct {
 	FinishedAt time.Time `json:"finishedAt,omitzero"`
 	Progress   []string  `json:"progress"`
 	RunID      string    `json:"runId,omitempty"`
+	Commit     string    `json:"commit,omitempty"` // git targets: the scanned commit SHA
 	Error      string    `json:"error,omitempty"`
 }
 
+// Result is what one executed scan produced. Commit is set only for git
+// targets (the SHA the workspace was at when scanned).
+type Result struct {
+	RunID  string
+	Commit string
+}
+
 // ExecFunc runs one scan. It receives a progress sink (the pipeline
-// callback) and returns the saved run ID. It runs on the single worker
-// goroutine.
-type ExecFunc func(ctx context.Context, job Job, progress func(line string)) (runID string, err error)
+// callback) and returns the saved run ID plus provenance. It runs on the
+// single worker goroutine. A non-empty Result alongside an error is kept:
+// a job can fail after the workspace synced (Commit recorded, no run).
+type ExecFunc func(ctx context.Context, job Job, progress func(line string)) (Result, error)
 
 // Queue is the serial scan queue.
 type Queue struct {
@@ -147,17 +162,18 @@ func (q *Queue) run(ctx context.Context, id string) {
 		q.mu.Unlock()
 	}
 
-	runID, err := q.exec(ctx, snap, progress)
+	res, err := q.exec(ctx, snap, progress)
 
 	q.mu.Lock()
 	if jj, ok := q.jobs[id]; ok {
 		jj.FinishedAt = time.Now().UTC()
+		jj.Commit = res.Commit
 		if err != nil {
 			jj.Status = StatusFailed
 			jj.Error = err.Error()
 		} else {
 			jj.Status = StatusDone
-			jj.RunID = runID
+			jj.RunID = res.RunID
 		}
 	}
 	q.mu.Unlock()

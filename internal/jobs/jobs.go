@@ -37,9 +37,9 @@ const (
 // server against the target's registry entry before enqueue. No free-form
 // strings reach scanner invocation from here.
 type Options struct {
-	Scanners []string // subset of the target's allowed scanners; empty = target default
-	Profile  string   // fast|standard|max; empty = target default
-	Triage   *bool    // nil = repo-config default; the provider/model always come from config
+	Scanners []string `json:"scanners,omitempty"` // subset of the target's allowed scanners; empty = target default
+	Profile  string   `json:"profile,omitempty"`  // fast|standard|max; empty = target default
+	Triage   *bool    `json:"triage,omitempty"`   // nil = repo-config default; the provider/model always come from config
 }
 
 // Job is one queued/executed scan. Snapshots returned by the queue are
@@ -117,7 +117,7 @@ func (q *Queue) Enqueue(targetID, targetName, launchedBy string, opts Options) (
 		q.jobs[j.ID] = j
 		q.order = append(q.order, j.ID)
 		q.trimLocked()
-		snap := *j
+		snap := snapshot(j)
 		q.mu.Unlock()
 		return snap, nil
 	default:
@@ -207,10 +207,12 @@ func (q *Queue) trimLocked() {
 	q.order = kept
 }
 
-// snapshot deep-copies a job (Progress is the only reference field).
+// snapshot deep-copies a job (Progress is the only reference field). The
+// copy's Progress is never nil: the API contract says string[], not null.
 func snapshot(j *Job) Job {
 	c := *j
-	c.Progress = append([]string(nil), j.Progress...)
+	c.Progress = make([]string, len(j.Progress))
+	copy(c.Progress, j.Progress)
 	return c
 }
 

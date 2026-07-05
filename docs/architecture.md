@@ -15,6 +15,10 @@ scoring, and compliance mapping.
 [ surfaces ]   CLI · GitHub Action · SARIF / Markdown / JSON · gap report (`appsec comply`) · web console (`appsec serve`)
 ```
 
+The scan pipeline itself lives in `internal/pipeline` and has exactly two
+callers: the `appsec scan` CLI command (a thin flag-parsing wrapper) and the
+console's serial job queue. Both run the same code path end to end.
+
 ## Package layout
 
 | Package | Role | Ownership note |
@@ -29,6 +33,13 @@ scoring, and compliance mapping.
 | `internal/llm` | provider-agnostic completion clients: Ollama (local, default) + Anthropic, plus a test fake | transport only — providers send prompts verbatim and return raw text; API keys env-only |
 | `internal/risk` | 0–10 risk score: deterministic baseline + bounded LLM adjustment | security-critical: the LLM can never set a score, only move it within `docs/risk-scoring.md` bounds |
 | `internal/compliance` | framework data (embedded, version-pinned JSON) + mapping engine + gap assessment (`docs/compliance.md`) | security-critical: mapping rows are audit claims — hand-curated, deterministic, no LLM; unmapped is visible, totals reconcile |
+| `internal/pipeline` | the extracted scan pipeline: adapter selection → parallel scanners → normalize → filter → correlate → triage → risk → compliance | one code path for CLI and console; progress is a pre-formatted-line callback (CLI prints verbatim, console streams into job status) |
+| `internal/runstore` | timestamped run files + run-to-run deltas (`.appsec/runs`) | security-critical: delta rules are the one place a finding could vanish from view; JSON shape frozen |
+| `internal/server` | web console: read API, authz table + middleware, login/session handlers, ops API, scan executor | security-critical: the authz table in `authz.go` is the entire authorization policy (`docs/console-ops.md`) |
+| `internal/server/auth` | argon2id user store, opaque-token sessions + CSRF, login rate limiter | security-critical: hashes/tokens never serialized out; constant-time compares; fail closed |
+| `internal/targets` | registered scan-target allowlist (`.appsec/targets.json`) | security-critical: the only bridge from a browser request to a filesystem path; validation at registration only |
+| `internal/jobs` | strictly serial scan queue, bounded pending, in-memory state | one scan at a time protects the runstore and the single-queue Ollama triage |
+| `internal/audit` | append-only `.appsec/audit.jsonl` (logins, CRUD, scan launch/finish) | the durable provenance record — run files carry no launchedBy |
 
 ## Data flow of `appsec scan <target>`
 
@@ -91,3 +102,8 @@ scoring, and compliance mapping.
 - **Secrets never reach a cloud LLM.** SECRET findings triage with metadata
   only (no snippet, even locally); non-local providers skip them entirely
   unless the user sets `allow_secret_cloud: true`.
+- **The console earns exec the hard way.** Scan launching from the browser
+  goes through registered target IDs only (no free-text paths), closed-enum
+  options, one serial job at a time, and the single authz table — with zero
+  users configured the console is exactly the old read-only viewer. The full
+  threat model and matrix live in `docs/console-ops.md`.

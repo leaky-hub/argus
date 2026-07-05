@@ -1,22 +1,35 @@
-import { useEffect, useState } from "react";
-import { api, RunDetail, RunsResponse, SummaryResponse } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import {
+  api,
+  opsApi,
+  setCsrfToken,
+  ApiError,
+  MeResponse,
+  UserInfo,
+  RunDetail,
+  RunsResponse,
+  SummaryResponse,
+} from "./api";
 import { Loading, ErrorNote } from "./components";
 import { fmtTime } from "./theme";
 import { Overview } from "./views/Overview";
 import { Findings } from "./views/Findings";
 import { Runs } from "./views/Runs";
+import { Login } from "./views/Login";
+import { Operate } from "./views/Operate";
+import { Admin } from "./views/Admin";
 
-type Tab = "overview" | "findings" | "runs";
+type Tab = "overview" | "findings" | "runs" | "operate" | "admin";
 
-const TABS: { id: Tab; label: string; persona: string }[] = [
-  { id: "overview", label: "Overview", persona: "GRC / exec" },
-  { id: "findings", label: "Findings", persona: "AppSec" },
-  { id: "runs", label: "Runs", persona: "SecOps" },
-];
+const ROLE_CHIP: Record<string, string> = {
+  admin: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+  operator: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  viewer: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+};
 
 function tabFromHash(): Tab {
   const h = window.location.hash.replace("#", "");
-  return h === "findings" || h === "runs" ? h : "overview";
+  return h === "findings" || h === "runs" || h === "operate" || h === "admin" ? h : "overview";
 }
 
 export function App() {
@@ -27,36 +40,103 @@ export function App() {
   };
   const [dark, setDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
 
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [runs, setRuns] = useState<RunsResponse | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  // Initial load: summary + run list.
+  // Session expiry mid-use surfaces as a 401 on any call: drop back to the
+  // login page instead of a dead error screen.
+  const onApiError = useCallback((e: unknown) => {
+    if (e instanceof ApiError && e.status === 401) {
+      setUser(null);
+      setCsrfToken(null);
+      return;
+    }
+    setError(String(e));
+  }, []);
+
+  // Boot: ask the server whether this console requires a login at all.
   useEffect(() => {
-    Promise.all([api.summary(), api.runs()])
-      .then(([s, r]) => {
-        setSummary(s);
-        setRuns(r);
-        const initial = s.latestId || r.runs[0]?.id || null;
-        setSelectedRun(initial);
+    opsApi
+      .me()
+      .then((m) => {
+        setMe(m);
+        if (m.authenticated && m.user) {
+          setUser(m.user);
+          setCsrfToken(m.csrfToken ?? null);
+        }
       })
       .catch((e) => setError(String(e)));
   }, []);
 
-  // Load run detail whenever the selected run changes.
+  const authed = me !== null && (!me.authRequired || user !== null);
+
+  // Load read data once authenticated (or immediately in zero-users mode).
   useEffect(() => {
-    if (!selectedRun) return;
-    api.run(selectedRun).then(setDetail).catch((e) => setError(String(e)));
-  }, [selectedRun]);
+    if (!authed) return;
+    Promise.all([api.summary(), api.runs()])
+      .then(([s, r]) => {
+        setSummary(s);
+        setRuns(r);
+        setSelectedRun((cur) => cur ?? (s.latestId || r.runs[0]?.id || null));
+      })
+      .catch(onApiError);
+  }, [authed, reloadKey, onApiError]);
+
+  useEffect(() => {
+    if (!authed || !selectedRun) return;
+    api.run(selectedRun).then(setDetail).catch(onApiError);
+  }, [authed, selectedRun, onApiError]);
+
+  const handleLogin = (u: UserInfo, csrf: string) => {
+    setCsrfToken(csrf);
+    setUser(u);
+  };
+
+  const handleLogout = () => {
+    opsApi.logout().catch(() => undefined);
+    setCsrfToken(null);
+    setUser(null);
+    setSummary(null);
+    setRuns(null);
+    setDetail(null);
+    setTab("overview");
+  };
+
+  // A finished job links straight to its run: refresh the lists so the new
+  // run exists in the picker, then open it in Findings.
+  const openRun = (runId: string) => {
+    setSelectedRun(runId);
+    setReloadKey((k) => k + 1);
+    setTab("findings");
+  };
 
   if (error) return <ErrorNote error={error} />;
+  if (me === null) return <Loading what="console" />;
+  if (me.authRequired && !user) return <Login onLogin={handleLogin} />;
   if (!summary || !runs) return <Loading what="console" />;
+
+  const role = user?.role ?? "";
+  const opsEnabled = me.authRequired; // zero users = the read-only console
+  const canLaunch = role === "operator" || role === "admin";
+
+  const tabs: { id: Tab; label: string; persona: string }[] = [
+    { id: "overview", label: "Overview", persona: "GRC / exec" },
+    { id: "findings", label: "Findings", persona: "AppSec" },
+    { id: "runs", label: "Runs", persona: "SecOps" },
+    ...(opsEnabled ? [{ id: "operate" as Tab, label: "Operate", persona: "scan jobs" }] : []),
+    ...(opsEnabled && role === "admin" ? [{ id: "admin" as Tab, label: "Admin", persona: "users / audit" }] : []),
+  ];
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   return (
     <div className="mx-auto min-h-full max-w-7xl px-4 pb-16">
@@ -70,12 +150,12 @@ export function App() {
           </div>
 
           <nav className="flex gap-1">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  tab === t.id
+                  activeTab === t.id
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
                 }`}
@@ -104,6 +184,20 @@ export function App() {
                 </select>
               </label>
             )}
+            {user && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium">{user.username}</span>
+                <span className={`rounded px-1.5 py-0.5 font-semibold ${ROLE_CHIP[role] || ROLE_CHIP.viewer}`}>
+                  {role}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
             <button
               onClick={() => setDark((d) => !d)}
               className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-700"
@@ -116,10 +210,10 @@ export function App() {
       </header>
 
       <main>
-        {tab === "overview" && <Overview summary={summary} />}
-        {tab === "findings" &&
+        {activeTab === "overview" && <Overview summary={summary} />}
+        {activeTab === "findings" &&
           (detail ? <Findings detail={detail} /> : <Loading what="findings" />)}
-        {tab === "runs" && (
+        {activeTab === "runs" && (
           <Runs
             runs={runs}
             selectedId={selectedRun}
@@ -129,10 +223,14 @@ export function App() {
             }}
           />
         )}
+        {activeTab === "operate" && opsEnabled && <Operate canLaunch={canLaunch} onOpenRun={openRun} />}
+        {activeTab === "admin" && role === "admin" && <Admin selfUsername={user?.username ?? ""} />}
       </main>
 
       <footer className="mt-8 text-center text-[11px] text-gray-400">
-        Local-first · no auth · reads .appsec/runs · finding data rendered inert (escaped, no HTML injection)
+        {opsEnabled
+          ? "Local-first · authenticated console · actions audited to .appsec/audit.jsonl · finding data rendered inert"
+          : "Local-first · read-only (no users configured — bootstrap: appsec user add) · finding data rendered inert"}
       </footer>
     </div>
   );

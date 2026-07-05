@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +42,41 @@ func TestNormalizeSeverity(t *testing.T) {
 		if got := NormalizeSeverity(tt.tool, tt.raw); got != tt.want {
 			t.Errorf("NormalizeSeverity(%q, %q) = %v, want %v", tt.tool, tt.raw, got, tt.want)
 		}
+	}
+}
+
+// TestSeverityForScore pins every band boundary of the canonical table in
+// docs/risk-scoring.md. Scores are one-decimal, so these are ALL the edges.
+func TestSeverityForScore(t *testing.T) {
+	tests := []struct {
+		score float64
+		want  Severity
+	}{
+		{0.0, SeverityInfo}, // reachable: stage-1 floor is 0.0
+		{0.1, SeverityLow},
+		{3.9, SeverityLow},
+		{4.0, SeverityMedium},
+		{6.9, SeverityMedium},
+		{7.0, SeverityHigh},
+		{8.9, SeverityHigh},
+		{9.0, SeverityCritical},
+		{10.0, SeverityCritical},
+		// Defensive: out-of-range inputs clamp into the scale.
+		{-1.0, SeverityInfo},
+		{11.0, SeverityCritical},
+	}
+	for _, tt := range tests {
+		if got := SeverityForScore(tt.score); got != tt.want {
+			t.Errorf("SeverityForScore(%.1f) = %v, want %v", tt.score, got, tt.want)
+		}
+	}
+	// Float-representation hostility: values arithmetically equal to a
+	// boundary must band identically however they were computed.
+	if got := SeverityForScore(6.9999999999); got != SeverityHigh {
+		t.Errorf("SeverityForScore(≈7.0) = %v, want high (decisecond rounding)", got)
+	}
+	if got := SeverityForScore(8.9000000000000004); got != SeverityHigh {
+		t.Errorf("SeverityForScore(8.9 as float64) = %v, want high", got)
 	}
 }
 
@@ -89,10 +126,17 @@ func TestFingerprintStability(t *testing.T) {
 		Location: Location{File: "app.py", StartLine: 10},
 	}
 	id1 := Fingerprint(f)
+	// 2.0.0 relies on this: titles became human-derived and severity became
+	// risk-banded, and BOTH may change without breaking run deltas. Prove the
+	// fingerprint never sees them.
+	f.Title = "SQL injection from tainted string"
 	f.Description = "reworded by a new tool version"
 	f.Severity = SeverityCritical
+	low := SeverityLow
+	f.ToolSeverity = &low
+	f.RawSeverity = "ERROR"
 	if Fingerprint(f) != id1 {
-		t.Error("fingerprint must ignore description/severity")
+		t.Error("fingerprint must ignore title/description/severity/toolSeverity")
 	}
 	f.Location.StartLine = 11
 	if Fingerprint(f) == id1 {
@@ -123,6 +167,9 @@ func TestNormalize(t *testing.T) {
 	if f.RawSeverity != "ERROR" {
 		t.Error("raw severity must be preserved verbatim")
 	}
+	if f.ToolSeverity == nil || *f.ToolSeverity != SeverityHigh {
+		t.Errorf("toolSeverity = %v, want high (always set by Normalize)", f.ToolSeverity)
+	}
 	if f.Location.File != "a/b.py" {
 		t.Errorf("file = %q, want forward slashes", f.Location.File)
 	}
@@ -132,8 +179,13 @@ func TestNormalize(t *testing.T) {
 	if len(f.CWEs) != 1 || f.CWEs[0] != "CWE-89" {
 		t.Errorf("CWEs = %v, want [CWE-89]", f.CWEs)
 	}
-	if f.ID == "" || f.Title != "r1" {
+	// 2.0.0 quality floor: an adapter with no title gets the humanized rule
+	// ID ("r1" → "R1"), and an empty description falls back to the title.
+	if f.ID == "" || f.Title != "R1" {
 		t.Errorf("ID/title not populated: %q / %q", f.ID, f.Title)
+	}
+	if f.Description != f.Title {
+		t.Errorf("description = %q, want title fallback", f.Description)
 	}
 }
 
@@ -162,5 +214,111 @@ func TestFilterIgnored(t *testing.T) {
 	kept, suppressed = FilterIgnored(findings, nil, nil)
 	if len(kept) != 5 || suppressed != 0 {
 		t.Error("empty ignore lists must keep all findings")
+	}
+}
+
+// TestToolSeverityRoundTrip pins the ≤1.4.0 compatibility contract: an old
+// document without toolSeverity must round-trip as ABSENT (nil pointer, key
+// omitted) — never as a fabricated "info" — while new findings emit it even
+// when it is genuinely info.
+func TestToolSeverityRoundTrip(t *testing.T) {
+	old := []byte(`{"id":"x","tool":"semgrep","category":"SAST","ruleId":"r","title":"t","severity":"high","location":{}}`)
+	var f Finding
+	if err := json.Unmarshal(old, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f.ToolSeverity != nil {
+		t.Fatalf("old document must yield nil toolSeverity, got %v", *f.ToolSeverity)
+	}
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "toolSeverity") {
+		t.Error("re-marshaled old finding must not fabricate a toolSeverity")
+	}
+
+	info := SeverityInfo
+	f.ToolSeverity = &info
+	out, err = json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"toolSeverity":"info"`) {
+		t.Errorf("a genuine info toolSeverity must be emitted, got %s", out)
+	}
+}
+
+// TestSanitizeTitle: titles derive from rule messages — repo-adjacent hostile
+// data that renders in reports, prompts and the console.
+func TestSanitizeTitle(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"clean", "SQL injection detected", "SQL injection detected"},
+		{"control chars stripped", "evil\x1b[31mANSI\x07 title\x00", "evilANSI title"},
+		{"newlines and runs collapse", "  line one\r\n\t line   two  ", "line one line two"},
+		{"replacement char dropped", "bad�byte", "badbyte"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		if got := SanitizeTitle(tt.in); got != tt.want {
+			t.Errorf("%s: SanitizeTitle(%q) = %q, want %q", tt.name, tt.in, got, tt.want)
+		}
+	}
+	// 120-rune cap, counted in runes (multibyte-safe), ellipsis marks the cut.
+	long := strings.Repeat("ä", 300)
+	got := SanitizeTitle(long)
+	if r := []rune(got); len(r) != 120 || r[119] != '…' {
+		t.Errorf("cap: got %d runes ending %q, want 120 ending …", len(r), string(r[len(r)-1]))
+	}
+	if SanitizeTitle(strings.Repeat("x", 120)) != strings.Repeat("x", 120) {
+		t.Error("exactly-120-rune titles must pass untruncated")
+	}
+}
+
+// TestHumanizeRuleID: the deterministic fallback title for tools that
+// provide none — never the raw dotted path, never mangled identifiers.
+func TestHumanizeRuleID(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"python.flask.security.injection.tainted-sql-string.tainted-sql-string", "Tainted sql string"},
+		{"generic-api-key", "Generic api key"},
+		{"detect_secrets", "Detect secrets"},
+		{"CVE-2020-14343", "CVE-2020-14343"}, // identifier-shaped: verbatim
+		{"DS-0031", "DS-0031"},
+		{"CKV_AWS_20", "CKV_AWS_20"},
+		{"AVD-AWS-0107", "AVD-AWS-0107"},
+		{"rules/xss", "Xss"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := HumanizeRuleID(tt.in); got != tt.want {
+			t.Errorf("HumanizeRuleID(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestNormalizeTitleFloor: every finding leaves Normalize with a non-empty
+// sanitized title, whatever the adapter provided — including hostile text.
+func TestNormalizeTitleFloor(t *testing.T) {
+	out := Normalize([]RawFinding{
+		{Tool: "semgrep", Category: CategorySAST, RuleID: "a.b.tainted-sql-string",
+			Title: "Detected user input in\na manually-constructed SQL\x1b[0m string."},
+		{Tool: "semgrep", Category: CategorySAST, RuleID: "a.b.tainted-sql-string"}, // no title
+		{Tool: "sometool", Category: CategorySCA},                                   // nothing at all
+	})
+	if got := out[0].Title; got != "Detected user input in a manually-constructed SQL string." {
+		t.Errorf("hostile title not sanitized: %q", got)
+	}
+	if got := out[1].Title; got != "Tainted sql string" {
+		t.Errorf("empty title fallback = %q, want humanized rule ID", got)
+	}
+	if got := out[2].Title; got != "sometool finding" {
+		t.Errorf("no-rule fallback = %q, want tool-name floor", got)
+	}
+	for i, f := range out {
+		if strings.TrimSpace(f.Title) == "" || strings.TrimSpace(f.Description) == "" {
+			t.Errorf("finding %d violates the quality floor: title=%q description=%q", i, f.Title, f.Description)
+		}
 	}
 }

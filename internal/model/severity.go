@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -72,8 +73,42 @@ func ParseSeverity(name string) (Severity, error) {
 	return SeverityInfo, fmt.Errorf("unknown severity %q", name)
 }
 
+// SeverityForScore bands a deterministic risk score (stages 1–2 of
+// docs/risk-scoring.md, one decimal) onto the severity scale. The bands are
+// the canonical, user-specified table in docs/risk-scoring.md ("Severity
+// banding") and match the Overview histogram cutoffs by construction:
+//
+//	9.0 – 10.0  critical
+//	7.0 – 8.9   high
+//	4.0 – 6.9   medium
+//	0.1 – 3.9   low
+//	0.0         info   (reachable: the stage-1 floor is 0.0)
+//
+// The input must be the DETERMINISTIC score — never the stage-3
+// triage-adjusted riskScore, so no LLM output can ever move a severity.
+// Banding compares on the integer decisecond value so float representation
+// never decides a boundary; out-of-range inputs clamp into the scale.
+func SeverityForScore(score float64) Severity {
+	d := int(math.Round(score * 10))
+	switch {
+	case d >= 90:
+		return SeverityCritical
+	case d >= 70:
+		return SeverityHigh
+	case d >= 40:
+		return SeverityMedium
+	case d >= 1:
+		return SeverityLow
+	default:
+		return SeverityInfo
+	}
+}
+
 // NormalizeSeverity maps a tool's native severity string onto the shared
-// scale. Mappings are explicit per tool; anything unrecognized falls back to
+// scale. Since schema 2.0.0 this value is the finding's toolSeverity — the
+// stage-1 risk-score input and "tool said" audit trail — while the finding's
+// severity is banded from the deterministic risk score (SeverityForScore).
+// Mappings are explicit per tool; anything unrecognized falls back to
 // the tool default so a new native value can never silently vanish from
 // reports (the raw string is preserved on the finding either way).
 //

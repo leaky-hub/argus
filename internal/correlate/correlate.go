@@ -120,6 +120,9 @@ func merge(dst, src model.Finding) model.Finding {
 	if src.Severity > dst.Severity {
 		dst.Severity = src.Severity
 		dst.RawSeverity = src.RawSeverity
+		// Correlation runs pre-risk, where Severity == ToolSeverity; keeping
+		// both means the max also drives the stage-1 risk baseline.
+		dst.ToolSeverity = src.ToolSeverity
 	}
 	dst.Tools = unionStrings(dst.Tools, src.Tools)
 	dst.CWEs = unionStrings(dst.CWEs, src.CWEs)

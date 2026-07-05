@@ -85,11 +85,17 @@ type sarifResultProperties struct {
 	Category string   `json:"category,omitempty"`
 	CVE      string   `json:"cve,omitempty"`
 	Package  string   `json:"package,omitempty"`
-	Severity string   `json:"severity,omitempty"` // normalized appsec severity
+	// Severity is the banded deterministic risk severity (schema 2.0.0,
+	// docs/risk-scoring.md "Severity banding"); toolSeverity is what the
+	// tool's own scale normalized to — the "tool said" audit trail.
+	Severity     string `json:"severity,omitempty"`
+	ToolSeverity string `json:"toolSeverity,omitempty"`
 	// Phase 2 enrichment. riskScore is the 0-10 prioritization score
 	// (docs/risk-scoring.md); triageVerdict/-Rationale carry the AI triage
 	// outcome. Deliberately NOT mapped onto security-severity: GitHub's
-	// alert bucketing must never move on LLM output.
+	// alert bucketing must never move on LLM output. (Banded severity is
+	// LLM-free by construction — stage-3 triage never reaches it — so
+	// level/security-severity reading it keeps that guarantee.)
 	RiskScore       *float64 `json:"riskScore,omitempty"`
 	TriageVerdict   string   `json:"triageVerdict,omitempty"`
 	TriageRationale string   `json:"triageRationale,omitempty"`
@@ -149,6 +155,9 @@ func WriteSARIF(w io.Writer, findings []model.Finding) error {
 				Severity:  f.Severity.String(),
 				RiskScore: f.RiskScore,
 			},
+		}
+		if f.ToolSeverity != nil {
+			res.Properties.ToolSeverity = f.ToolSeverity.String()
 		}
 		if f.Triage != nil {
 			res.Properties.TriageVerdict = f.Triage.Verdict

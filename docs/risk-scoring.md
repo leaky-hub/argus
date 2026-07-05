@@ -12,18 +12,27 @@ stages:
    verdict for the finding. The LLM never invents the number; it can only move
    the score within the documented bounds below via its verdict and confidence.
 
-The score is a *prioritization* signal. It never changes `severity`, never
-feeds the severity gate, and never suppresses a finding.
+Since schema 2.0.0, `severity` is **derived from the deterministic part of
+this score** (stages 1–2) via the canonical bands below — that is the one
+sanctioned coupling, and it is one-directional and LLM-free. The stage-3 LLM
+adjustment affects `riskScore` only: it never changes `severity`, never feeds
+the severity gate, and never suppresses a finding.
 
 ```
 s1    = clamp( baseline(f), 0, 10 )                          — stage 1
 delta = clamp( Σ context signal deltas, −3.0, +3.0 )         — stage 2
 s2    = clamp( s1 + delta, 0, 10 )
 s2    = min( s2, 9.4 )   if secret-shaped and not verified live
+det   = round1( s2 )                — the deterministic score; severity = band(det)
 final = round1( min( ceil, clamp( s2 + triage_adj, floor, 10 ) ) )   — stage 3
         where ceil  = 9.4 for secret-shaped findings not verified live, else 10
               floor = 0.5 for false-positive verdicts, else 0
 ```
+
+`det` — the **deterministic score** — is where stage 2 ends: everything above
+the `final` line is LLM-free. It is a first-class intermediate in
+`internal/risk` (`risk.Apply` returns it per finding) because severity banding
+(below) consumes it; the *stored* `riskScore` stays the full stage-3 `final`.
 
 Every stage-2 signal that fired is exported on the finding as `riskSignals`
 (schema 1.3.0, see below), so the score is **evidence, not assertion**: the
@@ -38,6 +47,14 @@ baseline = clamp( base(severity)
                 + cwe_mod(cwes)
                 + fix_mod(remediation) , 0, 10 )
 ```
+
+Since schema 2.0.0 the severity input to `base()` is **`toolSeverity`** — the
+tool-normalized severity `model.NormalizeSeverity` produces — never the banded
+output `severity`. Feeding the banded severity back into stage 1 would make
+scores self-amplify; the circularity is broken by construction, and a test in
+`internal/risk` pins it. (Documents older than 2.0.0 have no `toolSeverity`;
+if they are ever re-scored, their stored `severity` — which *is*
+tool-normalized in those documents — is the stage-1 input.)
 
 | Component | Value | Rationale |
 |---|---|---|
@@ -258,6 +275,65 @@ Design constraints, in order of importance:
 - The downward bound is larger than the upward one on purpose: the main value
   of triage is FP suppression; severity already carries the upside.
 
+## Severity banding (schema 2.0.0)
+
+Since schema 2.0.0, a finding's `severity` is a **pure function of the
+deterministic score** `det` (stages 1–2 above, one decimal) — not of any
+single tool's opinion, and explicitly **not** of the stage-3 LLM adjustment.
+"High" therefore means the same thing on every finding from every tool: the
+platform's own deterministic, evidence-backed risk estimate landed in the high
+band.
+
+| Deterministic score `det` | Severity |
+|---|---|
+| 9.0 – 10.0 | `critical` |
+| 7.0 – 8.9 | `high` |
+| 4.0 – 6.9 | `medium` |
+| 0.1 – 3.9 | `low` |
+| 0.0 | `info` |
+
+The bands are user-specified canon — they are not re-derived from data — and
+they deliberately match the Overview histogram cutoffs (≥9.0 / ≥7.0 / ≥4.0),
+so the histogram and the finding badges agree **by construction**. Scores are
+one-decimal, so the boundaries are exact; the implementation
+(`model.SeverityForScore`) bands on the integer decisecond value to keep
+float representation out of the decision.
+
+**`info` is reachable, but only as exactly 0.0.** The stage-1 floor is not
+above zero: an `info`-severity finding whose tool reports `low` confidence
+baselines at `1.0 − 1.0 = 0.0`, and stage 2's clamp floor is 0. An
+`info`-severity SAST finding in test code (`1.0 − 1.0 = 0.0` via
+`sast.test_path`) gets there too. Anything that rounds to 0.1 or above is
+`low`.
+
+Design rules, in order of importance:
+
+- **Banding consumes `det`, never `final`.** A triage verdict moves
+  `riskScore` within its documented bounds; it can never move a finding
+  across the severity gate. A test pins that flipping a verdict changes
+  `riskScore` but never `severity`. This keeps the platform ethos intact: no
+  LLM output ever touches severity, the gate, or another finding.
+- **`toolSeverity` is input and audit trail.** What `NormalizeSeverity`
+  produced survives on the finding (alongside `rawSeverity`, the tool's
+  verbatim string), feeds stage 1, and renders in the console as
+  "tool said: …" context. The banded `severity` is output only.
+- **The severity gate reads banded severity.** `--fail-severity high` means
+  "any finding whose deterministic risk lands ≥ 7.0". That is the point of
+  the change: the gate reflects context (test-path, exposure, corroboration),
+  not tool opinion. The gate's inputs remain 100% deterministic.
+- **Old documents are never re-banded.** A ≤1.4.0 run's stored `severity` is
+  tool-normalized and is displayed as-is; its stored risk scores may predate
+  current signal tables, so re-banding it would silently rewrite history. See
+  the 2.0.0 migration note in `docs/findings-model.md`.
+
+Worked contrast (from the examples below): the gitleaks secret in
+`testdata/fixtures/creds.env` (#5, det 5.0) was `high` under tool-normalized
+severity; banded it is `medium` — the test-path and low-entropy signals are
+now allowed to mean something. The DS-0031 next to a real detected secret
+(#4, det 9.0) rises from tool `critical`→9.25-baseline territory to a banded
+`critical` *with evidence attached*, while the bare `ARG BUILD_TOKEN` pattern
+(#1, det 7.8) settles at `high`.
+
 ## `riskSignals` (schema 1.3.0)
 
 Stage 2's evidence trail is exported on each finding:
@@ -301,6 +377,12 @@ resolution → `9.0 + 0.25 = 9.25`.
 | 11 | trivy-config `AWS-0107` world-open ingress (high, resolution) | 7.25 | +0.75 (public exposure) | — | **8.0** |
 | 12 | semgrep `shell=True` on a constant (medium) | 5.0 | 0 | FP @ 1.0 | **1.0** |
 | 13 | gitleaks secret, no path/entropy metadata at all | 8.0 | 0 (unknown = neutral) | — | **8.0** |
+
+Banding note: severity comes from the **Stage 2** column's result (the
+deterministic score), not the Final column. So #8 is `high` (det 7.5) even
+though triage lifted its final score to 8.4, and #12 stays `medium` (det 5.0)
+even though a confident FP verdict dropped its final score to 1.0 — verdicts
+move `riskScore`, never `severity`.
 
 The flagship contrast the v2 stage exists for: **#3 (9.4) > #4 (9.0) > #1/#2
 (7.8/8.3) > #5 (5.0)** — a corroborated real-looking secret in a shipped image

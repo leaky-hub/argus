@@ -1,6 +1,6 @@
 # Unified Findings Model
 
-**Schema version: 1.4.0** (`model.SchemaVersion`)
+**Schema version: 2.0.0** (`model.SchemaVersion`)
 
 This is the single most important contract in the platform. Every scanner
 adapter maps its native output *into* this model; every downstream stage —
@@ -49,8 +49,9 @@ Produced by `model.Normalize`. JSON field names are camelCase as tagged in
 | `tool` / `tools` | Primary reporting tool / all tools after correlation |
 | `category` | `SAST` \| `SECRET` \| `SCA` \| `IAC` \| `DAST` |
 | `ruleId`, `title`, `description` | |
-| `severity` | Normalized scale: `critical` > `high` > `medium` > `low` > `info` |
-| `rawSeverity` | Tool-native string, preserved for audit |
+| `severity` | **Banded deterministic risk** (2.0.0): a pure function of the stage-2 deterministic risk score — see the canonical band table in `docs/risk-scoring.md`. Scale: `critical` > `high` > `medium` > `low` > `info`. This is what the severity gate, reporters, SARIF level/security-severity, and all rollups read. LLM-free by construction (banding never sees the stage-3 triage adjustment) |
+| `toolSeverity` | **New in 2.0.0.** What `model.NormalizeSeverity` produces from the tool's native severity — the stage-1 risk input and the "tool said: …" audit trail. Always present in ≥2.0.0 documents; absent (JSON-omitted) in older documents, where `severity` itself is tool-normalized. Readers must feature-detect, never assume |
+| `rawSeverity` | Tool-native string, verbatim, preserved for audit |
 | `confidence` | Tool-reported, free-form for now |
 | `location` | `{file, startLine, endLine, url, snippet}` — `url` reserved for DAST; `snippet` optional (1.4.0, see below) |
 | `package`, `cve`, `cwes` | SCA / classification identity |
@@ -93,9 +94,25 @@ unreadable) — readers must feature-detect, never assume.
 ## Severity normalization
 
 Defined in `internal/model/severity.go` (`NormalizeSeverity`), explicit per
-tool. Design rule: **an unrecognized native severity may never make a finding
-disappear or sink to `info`** — unknowns fail toward `medium` so they still
-surface and can trip a gate.
+tool. Since 2.0.0 this table produces **`toolSeverity`** — the stage-1 risk
+input and audit context — while the finding's `severity` is banded from the
+deterministic risk score (`docs/risk-scoring.md`, "Severity banding").
+Design rule unchanged: **an unrecognized native severity may never make a
+finding disappear or sink to `info`** — unknowns fail toward `medium` so they
+still surface, carry a mid baseline into the risk score, and can trip a gate.
+
+Titles (2.0.0 quality floor): every normalized finding has a non-empty,
+deterministic, tool-derived `title` — never LLM text. Semgrep titles are the
+first sentence of the rule message; gitleaks titles come from a curated
+rule-ID map; any adapter that provides no title falls back to a deterministic
+humanization of the rule ID (dash/dot split, sentence case). All titles pass
+through one sanitizer in `Normalize` (control characters stripped, whitespace
+collapsed, capped at 120 runes) because rule messages are repo-adjacent
+hostile data that render in reports and prompts. `description` falls back to
+the title when empty; `remediation` stays empty when the tool provides
+nothing — inventing remediation text is out of scope by design. Titles and
+severity are **not** fingerprint inputs (proven by test), so both can change
+without breaking run deltas.
 
 | Tool | Native | Normalized |
 |---|---|---|
@@ -161,6 +178,20 @@ can have. When in doubt, don't merge.
 ## Versioning rules
 
 - `SchemaVersion` (semver) is embedded in JSON reports.
+- **2.0.0** (deep-scan): **severity semantics changed** — `severity` is now
+  the banded deterministic risk score (canonical band table in
+  `docs/risk-scoring.md`), no longer the tool-normalized value; the
+  tool-normalized value moved to the new `toolSeverity` field. Major bump per
+  the rule below. **Migration:** documents ≤1.4.0 remain readable — their
+  `severity` is tool-normalized and MAY be displayed as-is; **re-banding old
+  documents is forbidden** (their stored risk scores may predate current
+  signal tables, and mixing re-banded and original severities in one trend
+  line would silently rewrite history). `toolSeverity` is absent in old
+  documents; readers feature-detect. Run deltas keep working across the
+  boundary because fingerprints never contained severity or title. Also in
+  2.0.0: the deterministic title quality floor (above), `meta.gitHistory` /
+  `meta.commit` on secrets found only in git history, and run-level coverage
+  accounting in saved run documents.
 - **1.4.0** (Scan Studio): added optional `location.snippet` (captured code
   frame; format and capture rules documented above). Additive only; 1.3.0
   documents remain valid, and readers must treat a missing snippet as "not

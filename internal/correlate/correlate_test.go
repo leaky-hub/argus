@@ -101,3 +101,35 @@ func TestCorrelateCountNeverIncreasesAndNothingLost(t *testing.T) {
 		t.Errorf("unrelated findings must pass through, got %d", len(out))
 	}
 }
+
+// TestCorrelationKeysIgnoreTitleAndSeverity proves (not asserts) that the
+// correlation identity is title- and severity-free: two findings differing in
+// every presentation field still merge, and the merge keeps toolSeverity in
+// step with the max-severity rule. Schema 2.0.0 (banded severity, human
+// titles) depends on this.
+func TestCorrelationKeysIgnoreTitleAndSeverity(t *testing.T) {
+	low, high := model.SeverityLow, model.SeverityHigh
+	in := []model.Finding{
+		{Tool: "semgrep", Tools: []string{"semgrep"}, Category: model.CategorySAST,
+			RuleID: "r.sqli", Title: "tainted-sql-string",
+			Severity: low, ToolSeverity: &low, RawSeverity: "WARNING",
+			Location: model.Location{File: "app.py", StartLine: 10, EndLine: 10}},
+		{Tool: "semgrep", Tools: []string{"semgrep"}, Category: model.CategorySAST,
+			RuleID: "r.sqli", Title: "SQL injection from tainted string",
+			Severity: high, ToolSeverity: &high, RawSeverity: "ERROR",
+			Location: model.Location{File: "app.py", StartLine: 10, EndLine: 10}},
+	}
+	out := Correlate(in)
+	if len(out) != 1 {
+		t.Fatalf("got %d findings, want 1 (title/severity must not affect the key)", len(out))
+	}
+	if out[0].Severity != high {
+		t.Error("merge must keep the maximum severity")
+	}
+	if out[0].ToolSeverity == nil || *out[0].ToolSeverity != high {
+		t.Error("merge must keep toolSeverity in step with the max severity")
+	}
+	if out[0].RawSeverity != "ERROR" {
+		t.Error("merge must carry the raw severity of the max-severity source")
+	}
+}

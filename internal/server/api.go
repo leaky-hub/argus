@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/leaky-hub/appsec/internal/compliance"
+	"github.com/leaky-hub/appsec/internal/coverage"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/owasp"
 	"github.com/leaky-hub/appsec/internal/report"
@@ -26,9 +27,15 @@ type VerdictCounts struct {
 	Untriaged     int `json:"untriaged"`
 }
 
-// RiskBands buckets risk scores for the Overview histogram.
+// RiskBands buckets findings for the Overview histogram. Since schema 2.0.0
+// severity IS the banded deterministic risk score, so the histogram counts
+// severities — that is what makes it agree with the finding badges by
+// construction (counting the stored stage-3 riskScore instead would drift
+// whenever a triage verdict moved a score across a band edge). For pre-2.0.0
+// runs this shows tool-normalized severity, which is what their badges show.
 type RiskBands struct {
-	Low      int `json:"low"`      // < 4.0
+	Info     int `json:"info"`     // det 0.0
+	Low      int `json:"low"`      // 0.1 – 3.9
 	Medium   int `json:"medium"`   // 4.0 – 6.9
 	High     int `json:"high"`     // 7.0 – 8.9
 	Critical int `json:"critical"` // >= 9.0
@@ -92,6 +99,10 @@ type RunDetail struct {
 	NewIDs      []string                      `json:"newIds"`      // finding IDs new vs previous run
 	ResolvedIDs []string                      `json:"resolvedIds"` // IDs resolved since previous run
 	Findings    []model.Finding               `json:"findings"`
+	// Coverage is the run's skip accounting (schema 2.0.0): what the scan
+	// did not look at. Absent for runs saved before 2.0.0; the UI
+	// feature-detects.
+	Coverage *coverage.Accounting `json:"coverage,omitempty"`
 }
 
 const rfc3339 = "2006-01-02T15:04:05Z07:00"
@@ -121,23 +132,21 @@ func countVerdicts(findings []model.Finding) VerdictCounts {
 	return v
 }
 
-// riskBands buckets findings by risk score.
+// riskBands buckets findings by banded severity (see the RiskBands doc).
 func riskBands(findings []model.Finding) RiskBands {
 	var b RiskBands
 	for _, f := range findings {
-		if f.RiskScore == nil {
-			continue
-		}
-		s := *f.RiskScore
-		switch {
-		case s >= 9.0:
+		switch f.Severity {
+		case model.SeverityCritical:
 			b.Critical++
-		case s >= 7.0:
+		case model.SeverityHigh:
 			b.High++
-		case s >= 4.0:
+		case model.SeverityMedium:
 			b.Medium++
-		default:
+		case model.SeverityLow:
 			b.Low++
+		default:
+			b.Info++
 		}
 	}
 	return b
@@ -290,6 +299,7 @@ func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, err
 		NewIDs:      findingIDs(delta.New),
 		ResolvedIDs: findingIDs(delta.Resolved),
 		Findings:    doc.Findings,
+		Coverage:    doc.Coverage,
 	}, nil
 }
 

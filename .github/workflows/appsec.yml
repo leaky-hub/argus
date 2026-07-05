@@ -42,6 +42,11 @@ jobs:
       - name: Upload SARIF to code scanning
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        # Code scanning is not enabled on this private repo (needs Advanced
+        # Security), so the upload fails with "Resource not accessible by
+        # integration". Keep attempting it — it starts working the moment the
+        # repo goes public — but never fail the build on it.
+        continue-on-error: true
         with:
           sarif_file: results.sarif
           category: appsec-fixture-demo

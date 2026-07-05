@@ -130,7 +130,10 @@ func complyFindings(cmd *cobra.Command, target string) ([]model.Finding, string,
 		fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) suppressed by ignore rules\n", suppressed)
 	}
 	findings = correlate.Correlate(findings)
-	risk.Apply(findings)
+	// Band severity from the deterministic risk score, exactly like a scan
+	// (schema 2.0.0). Saved-run assessment above keeps stored severities:
+	// old documents are never re-banded.
+	risk.ApplyAndBand(findings)
 	return findings, "scan", nil
 }
 

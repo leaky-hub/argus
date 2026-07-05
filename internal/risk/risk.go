@@ -37,16 +37,37 @@ var highImpactCWEs = map[string]bool{
 // adjustment when a verdict is present. It takes the full run's findings so
 // co-location signals can see across scanners. Idempotent; never touches any
 // field other than RiskScore and RiskSignals.
-func Apply(findings []model.Finding) {
+//
+// The returned slice is the STAGE-2 DETERMINISTIC score per finding
+// (index-aligned, one decimal): where the LLM-free part of the formula ends
+// and the severity-banding input (model.SeverityForScore) begins. The stored
+// RiskScore is the full stage-3 value; the two differ exactly when a triage
+// verdict adjusted the score. Callers that band severity do so from the
+// return value, never from RiskScore, so no LLM output can move a severity.
+func Apply(findings []model.Finding) []float64 {
 	rc := buildRunContext(findings)
+	det := make([]float64, len(findings))
 	for i := range findings {
-		s, signals := score(findings[i], rc)
+		s, d, signals := score(findings[i], rc)
 		findings[i].RiskScore = &s
 		findings[i].RiskSignals = signals
+		det[i] = d
+	}
+	return det
+}
+
+// ApplyAndBand runs Apply and then sets each finding's Severity by banding
+// its deterministic (stage-2) score — the schema 2.0.0 pipeline step. It
+// lives beside Apply so no caller can accidentally band from the stored
+// stage-3 riskScore, which a triage verdict may have moved.
+func ApplyAndBand(findings []model.Finding) {
+	det := Apply(findings)
+	for i := range findings {
+		findings[i].Severity = model.SeverityForScore(det[i])
 	}
 }
 
-func score(f model.Finding, rc runContext) (float64, []model.RiskSignal) {
+func score(f model.Finding, rc runContext) (final, deterministic float64, _ []model.RiskSignal) {
 	s := Baseline(f)
 
 	// Stage 2: per-category context modifier (context.go). The summed delta
@@ -81,6 +102,11 @@ func score(f model.Finding, rc runContext) (float64, []model.RiskSignal) {
 		s = unverifiedCeiling
 	}
 
+	// Stage 2 ends here: `det` is the deterministic score severity is banded
+	// from (docs/risk-scoring.md, "Severity banding"). Everything below is the
+	// bounded LLM adjustment, which reaches riskScore only — never severity.
+	deterministic = round1(s)
+
 	// Stage 3: bounded triage adjustment, unchanged from v1.
 	floor := 0.0
 	if f.Triage != nil {
@@ -94,12 +120,22 @@ func score(f model.Finding, rc runContext) (float64, []model.RiskSignal) {
 	if ceiled {
 		s = math.Min(s, unverifiedCeiling)
 	}
-	return round1(s), signals
+	return round1(s), deterministic, signals
 }
 
 // Baseline is stage 1 of docs/risk-scoring.md: deterministic, LLM-free.
+//
+// The severity input is ToolSeverity — what NormalizeSeverity produced —
+// NEVER the finding's (banded) Severity: banded severity is derived from this
+// score, and feeding it back would make scores self-amplify across re-scores.
+// Findings from documents older than 2.0.0 have no ToolSeverity; their stored
+// Severity IS tool-normalized (never re-banded), so it is the correct input.
 func Baseline(f model.Finding) float64 {
-	s := severityBase(f.Severity)
+	sev := f.Severity
+	if f.ToolSeverity != nil {
+		sev = *f.ToolSeverity
+	}
+	s := severityBase(sev)
 
 	switch strings.ToLower(strings.TrimSpace(f.Confidence)) {
 	case "high":
@@ -141,7 +177,7 @@ func severityBase(s model.Severity) float64 {
 	}
 }
 
-// adjustment is stage 2: a pure, bounded function of the validated verdict
+// adjustment is stage 3: a pure, bounded function of the validated verdict
 // and confidence. Confidence is clamped again here so a bug upstream can
 // never widen the bounds.
 func adjustment(t *model.Triage) float64 {

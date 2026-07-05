@@ -31,18 +31,57 @@ var highImpactCWEs = map[string]bool{
 	"CWE-1336": true, // template injection
 }
 
-// Apply sets RiskScore on every finding, in place, unconditionally: the
-// heuristic baseline always, plus the bounded triage adjustment when a
-// verdict is present. Idempotent; never touches any other field.
+// Apply sets RiskScore and RiskSignals on every finding, in place,
+// unconditionally: the heuristic baseline always, the per-category context
+// modifier always (neutral when no signal fires), plus the bounded triage
+// adjustment when a verdict is present. It takes the full run's findings so
+// co-location signals can see across scanners. Idempotent; never touches any
+// field other than RiskScore and RiskSignals.
 func Apply(findings []model.Finding) {
+	rc := buildRunContext(findings)
 	for i := range findings {
-		s := score(findings[i])
+		s, signals := score(findings[i], rc)
 		findings[i].RiskScore = &s
+		findings[i].RiskSignals = signals
 	}
 }
 
-func score(f model.Finding) float64 {
+func score(f model.Finding, rc runContext) (float64, []model.RiskSignal) {
 	s := Baseline(f)
+
+	// Stage 2: per-category context modifier (context.go). The summed delta
+	// is capped at ±3.0 so no heuristic stack can dominate severity; a
+	// synthetic row records the clamp so exported deltas sum exactly to the
+	// applied change.
+	signals := contextSignals(f, rc)
+	raw := 0.0
+	for _, sg := range signals {
+		raw += sg.Delta
+	}
+	delta := clamp(raw, -contextCap, contextCap)
+	if delta != raw {
+		signals = append(signals, model.RiskSignal{
+			Code: "context.cap", Delta: round2(delta - raw),
+			Note: "context delta capped at ±3.0",
+		})
+	}
+	s = clamp(s+delta, 0, 10)
+
+	// Unverified ceiling: the top of the critical band ([9.5, 10]) is
+	// reserved for credentials explicitly verified live. Static heuristics
+	// corroborating each other reach at most 9.4 — and so does a triage
+	// true-positive below, because the LLM never sees the secret value and
+	// therefore cannot confirm liveness.
+	ceiled := secretShaped(f) && verifiedState(f) != verifiedLive
+	if ceiled && s > unverifiedCeiling {
+		signals = append(signals, model.RiskSignal{
+			Code: "secret.unverified_ceiling", Delta: round2(unverifiedCeiling - s),
+			Note: "unverified secrets cap at 9.4; only meta.verified=live lifts the ceiling",
+		})
+		s = unverifiedCeiling
+	}
+
+	// Stage 3: bounded triage adjustment, unchanged from v1.
 	floor := 0.0
 	if f.Triage != nil {
 		s += adjustment(f.Triage)
@@ -51,7 +90,11 @@ func score(f model.Finding) float64 {
 			floor = 0.5
 		}
 	}
-	return round1(clamp(s, floor, 10))
+	s = clamp(s, floor, 10)
+	if ceiled {
+		s = math.Min(s, unverifiedCeiling)
+	}
+	return round1(s), signals
 }
 
 // Baseline is stage 1 of docs/risk-scoring.md: deterministic, LLM-free.
@@ -119,4 +162,10 @@ func clamp(v, lo, hi float64) float64 {
 
 func round1(v float64) float64 {
 	return math.Round(v*10) / 10
+}
+
+// round2 keeps synthetic signal deltas (cap/ceiling remainders) clean in
+// JSON; table deltas are exact two-decimal constants already.
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }

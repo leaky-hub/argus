@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Finding, RunDetail, Severity, SEVERITIES } from "../api";
+import { Finding, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
@@ -214,6 +214,8 @@ function Detail({ f, isNew }: { f: Finding; isNew: boolean }) {
           </Row>
         )}
 
+        <RiskSignals signals={f.riskSignals} />
+
         {f.triage && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
             <div className="mb-1 flex items-center gap-2">
@@ -240,6 +242,42 @@ function Detail({ f, isNew }: { f: Finding; isNew: boolean }) {
         )}
       </div>
     </Panel>
+  );
+}
+
+// Why a finding ranks where it does: the stage-2 context signals from the Go
+// risk engine, as chips. Rose raises risk, emerald lowers it; the fixed note
+// string is the tooltip. All values render as escaped text only.
+function RiskSignals({ signals }: { signals?: RiskSignal[] }) {
+  if (!signals || signals.length === 0) return null;
+
+  return (
+    <Row label="Why">
+      <span className="flex flex-wrap gap-1">
+        {signals.map((s) => {
+          const colorClass =
+            s.delta > 0
+              ? "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+              : s.delta < 0
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
+
+          const magnitude = Math.abs(s.delta).toFixed(2).replace(/\.?0+$/, "");
+          const deltaStr = `${s.delta < 0 ? "−" : "+"}${magnitude}`;
+
+          return (
+            <span
+              key={s.code}
+              className={`rounded px-1.5 py-0.5 font-mono text-xs ${colorClass}`}
+              title={s.note}
+            >
+              {s.code}{" "}
+              <span className="font-semibold tabular-nums">{deltaStr}</span>
+            </span>
+          );
+        })}
+      </span>
+    </Row>
   );
 }
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leaky-hub/appsec/internal/correlate"
 	"github.com/leaky-hub/appsec/internal/scanner"
 )
 
@@ -64,6 +65,24 @@ func TestProfileRecall(t *testing.T) {
 		}
 		caughtBy[prof] = CaughtPlants(plants, DetectedCWEs(findings))
 		t.Logf("%s: %d/%d plants caught", prof, len(caughtBy[prof]), len(plants))
+
+		// No-suppression proof for the noise collapse (locked decision 1):
+		// correlation is collapse, never suppression, so the plant catch set
+		// must be IDENTICAL before and after Correlate at every profile. A
+		// plant missing here means a merge swallowed a real detection.
+		correlated := correlate.Correlate(findings)
+		after := CaughtPlants(plants, DetectedCWEs(correlated))
+		for id := range caughtBy[prof] {
+			if !after[id] {
+				t.Errorf("SUPPRESSED: plant %s caught by %s pre-correlate but gone post-correlate", id, prof)
+			}
+		}
+		for id := range after {
+			if !caughtBy[prof][id] {
+				t.Errorf("plant %s appears only post-correlate under %s — impossible unless correlation fabricates evidence", id, prof)
+			}
+		}
+		t.Logf("%s noise: %d findings pre-correlate, %d post-correlate, catch set identical", prof, len(findings), len(correlated))
 	}
 
 	// Each plant: caught by its min profile and everything above it.

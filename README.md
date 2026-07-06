@@ -138,6 +138,28 @@ discovered profile name (never a key); cloud runs appear in the aggregated Runs
 tab with a resource-aware finding drawer and an optional on-demand,
 never-persisted **AI posture summary**.
 
+Every cloud finding also carries prowler's own **per-finding compliance
+mapping** — the exact controls it violates across NIST-CSF, ISO-27001, PCI,
+SOC2, HIPAA, GDPR, MITRE ATT&CK, FedRAMP and more — passed through verbatim
+and version-pinned, on top of the gap-reportable CIS-AWS mapping.
+
+## AI-assisted remediation
+
+From any finding, an operator can ask for an **assisted remediation**: a
+concrete, category-aware fix to review and run. Cloud findings get a scoped
+`aws`/`az`/`gcloud` script targeting the exact resource; code findings a
+before→after patch; dependencies the upgrade command; secrets rotation steps.
+
+It is **assisted, never automated**: Bulwark generates a script the *you* run
+with your own credentials — it never executes anything, never holds a write
+credential, and never marks a finding "fixed" (only a re-scan clears it, so
+every remediation ends with a verification step). A **deterministic safety
+linter** runs before anything reaches the browser: a destructive command
+(delete/terminate, `drop table`, `rm -rf`, allow-all) or an embedded
+credential is withheld, the human steps kept, with a warning — safe by
+degradation. It's an on-demand, never-persisted local-LLM seam, labeled
+AI-generated in the UI.
+
 Missing scanners are skipped with a note — the CLI degrades gracefully and
 runs whatever the environment provides. The same applies to triage: no LLM
 reachable means the scan simply runs without verdicts.

@@ -83,7 +83,7 @@ export function CategoryBadge({ category, compact = false }: { category: string;
 // Known categories come first in canonical order; unknown categories present
 // in the data are appended, never hidden.
 export function CategoryBreakdown({ byCategory }: { byCategory: Record<string, number> }) {
-  const order = ["SAST", "SECRET", "SCA", "IAC", "DAST"];
+  const order = ["SAST", "SECRET", "SCA", "IAC", "DAST", "CLOUD"];
   const extras = Object.keys(byCategory).filter((c) => !order.includes(c)).sort();
   const entries = [...order, ...extras]
     .map((cat) => ({ cat, count: byCategory[cat] || 0 }))

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CoverageAccounting, ExplainResponse, Finding, opsApi, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { CoverageAccounting, ExplainResponse, Finding, locationLabel, opsApi, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
@@ -123,6 +123,7 @@ export function Findings({
           f.title.toLowerCase().includes(needle) ||
           (f.description ?? "").toLowerCase().includes(needle) ||
           (f.location.file ?? "").toLowerCase().includes(needle) ||
+          (f.location.resource ?? "").toLowerCase().includes(needle) ||
           f.ruleId.toLowerCase().includes(needle) ||
           (f.cwes ?? []).some((c) => c.toLowerCase().includes(needle)),
       )
@@ -238,7 +239,7 @@ export function Findings({
                       </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
                         <CategoryBadge category={f.category} compact />
-                        <span className="truncate">{f.location.file}</span>
+                        <span className="truncate">{locationLabel(f.location)}</span>
                       </div>
                     </td>
                     <td className="py-1.5 pr-2">
@@ -395,11 +396,8 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain }: {
         <h3 className="break-words font-mono text-sm font-semibold">{f.title}</h3>
         {f.description && <p className="whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{f.description}</p>}
 
-        <Row label="Location">
-          <code className="break-all text-xs">
-            {f.location.file}
-            {f.location.startLine ? `:${f.location.startLine}` : ""}
-          </code>
+        <Row label={f.location.resource && !f.location.file ? "Resource" : "Location"}>
+          <code className="break-all text-xs">{locationLabel(f.location)}</code>
         </Row>
         {f.meta?.commit && (
           <Row label="Commit"><code className="break-all text-xs">{f.meta.commit}</code></Row>

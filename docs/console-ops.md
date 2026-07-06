@@ -25,7 +25,7 @@ an on-demand, never-persisted AI explanation per finding.
   phase**: a read-only, loopback-bound viewer over `.appsec/runs`. No login
   page, no session checks on read routes; every operational endpoint answers
   `403` with a message naming the bootstrap command
-  (`appsec user add --role admin`). Nothing to configure, nothing new to
+  (`bulwark user add --role admin`). Nothing to configure, nothing new to
   trust.
 - **One or more users on disk ⇒ every `/api/*` route requires a session**,
   reads included. Mixed anonymous-read/authenticated-write is a footgun once
@@ -37,7 +37,7 @@ an on-demand, never-persisted AI explanation per finding.
   part of the SPA bundle.
 - **The console still ships no TLS.** A login over plaintext HTTP is a
   credential disclosure to the network path. The supported way to leave
-  loopback is a TLS-terminating reverse proxy in front (§8) — `appsec serve`
+  loopback is a TLS-terminating reverse proxy in front (§8) — `bulwark serve`
   itself refuses to pretend otherwise, and the non-loopback warning says so.
 - **The browser can never supply a filesystem path or a scanner argument.**
   Scans launch against pre-registered target IDs with closed-enum options,
@@ -118,7 +118,7 @@ route pattern + method → minimum role, checked in middleware before any
 handler runs. The UI hides what you cannot do; the server refuses it.
 
 Legend for the zero-users column: `open` = behaves exactly as the pre-auth
-console; `403+hint` = refused with a body naming `appsec user add`.
+console; `403+hint` = refused with a body naming `bulwark user add`.
 
 | Method | Route | Min role (users exist) | Zero users |
 |--------|-------|------------------------|------------|
@@ -190,7 +190,7 @@ Notes:
 
 ## 7. Scan execution model
 
-- **Registry**: targets are registered by an admin (CLI `appsec target
+- **Registry**: targets are registered by an admin (CLI `bulwark target
   add|list|remove` or the admin API) as
   `{id, name, path, scanners, profile}`. `id` is random hex, assigned by the
   server — the browser only ever echoes it back. Path validation at
@@ -214,7 +214,7 @@ Notes:
   `scan` command now wraps — with the target repo's own `appsec.yml` as the
   config base. Findings are saved through the existing `runstore.Save` path
   **into the scanned target's own `.appsec/runs`**, exactly where
-  `appsec scan --save` would put them. When the target is the served repo
+  `bulwark scan --save` would put them. When the target is the served repo
   (the primary workflow: register the repo you're serving), the run appears
   in the console's runs list with no new read API. A target pointing at a
   different repo still scans and saves correctly, but its history lives with
@@ -240,7 +240,7 @@ and the server saves but never writes reports.
 
 ## 8. Deployment: leaving loopback
 
-`appsec serve` binds `127.0.0.1:8080` and terminates no TLS. That is a
+`bulwark serve` binds `127.0.0.1:8080` and terminates no TLS. That is a
 feature: TLS config is deployment-specific and doing it badly is worse than
 not doing it. **The supported way to expose the console is a
 TLS-terminating reverse proxy** (Caddy, nginx, Traefik) on the same host:
@@ -267,7 +267,7 @@ credentials will cross the network in cleartext without a TLS proxy.
 | Target registry | unknown target ID → 404; `target add` with relative / `..` / file / `/` → rejected |
 | Serial queue | two POSTed scans: second stays `queued` until first finishes; 11th pending → 429 |
 | Zero-users mode | pre-existing server tests unchanged; ops routes → 403 naming the bootstrap command |
-| Pipeline | golden capture: `appsec scan` stdout/stderr/exit codes byte-identical pre/post extraction |
+| Pipeline | golden capture: `bulwark scan` stdout/stderr/exit codes byte-identical pre/post extraction |
 | Git URL policy (S1) | table-driven: `http://`, `ssh://`, `git://`, `file://`, scp-style, userinfo, no host, argument-injection shapes (`--upload-pack=…`) → rejected; plain https accepted |
 | Git executor (S1) | local bare-repo fixtures (`git init --bare` in tempdir; `file://` clones allowed ONLY via explicit test hook, never in production config); clone→scan→commit-SHA recorded; refresh preserves workspace `.appsec/runs`; no network in tests |
 | Scope confinement (S2) | table-driven: `../`, absolute, `.git/…`, `.appsec/…`, nonexistent, symlink-escape via a real symlink fixture → 400/failed; valid subdir and single file → scanned path = joined path |
@@ -283,26 +283,26 @@ credentials will cross the network in cleartext without a TLS proxy.
 ```bash
 # 1. Create the first admin (CLI only — there is no open registration API).
 cd /path/to/repo
-appsec user add alice --role admin            # prompts for password (no echo)
+bulwark user add alice --role admin            # prompts for password (no echo)
 # or, for scripting:
-echo -n 's3cret-passphrase' | appsec user add alice --role admin --password-stdin
+echo -n 's3cret-passphrase' | bulwark user add alice --role admin --password-stdin
 
 # 2. Register what may be scanned (admin).
-appsec target add /abs/path/to/repo --name "payments-api" --scanners semgrep,gitleaks
+bulwark target add /abs/path/to/repo --name "payments-api" --scanners semgrep,gitleaks
 
 # 3. Serve and log in.
-appsec serve            # http://127.0.0.1:8080 now shows a login page
+bulwark serve            # http://127.0.0.1:8080 now shows a login page
 
 # 4. Onboard teammates from the console (admin → Users) or the CLI:
-appsec user add bob --role viewer
-appsec user add carol --role operator
+bulwark user add bob --role viewer
+bulwark user add carol --role operator
 
 # 5. Operate: pick a target, choose scanners/profile/triage, Launch.
 #    Watch the job progress; the finished run lands in Runs as usual.
 #    Admins can review every action under Audit.
 ```
 
-`appsec user list|passwd|remove` and `appsec target list|remove` complete
+`bulwark user list|passwd|remove` and `bulwark target list|remove` complete
 the lifecycle. All user/target commands take `--dir` like `serve` does.
 
 ## 11. Explicit non-goals
@@ -366,16 +366,16 @@ and an optional branch instead of a path:
 file inside the target, validated per threat row S2 (relative, cleaned, no
 `..`, exists, inside root after `EvalSymlinks`, not into `.git/` or
 `.appsec/`) at enqueue and re-validated at execution. The pipeline receives
-the joined path the same way `appsec scan <path>` does. Scope is recorded on
+the joined path the same way `bulwark scan <path>` does. Scope is recorded on
 the job and in the `scan.launch` audit line. The run is saved to the
 TARGET's run store (not the scope subdirectory) — a scoped run is part of
-the target's history, labeled by its job. No CLI change: `appsec scan
+the target's history, labeled by its job. No CLI change: `bulwark scan
 <path>` already is scope.
 
 ### 12.3 Config layering (S3)
 
 Registry entries gain a structured `config` block, editable only via
-`PATCH /api/targets/{id}` (admin) or `appsec target` CLI:
+`PATCH /api/targets/{id}` (admin) or `bulwark target` CLI:
 
 ```
 config: {
@@ -442,7 +442,7 @@ The table lives next to the compliance data and must be updated when a
 framework file is added (a loader test pins the correspondence). Frameworks
 are recorded on the job and audit line, NOT in the run file (same rule as
 `launchedBy`: run files are the frozen `report.Document`). CLI parity:
-`appsec scan --frameworks PCI-DSS` validates and narrows identically, with a
+`bulwark scan --frameworks PCI-DSS` validates and narrows identically, with a
 NOTE progress line naming the narrowed scanner set.
 
 ### 12.6 On-demand explain (S5)

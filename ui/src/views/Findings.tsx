@@ -773,7 +773,7 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
                 <button onClick={onRemediate} className="text-xs text-emerald-600 hover:underline dark:text-emerald-400">retry</button>
               </div>
             ) : remediateState.data ? (
-              <RemediationPanel r={remediateState.data} category={f.category} onRegenerate={onRemediate} />
+              <RemediationPanel r={remediateState.data} category={f.category} location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)} onRegenerate={onRemediate} />
             ) : null}
           </div>
         )}
@@ -1008,7 +1008,7 @@ function stripStepNumber(s: string): string {
   return s.replace(/^\s*\d+[.)]\s+/, "");
 }
 
-function RemediationPanel({ r, category, onRegenerate }: { r: RemediationResponse; category: string; onRegenerate: () => void }) {
+function RemediationPanel({ r, category, location, onRegenerate }: { r: RemediationResponse; category: string; location?: string; onRegenerate: () => void }) {
   const infra = category === "CLOUD" || category === "IAC";
   // Neutral card, one caution accent — the fix is the content, not the colour.
   return (
@@ -1041,7 +1041,7 @@ function RemediationPanel({ r, category, onRegenerate }: { r: RemediationRespons
         </ol>
       )}
 
-      {r.artifacts?.map((a, i) => (a.language === "diff" ? <DiffView key={i} content={a.content} title={a.title} /> : <ArtifactBlock key={i} a={a} />))}
+      {r.artifacts?.map((a, i) => (a.language === "diff" ? <DiffView key={i} content={a.content} title={a.title} location={location} /> : <ArtifactBlock key={i} a={a} />))}
 
       {r.warnings && r.warnings.length > 0 && (
         <ul className="ml-4 list-disc space-y-0.5 text-[11px] text-gray-600 dark:text-gray-400">
@@ -1112,25 +1112,27 @@ function parseDiffSideBySide(diff: string): DiffRow[] {
 }
 
 // DiffView renders a code patch as before/after side by side: the left column
-// is the original with its surrounding lines, the right is the same with the
-// fix applied. Changed lines get a restrained tint; everything else is neutral.
-function DiffView({ content, title }: { content: string; title?: string }) {
+// is the finding's actual code with its surrounding lines, the right is the
+// same with the fix applied. Changed lines get a restrained tint; everything
+// else is neutral. Columns size to their content and the whole grid scrolls
+// both ways (long lines don't wrap or clip), with the Before/After labels
+// pinned on vertical scroll.
+function DiffView({ content, title, location }: { content: string; title?: string; location?: string }) {
   const rows = useMemo(() => parseDiffSideBySide(content), [content]);
   if (rows.length === 0) return <ArtifactBlock a={{ language: "diff", title: title ?? "", content }} />;
   const cell = "whitespace-pre px-2 py-px";
+  const label = "sticky top-0 z-10 border-b border-gray-200 bg-gray-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800 dark:bg-gray-800";
   return (
     <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
       <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 text-[10px] text-gray-500 dark:bg-gray-800">
         <span className="font-mono uppercase">patch</span>
-        {title && <span className="truncate">{title}</span>}
+        {location && <span className="truncate font-mono">{location}</span>}
         <span className="ml-auto"><CopyButton text={content} /></span>
       </div>
-      <div className="grid grid-cols-2 border-b border-gray-200 bg-gray-50 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800 dark:bg-gray-900/60">
-        <div className="border-r border-gray-200 px-2 py-0.5 dark:border-gray-800">Before</div>
-        <div className="px-2 py-0.5">After</div>
-      </div>
-      <div className="scroll-thin overflow-x-auto">
-        <div className="grid min-w-[560px] grid-cols-2 font-mono text-[11px] leading-relaxed">
+      <div className="scroll-thin max-h-96 overflow-auto">
+        <div className="grid grid-cols-[minmax(240px,max-content)_minmax(240px,max-content)] font-mono text-[11px] leading-relaxed">
+          <div className={`${label} border-r`}>Before</div>
+          <div className={label}>After</div>
           {rows.map((row, i) => (
             <Fragment key={i}>
               <div className={`${cell} border-r border-gray-200 dark:border-gray-800 ${row.leftDel ? "bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300" : "text-gray-700 dark:text-gray-300"}`}>

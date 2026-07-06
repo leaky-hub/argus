@@ -1,0 +1,40 @@
+{
+  "weakness": "ldap-injection",
+  "title": "LDAP Injection",
+  "cwes": ["CWE-90"],
+  "principle": "Never concatenate user input into an LDAP filter or DN. Escape it with the library's filter-escaping function (or a parameterized search API) so characters like ( ) * \\ and NUL can't change the query's meaning. Validate the input shape first where you can.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "ldap3's escape_filter_chars",
+      "vulnerable": "conn.search(base, f\"(uid={username})\")",
+      "secure": "from ldap3.utils.conv import escape_filter_chars\nconn.search(base, f\"(uid={escape_filter_chars(username)})\")",
+      "note": "escape_filter_chars neutralizes ( ) * \\ and NUL. For DNs use escape_rdn. python-ldap exposes ldap.filter.escape_filter_chars equivalently."
+    },
+    {
+      "language": "java",
+      "library": "Spring LDAP filters or the OWASP ESAPI encoder",
+      "vulnerable": "String f = \"(uid=\" + username + \")\";\nctx.search(base, f, controls);",
+      "secure": "Filter f = new EqualsFilter(\"uid\", username); // Spring LDAP escapes the value\nctx.search(base, f.encode(), controls);",
+      "note": "Spring LDAP's Filter classes encode values for you. With raw JNDI, escape the value per RFC 4515 (or ESAPI's encodeForLDAP) before building the string."
+    },
+    {
+      "language": "csharp",
+      "library": "System.DirectoryServices with an escaped filter value",
+      "vulnerable": "var s = new DirectorySearcher(entry) { Filter = $\"(uid={username})\" };",
+      "secure": "string safe = username.Replace(\"\\\\\", \"\\\\5c\").Replace(\"*\", \"\\\\2a\").Replace(\"(\", \"\\\\28\").Replace(\")\", \"\\\\29\").Replace(\"\\0\", \"\\\\00\");\nvar s = new DirectorySearcher(entry) { Filter = $\"(uid={safe})\" };",
+      "note": "Escape ( ) * \\ and NUL to their \\XX hex forms per RFC 4515 before interpolating. Prefer a helper so every search path is covered."
+    },
+    {
+      "language": "go",
+      "library": "go-ldap's EscapeFilter",
+      "vulnerable": "filter := \"(uid=\" + username + \")\"",
+      "secure": "filter := \"(uid=\" + ldap.EscapeFilter(username) + \")\"",
+      "note": "go-ldap.EscapeFilter handles the RFC 4515 special characters. Build the filter around the escaped value, never the raw one."
+    }
+  ],
+  "references": [
+    {"title": "OWASP LDAP Injection Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/LDAP_Injection_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-90: LDAP Injection", "url": "https://cwe.mitre.org/data/definitions/90.html"}
+  ]
+}

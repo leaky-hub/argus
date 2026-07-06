@@ -1,0 +1,33 @@
+{
+  "weakness": "xpath-injection",
+  "title": "XPath Injection",
+  "cwes": ["CWE-643", "CWE-91"],
+  "principle": "Don't build an XPath expression by concatenating user input. Use a precompiled expression with bound variables (a variable resolver), so the input is a value the evaluator substitutes, never part of the query syntax.",
+  "snippets": [
+    {
+      "language": "java",
+      "library": "javax.xml.xpath with an XPathVariableResolver",
+      "vulnerable": "xpath.evaluate(\"/users/user[name='\" + name + \"']\", doc);",
+      "secure": "XPath xpath = XPathFactory.newInstance().newXPath();\nxpath.setXPathVariableResolver(v -> \"name\".equals(v.getLocalPart()) ? name : null);\nxpath.evaluate(\"/users/user[name=$name]\", doc);",
+      "note": "Bind $name through the resolver; the value can't alter the expression. Never string-concatenate into the XPath."
+    },
+    {
+      "language": "python",
+      "library": "lxml XPath with variables",
+      "vulnerable": "tree.xpath(\"/users/user[name='%s']\" % name)",
+      "secure": "tree.xpath(\"/users/user[name=$name]\", name=name)",
+      "note": "lxml substitutes named variables as values, not syntax. Do the same with ElementTree by filtering results in Python rather than embedding input in the path."
+    },
+    {
+      "language": "csharp",
+      "library": "XPathExpression with an XsltArgumentList / variable",
+      "vulnerable": "nav.Select($\"/users/user[name='{name}']\");",
+      "secure": "var expr = nav.Compile(\"/users/user[name=$name]\");\nvar ctx = new CustomXsltContext(); // resolves $name to the value\nexpr.SetContext(ctx);\nnav.Select(expr);",
+      "note": "Provide the value through an XsltContext/variable rather than interpolating. For simple cases, validate the input against a strict allowlist first."
+    }
+  ],
+  "references": [
+    {"title": "OWASP XPath Injection", "url": "https://owasp.org/www-community/attacks/XPATH_Injection"},
+    {"title": "CWE-643: XPath Injection", "url": "https://cwe.mitre.org/data/definitions/643.html"}
+  ]
+}

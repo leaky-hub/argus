@@ -629,3 +629,20 @@ maps a finding's CWEs to an entry and promotes the snippet for the finding's
 language; the Findings drawer shows it as a "Secure code fix" panel with
 copyable vulnerable/secure blocks. `bulwark mitigations [weakness]` browses the
 same library from the terminal.
+
+## 17. Mitigation library growth & remediation grounding
+
+The secure-coding library (§16) now covers 15 weakness classes — SQLi, XSS,
+SSRF, CSRF, auth/session, command injection, path traversal, weak crypto,
+insecure deserialization, open redirect, XXE, LDAP injection, XPath injection,
+SSTI, and mass assignment — across Python, JavaScript/TypeScript, Java, Go,
+plus Ruby, PHP, and C# where each is the classic sink. Still data-only to grow.
+
+The AI remediation now anchors to real code. When a code finding carries a
+captured snippet, buildRemediatePrompt instructs the model to produce a
+unified diff whose context and removed lines are copied verbatim from that
+snippet — so the "before" side is the finding's actual vulnerable line, not an
+invented example. With no snippet it must not fabricate a diff (steps plus a
+clearly-illustrative example instead). The console renders code patches as a
+side-by-side before/after view (DiffView) whose columns size to content and
+scroll both ways, with the finding's file:line in the header.

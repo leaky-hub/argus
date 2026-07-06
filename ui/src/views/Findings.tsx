@@ -160,7 +160,7 @@ export function Findings({
     {detail.coverage && <CoverageStrip cov={detail.coverage} />}
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
       {/* Filter rail + list */}
-      <div className="lg:col-span-3">
+      <div className="min-w-0 lg:col-span-3">
         <Panel
           title={`Findings (${filtered.length}/${detail.findings.length})`}
           right={
@@ -262,7 +262,7 @@ export function Findings({
       </div>
 
       {/* Detail pane */}
-      <div className="lg:col-span-2">
+      <div className="min-w-0 lg:col-span-2">
         {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} /> : null}
       </div>
     </div>
@@ -373,7 +373,7 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain }: {
         {/* Code Frame */}
         {f.location.snippet && (
           <Row label="Code">
-            <div className="overflow-x-auto whitespace-pre font-mono text-xs bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-800">
+            <div className="max-w-full overflow-x-auto whitespace-pre font-mono text-xs bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-800">
               {f.location.snippet.lines.map((line, i) => {
                 const lineNum = f.location.snippet!.startLine + i;
                 const start = f.location.startLine ?? 0;
@@ -561,10 +561,13 @@ function RiskSignals({ signals }: { signals?: RiskSignal[] }) {
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  // min-w-0 on the value cell: grid children default to min-width:auto, so a
+  // wide code frame would otherwise expand the column (and the page) instead
+  // of scrolling inside its overflow container.
   return (
     <div className="grid grid-cols-[80px_1fr] gap-2">
       <span className="text-xs font-medium uppercase text-gray-400">{label}</span>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

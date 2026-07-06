@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { useToast } from "../toast";
@@ -1002,43 +1002,52 @@ const KIND_LABEL: Record<string, string> = {
   "dependency-upgrade": "Dependency upgrade", "secret-rotation": "Secret rotation",
   manual: "Manual steps",
 };
+// stripStepNumber removes a leading "1." / "2)" the model often prepends, so a
+// numbered list doesn't render as "1. 1. …".
+function stripStepNumber(s: string): string {
+  return s.replace(/^\s*\d+[.)]\s+/, "");
+}
+
 function RemediationPanel({ r, category, onRegenerate }: { r: RemediationResponse; category: string; onRegenerate: () => void }) {
   const infra = category === "CLOUD" || category === "IAC";
+  // Neutral card, one caution accent — the fix is the content, not the colour.
   return (
-    <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+    <div className="space-y-2.5 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
       <div className="flex items-center gap-2">
-        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+        <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
           {KIND_LABEL[r.kind] ?? r.kind}
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">AI-generated · review before running</span>
-        <button onClick={onRegenerate} className="ml-auto text-[10px] text-emerald-700 hover:underline dark:text-emerald-400">regenerate</button>
+        <span className="text-[10px] uppercase tracking-wide text-gray-400">AI-generated</span>
+        <button onClick={onRegenerate} className="ml-auto text-[10px] text-gray-500 hover:text-gray-700 hover:underline dark:hover:text-gray-300">regenerate</button>
       </div>
 
       <p className="break-words text-xs font-medium text-gray-800 dark:text-gray-200">{r.summary}</p>
 
-      {/* The banner: this is advice you run yourself, and only a re-scan confirms it. */}
-      <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-        You run this yourself with your own credentials — Bulwark never applies it{infra ? ", and it modifies live infrastructure" : ""}. Re-scan to confirm the finding clears.
+      {/* One caution accent: you run it yourself, and a re-scan confirms it. */}
+      <div className="flex gap-1.5 rounded border-l-2 border-amber-400 bg-amber-50/60 px-2 py-1.5 text-[11px] text-amber-800 dark:bg-amber-900/15 dark:text-amber-300">
+        <span>Review before running. You apply this with your own credentials{infra ? "; it modifies live infrastructure" : ""}. The finding clears only on re-scan.</span>
       </div>
 
       {r.safetyIssues && r.safetyIssues.length > 0 && (
-        <div className="rounded border border-red-300 bg-red-50 px-2 py-1.5 text-[11px] text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+        <div className="rounded border-l-2 border-red-400 bg-red-50/60 px-2 py-1.5 text-[11px] text-red-800 dark:bg-red-950/20 dark:text-red-300">
           <span className="font-semibold">Safety linter defanged this suggestion:</span>
           <ul className="ml-4 list-disc">{r.safetyIssues.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
       )}
 
       {r.steps && r.steps.length > 0 && (
-        <ol className="ml-4 list-decimal space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
-          {r.steps.map((s, i) => <li key={i} className="break-words">{s}</li>)}
+        <ol className="ml-4 list-decimal space-y-1 text-xs text-gray-700 dark:text-gray-300 marker:text-gray-400">
+          {r.steps.map((s, i) => <li key={i} className="break-words pl-1">{stripStepNumber(s)}</li>)}
         </ol>
       )}
 
-      {r.artifacts?.map((a, i) => <ArtifactBlock key={i} a={a} />)}
+      {r.artifacts?.map((a, i) => (a.language === "diff" ? <DiffView key={i} content={a.content} title={a.title} /> : <ArtifactBlock key={i} a={a} />))}
 
-      {r.warnings && r.warnings.map((w, i) => (
-        <p key={i} className="text-[11px] text-amber-700 dark:text-amber-400">⚠ {w}</p>
-      ))}
+      {r.warnings && r.warnings.length > 0 && (
+        <ul className="ml-4 list-disc space-y-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+          {r.warnings.map((w, i) => <li key={i}>{w}</li>)}
+        </ul>
+      )}
 
       {r.verification && (
         <p className="text-[11px] text-gray-600 dark:text-gray-400"><span className="font-semibold">Verify:</span> {r.verification}</p>
@@ -1048,25 +1057,92 @@ function RemediationPanel({ r, category, onRegenerate }: { r: RemediationRespons
   );
 }
 
-function ArtifactBlock({ a }: { a: RemediationArtifact }) {
+// CopyButton is the shared copy affordance for code blocks.
+function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard?.writeText(a.content).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    }).catch(() => {});
-  };
+  return (
+    <button
+      onClick={() => { navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); }}
+      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700"
+    >
+      {copied ? "copied" : "copy"}
+    </button>
+  );
+}
+
+function ArtifactBlock({ a }: { a: RemediationArtifact }) {
   return (
     <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
       <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 text-[10px] text-gray-500 dark:bg-gray-800">
         <span className="font-mono uppercase">{a.language}</span>
         {a.title && <span className="truncate">{a.title}</span>}
-        <button onClick={copy} className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-900/40">
-          {copied ? "copied" : "copy"}
-        </button>
+        <span className="ml-auto"><CopyButton text={a.content} /></span>
       </div>
       {/* Escaped text only — never dangerouslySetInnerHTML. */}
       <pre className="scroll-thin overflow-x-auto whitespace-pre bg-gray-50 p-2 font-mono text-[11px] text-gray-800 dark:bg-gray-900 dark:text-gray-200">{a.content}</pre>
+    </div>
+  );
+}
+
+// A parsed unified-diff row for the side-by-side view. A context line appears
+// on both sides; a removal only on the left, an addition only on the right,
+// with removals/additions paired so the two columns stay aligned.
+type DiffRow = { left: string | null; right: string | null; leftDel: boolean; rightAdd: boolean };
+
+function parseDiffSideBySide(diff: string): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let dels: string[] = [];
+  let adds: string[] = [];
+  const flush = () => {
+    const n = Math.max(dels.length, adds.length);
+    for (let i = 0; i < n; i++) {
+      rows.push({ left: dels[i] ?? null, right: adds[i] ?? null, leftDel: i < dels.length, rightAdd: i < adds.length });
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const line of diff.replace(/\n$/, "").split("\n")) {
+    if (/^(@@|diff |index |--- |\+\+\+ )/.test(line)) { flush(); continue; }
+    if (line.startsWith("-")) dels.push(line.slice(1));
+    else if (line.startsWith("+")) adds.push(line.slice(1));
+    else { flush(); const c = line.startsWith(" ") ? line.slice(1) : line; rows.push({ left: c, right: c, leftDel: false, rightAdd: false }); }
+  }
+  flush();
+  return rows;
+}
+
+// DiffView renders a code patch as before/after side by side: the left column
+// is the original with its surrounding lines, the right is the same with the
+// fix applied. Changed lines get a restrained tint; everything else is neutral.
+function DiffView({ content, title }: { content: string; title?: string }) {
+  const rows = useMemo(() => parseDiffSideBySide(content), [content]);
+  if (rows.length === 0) return <ArtifactBlock a={{ language: "diff", title: title ?? "", content }} />;
+  const cell = "whitespace-pre px-2 py-px";
+  return (
+    <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
+      <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 text-[10px] text-gray-500 dark:bg-gray-800">
+        <span className="font-mono uppercase">patch</span>
+        {title && <span className="truncate">{title}</span>}
+        <span className="ml-auto"><CopyButton text={content} /></span>
+      </div>
+      <div className="grid grid-cols-2 border-b border-gray-200 bg-gray-50 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800 dark:bg-gray-900/60">
+        <div className="border-r border-gray-200 px-2 py-0.5 dark:border-gray-800">Before</div>
+        <div className="px-2 py-0.5">After</div>
+      </div>
+      <div className="scroll-thin overflow-x-auto">
+        <div className="grid min-w-[560px] grid-cols-2 font-mono text-[11px] leading-relaxed">
+          {rows.map((row, i) => (
+            <Fragment key={i}>
+              <div className={`${cell} border-r border-gray-200 dark:border-gray-800 ${row.leftDel ? "bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300" : "text-gray-700 dark:text-gray-300"}`}>
+                {row.left ?? ""}
+              </div>
+              <div className={`${cell} ${row.rightAdd ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300" : "text-gray-700 dark:text-gray-300"}`}>
+                {row.right ?? ""}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

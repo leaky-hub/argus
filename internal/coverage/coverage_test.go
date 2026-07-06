@@ -108,11 +108,19 @@ func TestPolyglotCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePlants: %v", err)
 	}
+	fpPlants, err := ParseFPPlants(polyglotRoot)
+	if err != nil {
+		t.Fatalf("ParseFPPlants: %v", err)
+	}
+	stdFP := len(FPHits(fpPlants, stdDetected))
+	maxFP := len(FPHits(fpPlants, DetectedCWEs(maxFindings)))
 	noise := []NoiseStats{
 		{Profile: scanner.ProfileStandard, Before: len(stdFindings),
-			After: len(correlate.Correlate(stdFindings)), Plants: len(plants)},
+			After: len(correlate.Correlate(stdFindings)), Plants: len(plants),
+			FPHits: stdFP, FPPlants: len(fpPlants)},
 		{Profile: scanner.ProfileMax, Before: len(maxFindings),
-			After: len(correlate.Correlate(maxFindings)), Plants: len(plants)},
+			After: len(correlate.Correlate(maxFindings)), Plants: len(plants),
+			FPHits: maxFP, FPPlants: len(fpPlants)},
 	}
 
 	// The published matrix includes the IaC section from Phase 4 on, so a

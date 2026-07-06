@@ -135,10 +135,17 @@ IDs), unioning the evidence and recording absorbed rule IDs in
 asserts the plant catch set is identical before and after correlation at
 every profile. Counts below are from the live scan that generated this file.
 
-| Profile | Findings pre-correlate | Post-correlate | Duplicates collapsed | Findings per plant (post) |
-|---|---:|---:|---:|---:|
-| `standard` | 36 | 33 | 3 | 0.8 |
-| `max` | 87 | 59 | 28 | 1.5 |
+| Profile | Findings pre-correlate | Post-correlate | Duplicates collapsed | Findings per plant (post) | Safe-code false flags |
+|---|---:|---:|---:|---:|---:|
+| `standard` | 36 | 33 | 3 | 0.8 | 0/7 |
+| `max` | 90 | 62 | 28 | 1.6 | 1/7 |
+
+**Safe-code false flags** is the precision metric (locked decision 2): the
+number of labeled `PLANT-FP` safe-code plants (parameterized SQL, constant
+shell args, strong hashes, vendor example keys in tests) a profile wrongly
+flagged for the class they resemble. It is MEASURED, not asserted, and not
+suppressed — a deterministic rule never drops a finding for looking like an
+FP; triage (the LLM oracle) and `--exclude-fp` are the only removal paths.
 
 
 ## Infrastructure-as-Code coverage

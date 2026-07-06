@@ -1,0 +1,59 @@
+{
+  "tech": "api-service",
+  "title": "API service (REST / GraphQL)",
+  "threats": [
+    {
+      "category": "spoofing",
+      "title": "Forged or replayed tokens, or an unauthenticated endpoint",
+      "description": "A token is accepted without verifying signature/expiry, or an endpoint simply omits the auth check, letting a caller impersonate a principal.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.1.1"
+      ]
+    },
+    {
+      "category": "tampering",
+      "title": "Injection through unvalidated parameters",
+      "description": "A parameter flows into a SQL query, an OS command, or a template without parameterization/escaping, so the caller alters the intended operation.",
+      "mitigation": "sqli",
+      "controls": [
+        "ASVS:V5.3.4",
+        "ASVS:V5.3.5"
+      ]
+    },
+    {
+      "category": "repudiation",
+      "title": "Privileged API actions are not logged",
+      "description": "Mutating or administrative calls leave no attributable record, so abuse can't be reconstructed.",
+      "mitigation": "log-injection",
+      "controls": [
+        "ASVS:V7.1.1"
+      ]
+    },
+    {
+      "category": "info-disclosure",
+      "title": "Excessive data exposure or server-side request forgery",
+      "description": "An endpoint returns more fields than the client needs (or accepts a URL it then fetches), leaking internal data or reaching internal services.",
+      "mitigation": "ssrf",
+      "controls": [
+        "ASVS:V5.2.6"
+      ]
+    },
+    {
+      "category": "denial-of-service",
+      "title": "No rate limiting or unbounded query cost",
+      "description": "An expensive query or a deeply nested GraphQL request runs unthrottled, exhausting the backend.",
+      "mitigation": "redos",
+      "controls": []
+    },
+    {
+      "category": "elevation",
+      "title": "IDOR — object references not scoped to the caller",
+      "description": "An id in the request selects a record without checking the caller owns it, so changing the id reaches another user's object.",
+      "mitigation": "broken-access-control",
+      "controls": [
+        "ASVS:V4.2.1"
+      ]
+    }
+  ]
+}

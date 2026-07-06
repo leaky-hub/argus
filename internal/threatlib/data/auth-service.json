@@ -1,0 +1,60 @@
+{
+  "tech": "auth-service",
+  "title": "Authentication / identity service",
+  "threats": [
+    {
+      "category": "spoofing",
+      "title": "Credential stuffing, weak policy, or missing MFA",
+      "description": "Reused or guessable passwords with no second factor let an attacker authenticate as the user.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.1.1"
+      ]
+    },
+    {
+      "category": "tampering",
+      "title": "Token forgery via weak signing or algorithm confusion",
+      "description": "A weak secret or an accepted 'none'/HS-vs-RS confusion lets an attacker mint tokens.",
+      "mitigation": "weak-crypto",
+      "controls": [
+        "ASVS:V6.2.2"
+      ]
+    },
+    {
+      "category": "repudiation",
+      "title": "Auth events and lockouts are not logged",
+      "description": "Failed logins, resets, and lockouts leave no record, so account takeover attempts are invisible.",
+      "mitigation": "log-injection",
+      "controls": [
+        "ASVS:V7.1.1"
+      ]
+    },
+    {
+      "category": "info-disclosure",
+      "title": "User enumeration through differing responses",
+      "description": "Login or reset responses differ for known vs unknown accounts, revealing which users exist.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.1.1"
+      ]
+    },
+    {
+      "category": "denial-of-service",
+      "title": "No lockout or rate limit enables brute force",
+      "description": "Unthrottled login lets an attacker brute-force credentials and, incidentally, lock out real users.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.2.1"
+      ]
+    },
+    {
+      "category": "elevation",
+      "title": "Privilege escalation via role tampering",
+      "description": "A client-supplied role/claim is trusted, or a missing check lets a user assume a higher role.",
+      "mitigation": "broken-access-control",
+      "controls": [
+        "ASVS:V4.2.1"
+      ]
+    }
+  ]
+}

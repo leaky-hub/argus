@@ -1,0 +1,60 @@
+{
+  "tech": "web-app",
+  "title": "Web application / frontend",
+  "threats": [
+    {
+      "category": "spoofing",
+      "title": "Session hijacking or credential stuffing",
+      "description": "An attacker rides a stolen session cookie or replays leaked credentials against the login. Weak session handling or a missing rate limit makes it cheap.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.1.1",
+        "ASVS:V3.2.1"
+      ]
+    },
+    {
+      "category": "tampering",
+      "title": "Cross-site scripting injects script into a page",
+      "description": "Untrusted input reaches the DOM or an HTML response without contextual encoding, so the attacker runs script in the victim's session.",
+      "mitigation": "xss",
+      "controls": [
+        "ASVS:V5.3.3"
+      ]
+    },
+    {
+      "category": "repudiation",
+      "title": "Security-relevant actions are not attributable",
+      "description": "Auth events and state changes are unlogged or the log is forgeable (CRLF injection), so an actor can deny what they did.",
+      "mitigation": "log-injection",
+      "controls": [
+        "ASVS:V7.1.1",
+        "ASVS:V7.3.1"
+      ]
+    },
+    {
+      "category": "info-disclosure",
+      "title": "Sensitive data leaks via responses or errors",
+      "description": "Verbose errors, debug endpoints, or secrets in client-side storage expose data the user should not see.",
+      "mitigation": "weak-crypto",
+      "controls": [
+        "ASVS:V9.1.1"
+      ]
+    },
+    {
+      "category": "denial-of-service",
+      "title": "Resource exhaustion from unbounded input",
+      "description": "A pathological regular expression or an unbounded request body ties up a worker (ReDoS, decompression), degrading availability.",
+      "mitigation": "redos",
+      "controls": []
+    },
+    {
+      "category": "elevation",
+      "title": "Broken access control lets a user act out of scope",
+      "description": "A route or object is reachable without the authorization check that should gate it, so a user reaches another tenant's data or an admin action.",
+      "mitigation": "broken-access-control",
+      "controls": [
+        "ASVS:V4.2.1"
+      ]
+    }
+  ]
+}

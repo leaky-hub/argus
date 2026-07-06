@@ -1,0 +1,33 @@
+{
+  "weakness": "broken-access-control",
+  "title": "Broken Access Control / IDOR",
+  "cwes": ["CWE-284", "CWE-285", "CWE-639", "CWE-862", "CWE-863"],
+  "principle": "Authorize every request against the specific object it touches, on the server, using the session identity — never a user-supplied id or role. Don't assume that because the UI hid an action, the endpoint is safe; check ownership or permission on each read and write. Deny by default.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "an ownership check scoped to the current user",
+      "vulnerable": "invoice = Invoice.objects.get(id=request.GET['id'])\nreturn render(invoice)",
+      "secure": "invoice = get_object_or_404(Invoice, id=request.GET['id'], owner=request.user)\nreturn render(invoice)",
+      "note": "Fetching by id alone is IDOR — any user reads any invoice. Scope the query to the authenticated owner (or check a permission), and 404 when it doesn't match."
+    },
+    {
+      "language": "javascript",
+      "library": "a per-object authorization check",
+      "vulnerable": "const doc = await Doc.findById(req.params.id); res.json(doc);",
+      "secure": "const doc = await Doc.findOne({ _id: req.params.id, ownerId: req.user.id });\nif (!doc) return res.sendStatus(404);\nres.json(doc);",
+      "note": "Bind the lookup to req.user (from the verified session/token), not to any id or role the client sends. Do this on writes too, not just reads."
+    },
+    {
+      "language": "java",
+      "library": "method/object-level authorization (Spring Security)",
+      "vulnerable": "@GetMapping(\"/orders/{id}\") Order get(@PathVariable Long id){ return repo.findById(id).get(); }",
+      "secure": "@GetMapping(\"/orders/{id}\")\n@PostAuthorize(\"returnObject.ownerId == authentication.name\")\nOrder get(@PathVariable Long id){ return repo.findById(id).orElseThrow(); }",
+      "note": "Enforce ownership with @PreAuthorize/@PostAuthorize or an explicit check against the authenticated principal. Never trust a role or id from the request body."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Authorization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"},
+    {"title": "CWE-639: Authorization Bypass Through User-Controlled Key", "url": "https://cwe.mitre.org/data/definitions/639.html"}
+  ]
+}

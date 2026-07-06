@@ -632,7 +632,7 @@ same library from the terminal.
 
 ## 17. Mitigation library growth & remediation grounding
 
-The secure-coding library (§16) now covers 15 weakness classes — SQLi, XSS,
+The secure-coding library (§16) now covers 21 weakness classes — SQLi, XSS,
 SSRF, CSRF, auth/session, command injection, path traversal, weak crypto,
 insecure deserialization, open redirect, XXE, LDAP injection, XPath injection,
 SSTI, and mass assignment — across Python, JavaScript/TypeScript, Java, Go,

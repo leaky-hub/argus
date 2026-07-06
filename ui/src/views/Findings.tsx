@@ -773,7 +773,18 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
                 <button onClick={onRemediate} className="text-xs text-emerald-600 hover:underline dark:text-emerald-400">retry</button>
               </div>
             ) : remediateState.data ? (
-              <RemediationPanel r={remediateState.data} category={f.category} location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)} onRegenerate={onRemediate} />
+              <RemediationPanel
+                r={remediateState.data}
+                category={f.category}
+                location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)}
+                source={f.location.snippet && f.location.snippet.lines.length > 0 ? {
+                  lines: f.location.snippet.lines,
+                  startLine: f.location.snippet.startLine,
+                  flaggedStart: f.location.startLine ?? f.location.snippet.startLine,
+                  flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine,
+                } : undefined}
+                onRegenerate={onRemediate}
+              />
             ) : null}
           </div>
         )}
@@ -1008,7 +1019,7 @@ function stripStepNumber(s: string): string {
   return s.replace(/^\s*\d+[.)]\s+/, "");
 }
 
-function RemediationPanel({ r, category, location, onRegenerate }: { r: RemediationResponse; category: string; location?: string; onRegenerate: () => void }) {
+function RemediationPanel({ r, category, location, source, onRegenerate }: { r: RemediationResponse; category: string; location?: string; source?: DiffSource; onRegenerate: () => void }) {
   const infra = category === "CLOUD" || category === "IAC";
   // Neutral card, one caution accent — the fix is the content, not the colour.
   return (
@@ -1041,7 +1052,7 @@ function RemediationPanel({ r, category, location, onRegenerate }: { r: Remediat
         </ol>
       )}
 
-      {r.artifacts?.map((a, i) => (a.language === "diff" ? <DiffView key={i} content={a.content} title={a.title} location={location} /> : <ArtifactBlock key={i} a={a} />))}
+      {r.artifacts?.map((a, i) => (a.language === "diff" ? <DiffView key={i} content={a.content} title={a.title} location={location} source={source} /> : <ArtifactBlock key={i} a={a} />))}
 
       {r.warnings && r.warnings.length > 0 && (
         <ul className="ml-4 list-disc space-y-0.5 text-[11px] text-gray-600 dark:text-gray-400">
@@ -1111,14 +1122,62 @@ function parseDiffSideBySide(diff: string): DiffRow[] {
   return rows;
 }
 
+// DiffSource is the finding's captured code: the authoritative "before".
+type DiffSource = { lines: string[]; startLine: number; flaggedStart: number; flaggedEnd: number };
+
+// reconstructFromSnippet builds the side-by-side rows with the LEFT column
+// taken verbatim from the finding's own snippet — not from the model. Only the
+// fix (the added lines) comes from the diff, so the model can never misrepresent
+// the vulnerable code. The flagged line(s) are replaced by the model's fix;
+// additions that don't pair with a removal (a new import, say) show as add-only
+// rows up top. Returns null when it can't line things up, so the caller falls
+// back to parsing the raw diff.
+function reconstructFromSnippet(src: DiffSource, diff: string): DiffRow[] | null {
+  const fi = src.flaggedStart - src.startLine;
+  const fcount = Math.max(1, src.flaggedEnd - src.flaggedStart + 1);
+  if (fi < 0 || fi >= src.lines.length) return null;
+
+  const paired: string[] = []; // additions that replace a removed line (the inline fix)
+  const extras: string[] = []; // additions with no removal partner (e.g. imports)
+  for (const r of parseDiffSideBySide(diff)) {
+    if (!r.rightAdd || r.right === null) continue;
+    (r.leftDel ? paired : extras).push(r.right);
+  }
+  const fix = paired.length ? paired : extras.length ? extras : null;
+  if (!fix) return null;
+  const leadIns = paired.length ? extras : [];
+
+  const rows: DiffRow[] = [];
+  for (const e of leadIns) rows.push({ left: null, right: e, leftDel: false, rightAdd: true });
+  for (let i = 0; i < src.lines.length; i++) {
+    if (i === fi) {
+      const dels = src.lines.slice(fi, fi + fcount);
+      const n = Math.max(dels.length, fix.length);
+      for (let k = 0; k < n; k++) {
+        rows.push({ left: dels[k] ?? null, right: fix[k] ?? null, leftDel: k < dels.length, rightAdd: k < fix.length });
+      }
+      i += fcount - 1;
+    } else {
+      rows.push({ left: src.lines[i], right: src.lines[i], leftDel: false, rightAdd: false });
+    }
+  }
+  return rows;
+}
+
 // DiffView renders a code patch as before/after side by side: the left column
 // is the finding's actual code with its surrounding lines, the right is the
 // same with the fix applied. Changed lines get a restrained tint; everything
 // else is neutral. Columns size to their content and the whole grid scrolls
 // both ways (long lines don't wrap or clip), with the Before/After labels
 // pinned on vertical scroll.
-function DiffView({ content, title, location }: { content: string; title?: string; location?: string }) {
-  const rows = useMemo(() => parseDiffSideBySide(content), [content]);
+function DiffView({ content, title, location, source }: { content: string; title?: string; location?: string; source?: DiffSource }) {
+  const rows = useMemo(() => {
+    if (source && source.lines.length > 0) {
+      const r = reconstructFromSnippet(source, content);
+      if (r) return r;
+    }
+    return parseDiffSideBySide(content);
+  }, [content, source]);
   if (rows.length === 0) return <ArtifactBlock a={{ language: "diff", title: title ?? "", content }} />;
   const cell = "whitespace-pre px-2 py-px";
   const label = "sticky top-0 z-10 border-b border-gray-200 bg-gray-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800 dark:bg-gray-800";

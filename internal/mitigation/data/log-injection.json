@@ -1,0 +1,40 @@
+{
+  "weakness": "log-injection",
+  "title": "Log Injection / Forging",
+  "cwes": ["CWE-117", "CWE-93"],
+  "principle": "Neutralize newlines and control characters in anything untrusted before it reaches a log line, so an attacker can't forge entries or split a record. Prefer structured logging (key/value or JSON), which keeps user data in a field the parser can't confuse with the log format.",
+  "snippets": [
+    {
+      "language": "java",
+      "library": "structured logging (SLF4J placeholders) or a newline strip",
+      "vulnerable": "log.info(\"login failed for \" + username);",
+      "secure": "log.info(\"login failed for {}\", username.replaceAll(\"[\\r\\n]\", \"_\"));",
+      "note": "A username of \"admin\\n2024 INFO login ok\" forges a second line. Strip CR/LF, or configure an encoder that escapes them. SLF4J placeholders keep the value a parameter."
+    },
+    {
+      "language": "python",
+      "library": "structured logging with the value as a field",
+      "vulnerable": "logging.info('login failed for %s' % username)",
+      "secure": "logging.info('login failed', extra={'user': username.replace('\\n', '_').replace('\\r', '_')})",
+      "note": "Interpolating raw input into the message lets \\n forge lines. Pass it as structured data (extra/JSON), and strip control characters."
+    },
+    {
+      "language": "javascript",
+      "library": "a structured logger (pino/winston) with fields",
+      "vulnerable": "logger.info('login failed for ' + username);",
+      "secure": "logger.info({ user: String(username).replace(/[\\r\\n]/g, '_') }, 'login failed');",
+      "note": "Structured loggers serialize the field safely (JSON). If you must build a message string, strip \\r and \\n first."
+    },
+    {
+      "language": "go",
+      "library": "structured logging (slog) with attributes",
+      "vulnerable": "log.Printf(\"login failed for %s\", username)",
+      "secure": "safe := strings.NewReplacer(\"\\n\", \"_\", \"\\r\", \"_\").Replace(username)\nslog.Info(\"login failed\", \"user\", safe)",
+      "note": "slog keeps the value in an attribute the formatter escapes. If using text logging, replace CR/LF so a value can't inject a new record."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Logging Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"},
+    {"title": "CWE-117: Improper Output Neutralization for Logs", "url": "https://cwe.mitre.org/data/definitions/117.html"}
+  ]
+}

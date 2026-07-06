@@ -1,0 +1,33 @@
+{
+  "weakness": "insecure-file-upload",
+  "title": "Unrestricted File Upload",
+  "cwes": ["CWE-434", "CWE-646"],
+  "principle": "Decide what a file IS by its content and your rules, not by its name. Validate the type by sniffing content, generate your own random storage name with a safe extension, store outside the web root (or on object storage) so it can't be executed, and cap the size. Never trust the client-supplied filename or Content-Type.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "a content-type allowlist + a generated name outside web root",
+      "vulnerable": "f = request.files['file']\nf.save(os.path.join('/var/www/uploads', f.filename))",
+      "secure": "import secrets, imghdr\nf = request.files['file']\nif imghdr.what(f) not in {'png', 'jpeg'}: abort(400)\nname = secrets.token_hex(16) + '.png'\nf.save(os.path.join(UPLOAD_DIR, name))   # UPLOAD_DIR is not web-served",
+      "note": "f.filename is attacker-controlled (shell.php, ../..). Sniff the content, mint your own name, and store where the server won't execute it."
+    },
+    {
+      "language": "javascript",
+      "library": "multer with a size limit + server-side type check + random name",
+      "vulnerable": "const upload = multer({ dest: 'public/uploads/' }); // keeps original name/type",
+      "secure": "const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5e6 } });\n// then: verify magic bytes (file-type), write crypto.randomUUID()+ext to a non-served dir",
+      "note": "Don't persist under a served path with the original name. Check the real type from magic bytes (the 'file-type' package), not req.file.mimetype."
+    },
+    {
+      "language": "java",
+      "library": "content-type detection (Apache Tika) + generated name",
+      "vulnerable": "file.transferTo(new File(\"/var/www/uploads/\" + file.getOriginalFilename()));",
+      "secure": "String type = new Tika().detect(file.getInputStream());\nif (!Set.of(\"image/png\",\"image/jpeg\").contains(type)) throw new BadRequest();\nPath dst = uploadDir.resolve(UUID.randomUUID() + \".png\"); // uploadDir not web-served\nfile.transferTo(dst);",
+      "note": "getOriginalFilename() is untrusted. Detect the type from content, generate the name, and keep the directory off the servlet path."
+    }
+  ],
+  "references": [
+    {"title": "OWASP File Upload Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html"},
+    {"title": "CWE-434: Unrestricted Upload of File with Dangerous Type", "url": "https://cwe.mitre.org/data/definitions/434.html"}
+  ]
+}

@@ -39,6 +39,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server/auth"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/ticket"
 )
 
 // Server serves the console API and static UI over one repo's run history.
@@ -64,6 +65,7 @@ type Server struct {
 	targets  *targets.Registry
 	auditLog *audit.Log
 	queue    *jobs.Queue
+	tickets  *ticket.Store // nil when the SQLite store isn't wired (legacy mode)
 }
 
 // Options configure a Server.
@@ -81,6 +83,7 @@ type Options struct {
 	Targets  *targets.Registry
 	Audit    *audit.Log
 	Queue    *jobs.Queue
+	Tickets  *ticket.Store // the SQLite-backed ticket store; nil disables ticket endpoints
 }
 
 // New builds a Server and its routes.
@@ -94,6 +97,7 @@ func New(opts Options) *Server {
 		store: opts.Store, dir: dir, gate: opts.Gate, gateName: opts.GateName, static: opts.Static,
 		users: opts.Users, sessions: opts.Sessions, limiter: opts.Limiter,
 		targets: opts.Targets, auditLog: opts.Audit, queue: opts.Queue,
+		tickets: opts.Tickets,
 	}
 	return s
 }
@@ -125,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)   // POST (operator): apply/clear across a selection
 	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)        // DELETE (operator): clear back to open
 	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
+	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths
 	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))

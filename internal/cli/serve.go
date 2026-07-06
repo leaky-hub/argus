@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +15,9 @@ import (
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server"
 	"github.com/leaky-hub/appsec/internal/server/auth"
+	"github.com/leaky-hub/appsec/internal/store"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/ticket"
 	"github.com/leaky-hub/appsec/ui"
 )
 
@@ -77,6 +80,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	queue := jobs.New(server.ScanExecutor(registry, auditLog, gitws.New()))
 	queue.Start(cmd.Context())
 
+	// The embedded SQLite store holds the ticketing (and, later, threat-model)
+	// tables at <dir>/.appsec/argus.db. It never holds the gate's input.
+	db, err := store.Open(filepath.Join(dir, ".appsec"))
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
 	srv := server.New(server.Options{
 		Store:    runstore.ForRepo(dir),
 		Dir:      dir,
@@ -89,6 +100,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Targets:  registry,
 		Audit:    auditLog,
 		Queue:    queue,
+		Tickets:  ticket.NewStore(db),
 	})
 
 	fmt.Fprintf(os.Stderr, "==> appsec console on http://%s  (serving %s/.appsec)\n", addr, dir)

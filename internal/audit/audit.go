@@ -37,6 +37,11 @@ const (
 	EventScanValidate   = "scan.validate"
 	EventRunDelete      = "run.delete"
 	EventFindingDispose = "finding.dispose"
+	EventTicketCreate   = "ticket.create"
+	EventTicketUpdate   = "ticket.update"
+	EventTicketDelete   = "ticket.delete"
+	EventTicketLink     = "ticket.link"
+	EventTicketComment  = "ticket.comment"
 )
 
 // Entry is one audit line.

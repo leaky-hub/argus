@@ -291,6 +291,26 @@ func (s *Store) Links(ticketID string) ([]Link, error) {
 	return out, rows.Err()
 }
 
+// AllLinks returns every link grouped by ticket id, so the list view can build
+// each ticket's severity rollup without a query per ticket.
+func (s *Store) AllLinks() (map[string][]Link, error) {
+	rows, err := s.db.Query(`SELECT ticket_id, finding_id, target_id FROM ticket_links`)
+	if err != nil {
+		return nil, fmt.Errorf("ticket: all links: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]Link{}
+	for rows.Next() {
+		var tid string
+		var l Link
+		if err := rows.Scan(&tid, &l.FindingID, &l.TargetID); err != nil {
+			return nil, err
+		}
+		out[tid] = append(out[tid], l)
+	}
+	return out, rows.Err()
+}
+
 // TicketsForFindings maps each finding id (within targetID) to the ticket ids it
 // is linked to, so the Findings view can show a finding's tickets. targetID may
 // be "" (the served repo's own store).

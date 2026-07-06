@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -41,6 +42,9 @@ type DB struct {
 // .appsec directory — and applies any pending migrations. foreign_keys and a
 // busy timeout are set on every pooled connection; the journal runs in WAL mode.
 func Open(dir string) (*DB, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("store: create %s: %w", dir, err)
+	}
 	path := filepath.Join(dir, dbFile)
 	// _pragma params apply to every connection the driver opens, so foreign_keys
 	// (per-connection, not persistent) and the busy timeout always hold.

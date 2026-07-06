@@ -17,7 +17,9 @@ import (
 	"github.com/leaky-hub/appsec/internal/jobs"
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server/auth"
+	"github.com/leaky-hub/appsec/internal/store"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/ticket"
 )
 
 // Console-ops security tests. These pin docs/console-ops.md §9: the authz
@@ -32,6 +34,7 @@ type consoleFixture struct {
 	users    *auth.Store
 	registry *targets.Registry
 	queue    *jobs.Queue
+	tickets  *ticket.Store
 	dir      string // served repo (users/targets/audit/runs)
 	scanDir  string // a registered, scannable directory
 	targetID string // the pre-registered target's opaque ID
@@ -68,6 +71,13 @@ func newConsole(t *testing.T, exec jobs.ExecFunc) *consoleFixture {
 	t.Cleanup(cancel)
 	queue.Start(ctx)
 
+	db, err := store.Open(filepath.Join(dir, ".appsec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	tickets := ticket.NewStore(db)
+
 	srv := New(Options{
 		Store:    runstore.Store{Dir: filepath.Join(dir, ".appsec", "runs")},
 		GateName: "high",
@@ -78,8 +88,9 @@ func newConsole(t *testing.T, exec jobs.ExecFunc) *consoleFixture {
 		Targets:  registry,
 		Audit:    audit.ForRepo(dir),
 		Queue:    queue,
+		Tickets:  tickets,
 	})
-	f := &consoleFixture{t: t, srv: srv, handler: srv.Handler(), users: users, registry: registry, queue: queue, dir: dir, scanDir: scanDir}
+	f := &consoleFixture{t: t, srv: srv, handler: srv.Handler(), users: users, registry: registry, queue: queue, tickets: tickets, dir: dir, scanDir: scanDir}
 	f.targetID = tgt.ID
 	return f
 }
@@ -177,6 +188,13 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/dispositions/bulk", 401, 403, pass, pass},
 		{"DELETE", "/api/dispositions/deadbeef", 401, 403, pass, pass},
 		{"GET", "/api/cloud/profiles", 401, 403, 403, pass}, // admin-only registration form
+
+		{"GET", "/api/tickets", 401, pass, pass, pass},
+		{"POST", "/api/tickets", 401, 403, pass, pass},
+		{"GET", "/api/tickets/tk-1", 401, pass, pass, pass},
+		{"PATCH", "/api/tickets/tk-1", 401, 403, pass, pass},
+		{"POST", "/api/tickets/tk-1/comments", 401, 403, pass, pass},
+		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass}, // delete is admin-only
 
 		{"GET", "/api/targets", 401, pass, pass, pass},
 		{"POST", "/api/targets", 401, 403, 403, pass},

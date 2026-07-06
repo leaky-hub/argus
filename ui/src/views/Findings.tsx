@@ -1121,7 +1121,11 @@ function DiffView({ content, title, location, source }: { content: string; title
     return parseDiffSideBySide(content);
   }, [content, source]);
   if (rows.length === 0) return <ArtifactBlock a={{ language: "diff", title: title ?? "", content }} />;
-  const cell = "whitespace-pre px-2 py-px";
+  // Wrap long lines inside each fixed 50% column (break anywhere for code) so a
+  // long line can't overflow its cell and collide with the other side. Each
+  // diff row is one grid row, so the two cells stay top-aligned even when one
+  // side wraps taller than the other.
+  const cell = "min-w-0 whitespace-pre-wrap break-all px-2 py-px";
   const label = "sticky top-0 z-10 border-b border-gray-200 bg-gray-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800 dark:bg-gray-800";
   return (
     <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
@@ -1130,8 +1134,8 @@ function DiffView({ content, title, location, source }: { content: string; title
         {location && <span className="truncate font-mono">{location}</span>}
         <span className="ml-auto"><CopyButton text={content} /></span>
       </div>
-      <div className="scroll-thin max-h-96 overflow-auto">
-        <div className="grid grid-cols-[minmax(240px,max-content)_minmax(240px,max-content)] font-mono text-[11px] leading-relaxed">
+      <div className="scroll-thin max-h-96 overflow-y-auto">
+        <div className="grid grid-cols-2 font-mono text-[11px] leading-relaxed">
           <div className={`${label} border-r`}>Before</div>
           <div className={label}>After</div>
           {rows.map((row, i) => (

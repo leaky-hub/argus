@@ -38,13 +38,17 @@ export const CATEGORY_LABEL: Record<string, string> = {
   CLOUD: "Cloud posture",
 };
 
+// Category chips are neutral so severity stays the one saturated channel in
+// the finding list. The per-category hue survives as a dot in charts and the
+// breakdown (CATEGORY_COLOR), where color encodes proportion, not urgency.
+const NEUTRAL_CHIP = "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 export const CATEGORY_CHIP: Record<string, string> = {
-  SAST: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
-  SECRET: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-  SCA: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
-  IAC: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
-  DAST: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-  CLOUD: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+  SAST: NEUTRAL_CHIP,
+  SECRET: NEUTRAL_CHIP,
+  SCA: NEUTRAL_CHIP,
+  IAC: NEUTRAL_CHIP,
+  DAST: NEUTRAL_CHIP,
+  CLOUD: NEUTRAL_CHIP,
 };
 
 export const CATEGORY_COLOR: Record<string, string> = {
@@ -78,10 +82,13 @@ export const DISPOSITION_CHIP: Record<string, string> = {
   fixed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
 
+// LLM triage verdicts are advisory, so they read calm rather than loud: a
+// neutral chip with a self-explanatory label, never a saturated fill that
+// competes with the deterministic severity.
 export const VERDICT_CHIP: Record<string, string> = {
-  "true-positive": "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
-  "false-positive": "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  uncertain: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  "true-positive": NEUTRAL_CHIP,
+  "false-positive": NEUTRAL_CHIP,
+  uncertain: NEUTRAL_CHIP,
 };
 
 export function fmtTime(iso: string): string {

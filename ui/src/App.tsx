@@ -25,9 +25,11 @@ import { Admin } from "./views/Admin";
 
 type Tab = "overview" | "findings" | "runs" | "operate" | "admin";
 
+// One neutral chip for the role badge — it's identity, not urgency, so it
+// stays quiet and lets severity own the app's only saturated color.
 const ROLE_CHIP: Record<string, string> = {
-  admin: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-  operator: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  admin: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  operator: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   viewer: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 

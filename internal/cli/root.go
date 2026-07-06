@@ -12,11 +12,11 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "bulwark",
 	Short: "Bulwark — AppSec + cloud posture, one wall",
-	Long: `Bulwark runs the best open-source security scanners against your code and
-cloud accounts, merges their output into one unified, risk-scored, compliance-
-mapped findings model, gates CI on severity, and serves a three-persona web
-console. Code (SAST), secrets, dependencies (SCA), infrastructure-as-code, and
-cloud security posture (prowler) — one wall, many stones.`,
+	Long: `Bulwark runs open-source security scanners against your code and cloud
+accounts, merges their output into one risk-scored, compliance-mapped findings
+model, gates CI on severity, and serves a web console for triage and reporting.
+It covers code (SAST), secrets, dependencies (SCA), infrastructure-as-code, and
+cloud posture (prowler).`,
 	Version: "0.1.0",
 	// Errors and usage are handled in Execute: a severity-gate failure is a
 	// scan outcome, not a CLI mistake, and must never print usage text.

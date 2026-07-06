@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,63 @@ func (s *Server) handleDispositions(w http.ResponseWriter, r *http.Request) {
 		"target": req.TargetID, "finding": req.FindingID, "status": req.Status,
 	})
 	writeJSON(w, http.StatusOK, rec)
+}
+
+// BulkDispositionRequest is POST /api/dispositions/bulk: apply one status to
+// many findings (or clear them) in a single locked write. status "" or "open"
+// clears; otherwise it must be a settable status.
+type BulkDispositionRequest struct {
+	TargetID   string   `json:"targetId"`
+	FindingIDs []string `json:"findingIds"`
+	Status     string   `json:"status"`
+	Note       string   `json:"note"`
+}
+
+// handleDispositionsBulk applies a disposition across a selection at once. It
+// resolves the store once and writes once, so a bulk action can't race itself.
+func (s *Server) handleDispositionsBulk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req BulkDispositionRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.FindingIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "findingIds is required")
+		return
+	}
+	clear := req.Status == "" || req.Status == disposition.StatusOpen
+	if !clear && !disposition.ValidStatus(req.Status) {
+		writeErr(w, http.StatusBadRequest, "status must be a settable status or empty to clear")
+		return
+	}
+	store, ok := s.dispositionStoreFor(w, r, req.TargetID)
+	if !ok {
+		return
+	}
+	var n int
+	var err error
+	if clear {
+		n, err = store.ClearMany(req.FindingIDs)
+	} else {
+		n, err = store.SetMany(req.FindingIDs, req.Status, req.Note, actorFrom(r), time.Now())
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	status := req.Status
+	if clear {
+		status = disposition.StatusOpen
+	}
+	s.audit(audit.EventFindingDispose, actorFrom(r), map[string]string{
+		"target": req.TargetID, "count": strconv.Itoa(n), "status": status, "bulk": "true",
+	})
+	writeJSON(w, http.StatusOK, map[string]int{"updated": n})
 }
 
 // handleDispositionByID: DELETE /api/dispositions/{findingId}?target= clears a

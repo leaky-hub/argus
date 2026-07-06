@@ -453,4 +453,9 @@ export const opsApi = {
     const q = targetId ? `?target=${encodeURIComponent(targetId)}` : "";
     return send<void>("DELETE", `api/dispositions/${encodeURIComponent(findingId)}${q}`);
   },
+
+  // Apply one status to many findings (or clear them, status omitted) in a
+  // single locked write. Returns how many were updated.
+  bulkDisposition: (req: { targetId?: string; findingIds: string[]; status?: DispositionStatus; note?: string }): Promise<{ updated: number }> =>
+    send<{ updated: number }>("POST", "api/dispositions/bulk", req),
 };

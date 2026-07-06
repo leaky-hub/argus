@@ -122,3 +122,42 @@ func TestGateSuppressedByDisposition(t *testing.T) {
 		t.Errorf("in-progress/fixed gate = %+v, want failed, 0 suppressed", g)
 	}
 }
+
+func TestDispositionsBulkEndpoint(t *testing.T) {
+	f := newConsole(t, nil)
+	runID, sastID, secretID := seedRun(t, f.dir)
+	oper := f.mustLogin("oscar")
+	view := f.mustLogin("vera")
+
+	body := fmt.Sprintf(`{"findingIds":[%q,%q],"status":"accepted-risk"}`, sastID, secretID)
+	// Viewer denied.
+	if r := f.do("POST", "/api/dispositions/bulk", body, view); r.Code != http.StatusForbidden {
+		t.Errorf("viewer bulk got %d, want 403", r.Code)
+	}
+	// Operator applies to both in one call.
+	r := f.do("POST", "/api/dispositions/bulk", body, oper)
+	if r.Code != http.StatusOK {
+		t.Fatalf("bulk: %d %s", r.Code, r.Body.String())
+	}
+	var got map[string]int
+	json.Unmarshal(r.Body.Bytes(), &got)
+	if got["updated"] != 2 {
+		t.Errorf("updated = %d, want 2", got["updated"])
+	}
+	// Both overlay on the run detail.
+	var detail RunDetail
+	json.Unmarshal(f.do("GET", "/api/runs/"+runID, "", oper).Body.Bytes(), &detail)
+	if detail.Dispositions[sastID].Status != disposition.StatusAcceptedRisk || detail.Dispositions[secretID].Status != disposition.StatusAcceptedRisk {
+		t.Errorf("bulk overlay missing: %+v", detail.Dispositions)
+	}
+	// Clear both (empty status).
+	clearBody := fmt.Sprintf(`{"findingIds":[%q,%q]}`, sastID, secretID)
+	if r := f.do("POST", "/api/dispositions/bulk", clearBody, oper); r.Code != http.StatusOK {
+		t.Fatalf("bulk clear: %d", r.Code)
+	}
+	var after RunDetail
+	json.Unmarshal(f.do("GET", "/api/runs/"+runID, "", oper).Body.Bytes(), &after)
+	if len(after.Dispositions) != 0 {
+		t.Errorf("expected all cleared, got %+v", after.Dispositions)
+	}
+}

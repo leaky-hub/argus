@@ -98,3 +98,31 @@ func TestPersistedPath(t *testing.T) {
 		t.Error(".tmp left behind after atomic write")
 	}
 }
+
+func TestBulk(t *testing.T) {
+	s := At(t.TempDir())
+	now := time.Unix(1700000000, 0)
+	n, err := s.SetMany([]string{"a", "b", "c", ""}, StatusAcceptedRisk, "batch", "u", now)
+	if err != nil || n != 3 {
+		t.Fatalf("SetMany = %d, %v; want 3 (empty id skipped)", n, err)
+	}
+	for _, id := range []string{"a", "b", "c"} {
+		if r, ok := s.Get(id); !ok || r.Status != StatusAcceptedRisk {
+			t.Errorf("%s = %+v ok=%v", id, r, ok)
+		}
+	}
+	if _, err := s.SetMany([]string{"x"}, "open", "", "u", now); err == nil {
+		t.Error("SetMany must reject a non-settable status")
+	}
+	// Clear a subset.
+	cn, err := s.ClearMany([]string{"a", "c", "missing"})
+	if err != nil || cn != 2 {
+		t.Fatalf("ClearMany = %d, %v; want 2", cn, err)
+	}
+	if _, ok := s.Get("a"); ok {
+		t.Error("a should be cleared")
+	}
+	if _, ok := s.Get("b"); !ok {
+		t.Error("b should remain")
+	}
+}

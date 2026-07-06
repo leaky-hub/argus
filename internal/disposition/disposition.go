@@ -151,6 +151,64 @@ func (s *Store) Set(findingID, status, note, actor string, t time.Time) (Record,
 	return rec, nil
 }
 
+// SetMany applies one status to many findings under a single lock and a single
+// write. Bulk console actions go through here so N findings can't race N
+// concurrent read-modify-write cycles against the same file. Returns the count
+// written.
+func (s *Store) SetMany(ids []string, status, note, actor string, t time.Time) (int, error) {
+	if !settable[status] {
+		return 0, fmt.Errorf("invalid status %q", status)
+	}
+	note = strings.TrimSpace(note)
+	if len([]rune(note)) > noteMax {
+		note = string([]rune(note)[:noteMax])
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refresh(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		s.byID[id] = Record{FindingID: id, Status: status, Note: note, Actor: actor, UpdatedAt: t.UTC()}
+		n++
+	}
+	if err := s.save(); err != nil {
+		s.loaded = false
+		return 0, err
+	}
+	return n, nil
+}
+
+// ClearMany clears many findings back to open under a single lock/write.
+// Returns the count actually removed.
+func (s *Store) ClearMany(ids []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refresh(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		if _, ok := s.byID[strings.TrimSpace(id)]; ok {
+			delete(s.byID, strings.TrimSpace(id))
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if err := s.save(); err != nil {
+		s.loaded = false
+		return 0, err
+	}
+	return n, nil
+}
+
 // Clear removes a finding's disposition, returning it to open. Clearing an
 // already-open finding is a no-op success.
 func (s *Store) Clear(findingID string) error {

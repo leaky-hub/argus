@@ -25,8 +25,8 @@ still catching runtime issues.
   across nine languages; a labeled polyglot fixture set with a coverage test
   and a generated language × weakness matrix (`docs/coverage.md`); file-based
   run history (`scan --save`); and the first web console (`bulwark serve`) with
-  three persona views — Overview (GRC), Findings (AppSec), Runs (SecOps) —
-  served from the single embedded binary, rendering hostile finding data inert.
+  Overview, Findings, and Runs tabs, served from the single embedded binary,
+  rendering hostile finding data inert.
   ✅ = every labeled plant detected under `standard`; the console shows a real
   cross-run trend, filterable findings with triage rationale, and new-vs-
   resolved deltas; an XSS fixture renders as text; `go build` alone produces

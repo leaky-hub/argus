@@ -136,6 +136,31 @@ export function Findings({
     }
   };
 
+  // Multi-select for bulk actions. Cleared when the run changes.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  useEffect(() => { setSelectedIds(new Set()); }, [detail.id]);
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const bulkDispose = async (status?: DispositionStatus) => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    try {
+      await opsApi.bulkDisposition({ targetId: origin?.targetId, findingIds: ids, status });
+      setDispositions((prev) => {
+        const next = { ...prev };
+        for (const id of ids) {
+          if (status) next[id] = { findingId: id, status, actor: "", updatedAt: new Date().toISOString() };
+          else delete next[id];
+        }
+        return next;
+      });
+      toast({ kind: "success", message: status ? `Marked ${ids.length} as ${DISPOSITION_LABEL[status].toLowerCase()}.` : `Cleared ${ids.length}.` });
+      setSelectedIds(new Set());
+    } catch (e) {
+      toast({ kind: "error", message: `Bulk update failed: ${String(e)}` });
+    }
+  };
+
   // Explain + remediate lifecycles, per finding (cached client-side).
   const [explainState, setExplainState] = useState<Record<string, ExplainState>>({});
   const [remediateState, setRemediateState] = useState<Record<string, RemediateState>>({});
@@ -194,6 +219,37 @@ export function Findings({
   }, [detail.findings, q, sev, cat, tool, verdict, minRisk, framework, status, dispositions]);
 
   const selected = filtered.find((f) => f.id === selectedId) ?? filtered[0] ?? null;
+
+  const allSelected = filtered.length > 0 && filtered.every((f) => selectedIds.has(f.id));
+  const toggleSelectAll = () =>
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (filtered.every((f) => n.has(f.id))) filtered.forEach((f) => n.delete(f.id));
+      else filtered.forEach((f) => n.add(f.id));
+      return n;
+    });
+
+  // Keyboard navigation: ↑/↓ or j/k move the selection through the visible
+  // list; x toggles it into the multi-select. Ignored while typing in a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !filtered.length) return;
+      const idx = filtered.findIndex((f) => f.id === selected?.id);
+      let next: Finding | undefined;
+      if (e.key === "ArrowDown" || e.key === "j") next = filtered[Math.min(idx + 1, filtered.length - 1)];
+      else if (e.key === "ArrowUp" || e.key === "k") next = filtered[Math.max(idx - 1, 0)];
+      else if (e.key === "x" && selected) { toggleSelect(selected.id); e.preventDefault(); return; }
+      else return;
+      e.preventDefault();
+      if (next) {
+        setSelectedId(next.id);
+        document.getElementById(`finding-row-${next.id}`)?.scrollIntoView({ block: "nearest" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filtered, selected]);
 
   const handleExplain = async (f: Finding) => {
     if (!canExplain) return;
@@ -306,6 +362,29 @@ export function Findings({
             </a>
           </div>
 
+          {/* Bulk action bar: one locked write across the selection. */}
+          {canDispose && selectedIds.size > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-md bg-blue-50 px-3 py-2 text-xs dark:bg-blue-950/30">
+              <span className="font-semibold text-blue-800 dark:text-blue-200">{selectedIds.size} selected</span>
+              <span className="ml-1 text-gray-500">set</span>
+              {(["in-progress", "accepted-risk", "false-positive", "fixed"] as DispositionStatus[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => bulkDispose(s)}
+                  className={`rounded px-1.5 py-0.5 font-semibold ${DISPOSITION_CHIP[s]}`}
+                >
+                  {DISPOSITION_LABEL[s]}
+                </button>
+              ))}
+              <button onClick={() => bulkDispose(undefined)} className="rounded bg-gray-200 px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300">
+                Open
+              </button>
+              <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                Deselect
+              </button>
+            </div>
+          )}
+
           <div className="scroll-thin max-h-[62vh] overflow-auto">
             {/* table-fixed + bounded columns so a long title/ARN truncates
                 inside the Title cell instead of forcing the table wider than
@@ -313,6 +392,17 @@ export function Findings({
             <table className="w-full table-fixed text-left text-sm">
               <thead className="sticky top-0 bg-white text-xs uppercase text-gray-500 dark:bg-gray-900">
                 <tr>
+                  {canDispose && (
+                    <th className="w-8 py-2">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="Select all visible findings"
+                        className="cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="w-14 py-2 pr-2">Risk</th>
                   <th className="w-12 py-2 pr-2">Sev</th>
                   <th className="py-2 pr-2">Title</th>
@@ -320,14 +410,42 @@ export function Findings({
                 </tr>
               </thead>
               <tbody>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={canDispose ? 5 : 4} className="py-12 text-center text-sm text-gray-500">
+                      {detail.findings.length === 0 ? (
+                        "No findings in this run."
+                      ) : (
+                        <>
+                          No findings match these filters.{" "}
+                          <button onClick={clearFilters} className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+                            Clear filters
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )}
                 {filtered.map((f) => (
                   <tr
                     key={f.id}
+                    id={`finding-row-${f.id}`}
                     onClick={() => setSelectedId(f.id)}
                     className={`cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50 ${
                       selected?.id === f.id ? "bg-blue-50 dark:bg-blue-950/40" : ""
                     }`}
                   >
+                    {canDispose && (
+                      <td className="py-1.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(f.id)}
+                          onChange={() => toggleSelect(f.id)}
+                          aria-label="Select finding"
+                          className="cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="py-1.5 pr-2">
                       <RiskPill score={f.riskScore} />
                     </td>

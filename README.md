@@ -12,13 +12,13 @@
   <img alt="Local-first" src="https://img.shields.io/badge/local--first-no%20cloud%20required-16a34a" />
 </p>
 
-**One security tool for the whole surface — code AND the cloud it runs in.**
-Bulwark runs the best open-source scanners against your repositories and your
-cloud accounts, merges everything into one deduplicated, risk-scored,
+**One security tool for the whole surface: code and the cloud it runs in.**
+Bulwark runs open-source scanners against your repositories and your cloud
+accounts, merges everything into one deduplicated, risk-scored,
 compliance-mapped findings model, AI-triages each finding on your own machine,
-gates CI on severity, and serves a three-persona web console over your run
-history — all from one Go binary. A defensive wall built from many stones:
-independent scanners mortared into one structure.
+gates CI on severity, and serves a web console over your run history, all from
+a single Go binary. It's a wall built from many stones: separate scanners set
+into one structure.
 
 **Everything, one model.** SAST across **eleven languages** (Python,
 JavaScript, TypeScript, Go, Java, C#, Ruby, PHP, Kotlin, Rust, Scala; C via
@@ -56,9 +56,10 @@ bulwark target  → registered scan targets the console may launch against
 
 ## The console
 
-`bulwark serve` reads the runs you save and renders three persona views. Finding
-data (titles, paths, LLM rationales) is treated as hostile and rendered inert —
-escaping only, no HTML injection, strict CSP, binds `127.0.0.1`.
+`bulwark serve` reads the runs you save and renders them across five tabs:
+Overview, Findings, Runs, Operate, and Admin. Finding data (titles, paths, LLM
+rationales) is treated as hostile and rendered inert: escaping only, no HTML
+injection, strict CSP, binds `127.0.0.1`.
 
 Out of the box the console is a read-only viewer with no login. Create users
 (`bulwark user add <name> --role admin`) and it becomes an **operational

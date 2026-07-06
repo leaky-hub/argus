@@ -67,6 +67,10 @@ closes it. Tests referenced in §9 pin every row.
 | S4 | Code snippets in run files | Secret material persisted into `runs/*.json` (the gitleaks payload scrub exists precisely to prevent this); unbounded snippet size; hostile file content | Snippets are captured server-side at scan time by `internal/snippet` (the same symlink-confined reader triage uses — extracted, not re-derived), bounded per finding (≤10 lines, ≤2 KB) and per run (≤1 MiB total). **SECRET-category findings get NO snippet, ever** — metadata only, the same rule triage applies to prompts. Files that look binary (NUL in window) or minified (extreme line length) are skipped. A snippet is hostile data like any finding text: rendered as escaped text only, never HTML. |
 | S5 | On-demand AI explain | Prompt injection from hostile code; token/compute abuse from the browser; secret material sent to a cloud provider | Reuses the triage boundary machinery verbatim: CSPRNG boundary markers, sanitized length-capped inputs, strict output validation, snippet confinement, and the SECRET-never-to-cloud gate (metadata-only prompt for secrets; cloud providers refused unless the repo config opted in). Operator+ role, single-flight per finding, in-memory LRU cache, hard `MaxTokens` cap. Explanations are ephemeral enrichment returned to the browser — **never written into run files or the audit log** (the audit line records that an explanation was requested, not its content). Provider/model/endpoint come from the target repo's `appsec.yml` only. |
 | S6 | Compliance-scoped scans | Pretending a framework filter is an audit ("we scanned for PCI") when mapping is enrichment over whatever the scanners found | Frameworks are a **closed enum from the embedded compliance data**. Selecting them (a) filters reporting emphasis in the run detail view and (b) narrows scanner selection through a hand-curated framework→scanner-relevance table (§12.5) — it never changes mapping logic, and an empty intersection with the chosen scanners is a 400, not a silent no-op. The frameworks requested are recorded on the job and in the audit line — the run file shape is unchanged, and nothing anywhere claims "PCI-certified": a framework-scoped scan is the same scan with relevant scanners and a filtered lens. |
+| C1 | Cloud target registration | **Credential exfiltration**: an admin (or a compromised admin session) submits a raw access key / secret, which the platform then stores in `targets.json`, logs, or a run file — turning the tool into a credential store to be looted | **Credentials are referenced, never collected** (the locked decision). The registration API accepts a `{provider, profileName, regions}` shape with NO key field. `profileName` is validated against the **closed list discovered from the console host's own cloud config** (`cloudscan.ListAWSProfiles`, which reads section headers ONLY — credential values are never parsed). A name outside that list → 400. Nothing key-shaped is accepted, so nothing key-shaped can be stored; the platform runs with whatever the host is already authenticated as. Residual: the console host must be pre-authenticated to the cloud (fine for local-first; a hosted deployment needs a real secrets design, explicitly deferred). |
+| C2 | Profile name → child env | **Injection into `AWS_PROFILE`**: a crafted profile name (`default; rm -rf /`, `$(whoami)`, a newline injecting a second env var) reaching the prowler child environment | The chosen name is re-validated at scan time against the same discovered closed list (`cloudscan.Validate`) — a value that is not literally a section of `~/.aws` never reaches an env var, whatever surface supplied it (console form OR CLI flag). It is passed as a single `AWS_PROFILE=<name>` entry in the child's env slice (never a shell, never string-concatenated), and dies with the process. Regions match a closed `^[a-z0-9-]{1,32}$` grammar and are exec args, never shell. |
+| C3 | Account data in logs/audit | **Sensitive account identifiers** (account IDs, ARNs, prowler's stderr which echoes them) leaking into progress output, the audit log, or an error message | Prowler's stderr is **never raw-streamed** — the platform emits its own summarized progress lines. The error path surfaces only a bounded, ANSI-stripped, **account-ID-masked** tail of stderr (`tailBuffer.Summary`). Account IDs/ARNs appear only where prowler's own JSON already places them inside a finding (they are the finding's identity). The audit line records that a cloud scan ran (target ID, run ID) — never a credential, never raw account data. |
+| C4 | Cloud findings to the LLM | A cloud finding carries account IDs/ARNs (mildly sensitive) into a triage/explain/posture-summary prompt, or a "posture agent" is given tool access / a credential | The LLM stays at the **existing seams only** (triage verdict, on-demand explain, on-demand posture summary) — no agent loop, no tool use, no credential ever in context (a cloud finding has no secret value to carry). Prompts are metadata-only (there is no source file), through the same CSPRNG-marker boundary and output validation as every other category. Cloud findings are metadata, not secrets, so they follow the normal (non-SECRET) provider rules: local-LLM by default; a cloud provider only if the repo already opted in via `triage.allow_cloud`-style config. The posture summary is on-demand, never persisted, and labeled AI-generated in the UI. |
 
 Residual risk, stated plainly: no TLS in-process (§8); job/queue state is
 in-memory (a restart forgets queue history — completed runs and the audit
@@ -271,6 +275,7 @@ credentials will cross the network in cleartext without a TLS proxy.
 | Snippets (S4) | SECRET finding has NO snippet asserted on the RAW run file bytes; per-finding and per-run caps; binary/minified skip; symlink escape yields no snippet |
 | Explain (S5) | authz (viewer 403); response never appears in run files (raw bytes asserted); single-flight and cache behavior; SECRET+cloud refused without opt-in |
 | Frameworks (S6) | unknown framework → 400; narrowing table intersection incl. empty → 400; framework list endpoint matches embedded data |
+| Cloud credentials (C1–C4) | profile discovery reads section headers only (secret value not in output); registration/validate reject unknown & injection-shaped names; `childEnv` carries exactly `AWS_PROFILE=<name>`; grep the whole `.appsec` tree (run file, targets.json, audit) → no key material; cloud launch rejects filesystem options |
 | Authz extension | every new route × every role × zero-users appended to the existing matrix test (extended, not forked) |
 
 ## 10. Bootstrap walkthrough
@@ -483,3 +488,56 @@ content. No configured/reachable provider → 503 with an honest message.
 | `target.update` | PATCH target (config/scanners/profile/name) | target ID, changed fields; ignore patterns verbatim |
 | `scan.explain` | explain requested (cache miss or hit) | target, run, finding ID, cached flag |
 | `scan.launch` / `scan.finish` | unchanged | + `scope`, `frameworks` on launch; + `commit` on finish for git targets |
+
+## 13. Cloud posture targets (schema 2.1.0)
+
+The cloud-posture session adds a third target kind, `cloud`, and a new finding
+category, `CLOUD`. A cloud target scans an ACCOUNT through prowler, not a
+filesystem path — so it gets its own registration shape, execution branch, and
+run storage, while everything downstream (banding, risk, compliance, triage,
+console) is the SAME pipeline every other category flows through.
+
+### 13.1 Registration and the credential contract (C1/C2)
+
+A cloud target is `{provider, profileName, regions?}` — a **NAME**, never a
+key. The console form offers profile names discovered server-side from the
+console host's own cloud config (`GET /api/cloud/profiles`, admin-only;
+`cloudscan.ListAWSProfiles` reads INI **section headers only** — credential
+values are never parsed). Registration (`AddCloud`) and every scan
+(`cloudscan.Validate`) re-check the chosen name against that closed list, so a
+free-form or injection-shaped name never reaches an env var. The one place a
+credential-adjacent value enters a child process is `childEnv`, which appends
+exactly `AWS_PROFILE=<validated-name>` — proven by grep-tests that no key
+material reaches `targets.json`, the audit log, a run file, progress output, or
+a prompt (threat rows C1–C4). The console host must be pre-authenticated to
+the cloud; a hosted deployment would need a real secrets design, explicitly
+deferred.
+
+### 13.2 Execution and run storage
+
+Cloud scans run through the same serial job queue. The executor branches on
+`TypeCloud` to `execCloudScan`, which calls `pipeline.RunCloud` (prowler →
+`Enrich`: normalize → correlate → triage seam → risk+band → compliance) under
+a generous per-provider timeout (config `cloud.timeout`, default 1800 s).
+Prowler's stderr is never raw-streamed — summarized progress lines only; the
+error path masks account IDs (C3).
+
+**Run storage is a conscious design choice:** a cloud target has no filesystem
+to own its history, so its runs live at `.appsec/cloud/<targetID>/runs` under
+the served repo (`Registry.CloudRunStore`), reusing the exact runstore
+machinery (list, load, deltas) code targets use. The resource-slot fingerprint
+(schema 2.1.0) gives the same check on the same resource a stable identity
+across runs, so run-to-run deltas work for cloud runs with no new machinery.
+`runStoreFor` and the aggregated Runs tab resolve the cloud store by target ID.
+
+### 13.3 Console surface
+
+Cloud runs appear in the aggregated Runs tab tagged by target. The Findings
+drawer feature-detects location: `location.resource` (the ARN/UID) replaces
+`file:line`, and the snippet/git-blob/explain-from-source paths hide gracefully
+(a cloud finding has no source file). One optional new surface: an on-demand,
+never-persisted **posture summary** (`POST /api/cloud/posture-summary`,
+operator+) over one run's rollup — counts, top risk signals, top CIS control
+gaps — clearly labeled AI-generated. Scan launch rejects the filesystem knobs
+(scanner/profile/scope/framework) for cloud targets rather than silently
+ignoring them; only the triage toggle applies.

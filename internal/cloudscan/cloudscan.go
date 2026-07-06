@@ -128,7 +128,7 @@ func Scan(ctx context.Context, opts Options, progress func(string)) (Result, err
 	// The credential REFERENCE: a validated profile name, resolved by the
 	// AWS SDK inside the child. The value never appears in our output, run
 	// files, or prompts; the env entry dies with the child process.
-	cmd.Env = append(os.Environ(), "AWS_PROFILE="+opts.Profile)
+	cmd.Env = childEnv(os.Environ(), opts.Provider, opts.Profile)
 	cmd.Stdout = nil // prowler's stdout banner is noise; findings go to the file
 	var stderrTail tailBuffer
 	cmd.Stderr = &stderrTail
@@ -152,6 +152,22 @@ func Scan(ctx context.Context, opts Options, progress func(string)) (Result, err
 	progress(fmt.Sprintf("prowler: %d raw findings (%d fail / %d pass / %d manual)\n",
 		len(res.Raw), res.Failed, res.Passed, res.Manual))
 	return res, nil
+}
+
+// childEnv builds the prowler child's environment: the parent env plus the
+// single credential REFERENCE entry (AWS_PROFILE=<name>). This is the ONLY
+// place the platform writes a credential-adjacent value into a child env, and
+// it writes a NAME, never key material. Factored out and exported-to-tests
+// (via export_test) so the "credential is referenced, never collected"
+// invariant (C1/C2) is grep-provable. The provider selects the env var name;
+// AWS is the only provider this beat.
+func childEnv(base []string, provider, profile string) []string {
+	switch provider {
+	case ProviderAWS:
+		return append(append([]string{}, base...), "AWS_PROFILE="+profile)
+	default:
+		return append([]string{}, base...)
+	}
 }
 
 func contains(list []string, v string) bool {

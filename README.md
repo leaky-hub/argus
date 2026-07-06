@@ -92,6 +92,42 @@ go build -o appsec ./cmd/appsec        # embeds the console; no Node needed to r
 ./appsec comply . --latest -f json      # assess the last saved run instead
 ```
 
+## Cloud security posture (prowler)
+
+Point the platform at an AWS account and get a posture assessment through the
+**same** pipeline as code — unified findings (category `CLOUD`), banded
+severity, deterministic risk signals, and CIS-AWS compliance mapping, skimmable
+in the console.
+
+```bash
+# Prereq: prowler on PATH (`pipx install prowler`) and a read-only profile.
+./appsec cloud-scan --provider aws --profile security-audit
+./appsec cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2 --save
+```
+
+**Credentials are referenced, never collected.** `--profile` names a profile
+from your local cloud config (`~/.aws`); the platform passes only that NAME to
+prowler as `AWS_PROFILE` and never sees, stores, or logs a key. Least-privilege
+setup — create a read-only security-audit principal and point `--profile` at it:
+
+```bash
+# AWS: attach the two AWS-managed read-only policies to a dedicated principal.
+aws iam create-user --user-name appsec-audit
+aws iam attach-user-policy --user-name appsec-audit \
+  --policy-arn arn:aws:iam::aws:policy/SecurityAudit
+aws iam attach-user-policy --user-name appsec-audit \
+  --policy-arn arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+# Put its keys in a named profile in ~/.aws/credentials, e.g. [security-audit],
+# then reference that NAME. The platform runs with exactly what that profile
+# can do — least privilege is your control, honesty about it is ours.
+```
+
+Azure (`Reader`) and GCP (`Viewer`) are the same shape and are the documented
+next beat. In the console, an admin registers a cloud target by picking a
+discovered profile name (never a key); cloud runs appear in the aggregated Runs
+tab with a resource-aware finding drawer and an optional on-demand,
+never-persisted **AI posture summary**.
+
 Missing scanners are skipped with a note — the CLI degrades gracefully and
 runs whatever the environment provides. The same applies to triage: no LLM
 reachable means the scan simply runs without verdicts.

@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/leaky-hub/appsec/internal/cloudscan"
+	"github.com/leaky-hub/appsec/internal/model"
+	"github.com/leaky-hub/appsec/internal/runstore"
 )
 
 // writeAWSConfig points cloudscan's profile discovery at a temp config with a
@@ -101,6 +106,77 @@ func TestCloudTargetRegistration(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "AKIA") || strings.Contains(string(raw), "verysecretvalue") {
 		t.Error("credential material reached targets.json")
+	}
+}
+
+// TestCloudCredentialNeverInDurableState is the S4-style grep-proof for
+// threat rows C1/C3: after registering a cloud target and saving a cloud run
+// to its store, no credential-shaped material appears in ANY durable
+// artifact the platform writes — targets.json, the audit log, or the run
+// file. The credential lives only in the host's cloud config, read by
+// prowler's own SDK; the platform touches a NAME.
+func TestCloudCredentialNeverInDurableState(t *testing.T) {
+	writeAWSConfig(t)
+	f := newConsole(t, nil)
+	admin := f.mustLogin("alice")
+
+	create := `{"name":"prod aws","provider":"aws","profileName":"security-audit","regions":["us-east-1"]}`
+	rec := f.do(http.MethodPost, "/api/targets", create, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register cloud target: %d %s", rec.Code, rec.Body.String())
+	}
+	var tgt struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tgt)
+	target, err := f.registry.Get(tgt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Save a real cloud run (fixture findings) to the target's cloud store,
+	// exactly as the executor does.
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "testdata", "cloud", "prowler-aws.json-ocsf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := cloudscan.ParseOCSF(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := model.Normalize(res.Raw)
+	store := runstore.Store{Dir: f.registry.CloudRunStore(target)}
+	if _, err := store.Save(findings, time.Unix(1700000000, 0)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The planted secret (from writeAWSConfig's credentials file) and any
+	// key-shaped material must not appear in the durable artifacts. Sweep the
+	// whole .appsec tree — run file, targets.json, audit.jsonl.
+	needles := []string{"verysecretvalue", "AKIAEXAMPLEEXAMPLE12", "aws_secret_access_key"}
+	root := filepath.Join(f.dir, ".appsec")
+	var checked int
+	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		checked++
+		for _, n := range needles {
+			if strings.Contains(string(data), n) {
+				t.Errorf("credential material %q leaked into %s", n, path)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("no .appsec files were checked — the grep proved nothing")
 	}
 }
 

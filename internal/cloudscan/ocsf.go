@@ -81,9 +81,9 @@ const (
 	MetaAccount    = "account"
 	MetaResource   = "resourceName"
 	MetaType       = "resourceType"
-	MetaCategories = "categories"  // comma-joined prowler check categories
-	MetaCISAWS     = "cisAws150"   // comma-joined CIS-AWS 1.5.0 controls (prowler's mapping)
-	MetaProwlerUID = "prowlerUid"  // prowler's own finding UID, for cross-referencing
+	MetaCategories = "categories" // comma-joined prowler check categories
+	MetaCISAWS     = "cisAws150"  // comma-joined CIS-AWS 1.5.0 controls (prowler's mapping)
+	MetaProwlerUID = "prowlerUid" // prowler's own finding UID, for cross-referencing
 )
 
 // ParseOCSF maps a prowler JSON-OCSF document (an array of Detection

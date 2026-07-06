@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/leaky-hub/appsec/internal/disposition"
+	"github.com/leaky-hub/appsec/internal/model"
 )
 
 func TestDispositionSetClearAndOverlay(t *testing.T) {
@@ -91,5 +92,33 @@ func TestDispositionRegressionOverlay(t *testing.T) {
 	}
 	if !present {
 		t.Fatal("a fixed finding still present in the run is the regression the UI badges")
+	}
+}
+
+// TestGateSuppressedByDisposition: accepted-risk and false-positive
+// dispositions drop a finding from the gate (but not the report); the count
+// is surfaced. in-progress and fixed still gate.
+func TestGateSuppressedByDisposition(t *testing.T) {
+	high := model.SeverityHigh
+	f1 := model.Finding{ID: "a", Severity: model.SeverityHigh}
+	f2 := model.Finding{ID: "b", Severity: model.SeverityHigh}
+	findings := []model.Finding{f1, f2}
+
+	// No dispositions → gate fails (two high findings).
+	if g := gateFor(findings, nil, &high, "high"); !g.Failed || g.Suppressed != 0 {
+		t.Errorf("no-disposition gate = %+v, want failed, 0 suppressed", g)
+	}
+	// Accept the risk on both → gate passes, 2 suppressed.
+	disp := map[string]disposition.Record{
+		"a": {Status: disposition.StatusAcceptedRisk},
+		"b": {Status: disposition.StatusFalsePositive},
+	}
+	if g := gateFor(findings, disp, &high, "high"); g.Failed || g.Suppressed != 2 {
+		t.Errorf("all-dispositioned gate = %+v, want passed, 2 suppressed", g)
+	}
+	// in-progress still gates (a fix isn't confirmed until re-scan clears it).
+	inprog := map[string]disposition.Record{"a": {Status: disposition.StatusInProgress}, "b": {Status: disposition.StatusFixed}}
+	if g := gateFor(findings, inprog, &high, "high"); !g.Failed || g.Suppressed != 0 {
+		t.Errorf("in-progress/fixed gate = %+v, want failed, 0 suppressed", g)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/coverage"
+	"github.com/leaky-hub/appsec/internal/disposition"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/pipeline"
 	"github.com/leaky-hub/appsec/internal/report"
@@ -37,6 +38,7 @@ func init() {
 	scanCmd.Flags().Int("timeout", 0, "Per-scanner timeout in seconds")
 	scanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
+	scanCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
 	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `bulwark comply`)")
 }
 
@@ -115,10 +117,52 @@ func runScan(cmd *cobra.Command, args []string) error {
 	printSummary(findings)
 
 	// The gate decision comes last, after the report is safely written.
-	if model.GateExceeded(findings, gate) {
+	// Findings a human dispositioned accepted-risk or false-positive (in the
+	// scanned tree's .appsec/dispositions.json, e.g. via the console) are
+	// excluded from the gate by default — accepted risk stops failing CI but
+	// stays in the report. --strict-gate gates on everything.
+	gated := findings
+	strict, _ := cmd.Flags().GetBool("strict-gate")
+	if !strict {
+		var suppressed int
+		gated, suppressed = excludeDispositioned(scanRoot(target), findings)
+		if suppressed > 0 {
+			fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) excluded from the gate by disposition (accepted-risk/false-positive); --strict-gate to include them\n", suppressed)
+		}
+	}
+	if model.GateExceeded(gated, gate) {
 		return errGateFailed
 	}
 	return nil
+}
+
+// scanRoot is the directory whose .appsec holds a scan's run/disposition
+// history: the target dir, or the file's directory for a single-file scan.
+func scanRoot(target string) string {
+	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+		return filepath.Dir(target)
+	}
+	return target
+}
+
+// excludeDispositioned returns the findings that still count toward the gate
+// (dropping accepted-risk / false-positive dispositions from root's store) and
+// the number suppressed. A missing store suppresses nothing.
+func excludeDispositioned(root string, findings []model.Finding) ([]model.Finding, int) {
+	all, err := disposition.At(filepath.Join(root, ".appsec")).All()
+	if err != nil || len(all) == 0 {
+		return findings, 0
+	}
+	kept := make([]model.Finding, 0, len(findings))
+	suppressed := 0
+	for _, f := range findings {
+		if rec, ok := all[f.ID]; ok && disposition.GateSuppressed(rec.Status) {
+			suppressed++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, suppressed
 }
 
 // loadConfig loads appsec.yml and applies flag overrides for flags the user

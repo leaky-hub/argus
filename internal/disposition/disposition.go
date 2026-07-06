@@ -49,6 +49,17 @@ var settable = map[string]bool{
 // ValidStatus reports whether s is a settable disposition status.
 func ValidStatus(s string) bool { return settable[s] }
 
+// GateSuppressed reports whether a finding with this disposition should be
+// excluded from the severity gate (the CI pass/fail decision). A finding a
+// human formally accepted the risk of, or judged a false positive, no longer
+// fails the build — but stays visible in the report. "in-progress" and
+// "fixed" still gate (a fix is unconfirmed until a re-scan clears the
+// finding). This is a HUMAN decision moving the gate, which is legitimate;
+// no LLM verdict ever does.
+func GateSuppressed(status string) bool {
+	return status == StatusAcceptedRisk || status == StatusFalsePositive
+}
+
 // Record is one finding's disposition.
 type Record struct {
 	FindingID string    `json:"findingId"` // the stable fingerprint

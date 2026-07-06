@@ -542,3 +542,47 @@ operator+) over one run's rollup — counts, top risk signals, top CIS control
 gaps — clearly labeled AI-generated. Scan launch rejects the filesystem knobs
 (scanner/profile/scope/framework) for cloud targets rather than silently
 ignoring them; only the triage toggle applies.
+
+## 14. Finding workflow: dispositions and the gate
+
+A **disposition** is durable human judgment about a single finding —
+`open` (the default, no record) / `in-progress` / `accepted-risk` /
+`false-positive` / `fixed` — with a note and an owner. It is keyed by the
+finding's stable **fingerprint**, so a disposition set on a finding in one run
+applies to the same finding in every later run: the console becomes a tool you
+work in, not a report you read.
+
+**One store, separate from everything else.** Dispositions live in
+`dispositions.json` beside a target's runs (`<root>/.appsec/` for dir/git,
+`.appsec/cloud/<id>/` for cloud), read/written by `internal/disposition` with
+the same mtime-reload + atomic-write discipline as the user/target stores. They
+are deliberately NOT in run files (which stay immutable historical records) and
+NOT LLM triage (advisory, per-run, machine). A disposition never rewrites a
+severity or a compliance mapping — the console overlays it onto findings at
+read time.
+
+**Authz & audit.** `POST /api/dispositions` (set) and
+`DELETE /api/dispositions/{fingerprint}` (clear to open) are **operator+**, CSRF
++ zero-users-mode gated like every other mutation. Each change emits a
+`finding.dispose` audit event recording the status — never the note text.
+
+**Regression.** A finding present in a run whose disposition is `fixed` is a
+regression (marked fixed, still detected). The run detail and the Overview
+"Finding workflow" tile surface the count; the Findings list badges it and
+offers a `regression` status filter.
+
+**The gate (default on).** Findings dispositioned `accepted-risk` or
+`false-positive` are excluded from the severity gate — a human formally
+accepting a risk stops it failing CI, while it stays visible in the report.
+`in-progress` and `fixed` still gate (a fix is unconfirmed until a re-scan
+clears the finding; no LLM verdict ever moves the gate — only a human
+disposition does). This applies in two places from the same
+`disposition.GateSuppressed` predicate:
+
+- **Console** — `gateFor` excludes suppressed findings and reports the count
+  as `GateInfo.Suppressed` (the gate badge shows "· N accepted").
+- **CLI** — `bulwark scan` loads the scanned tree's
+  `.appsec/dispositions.json` and drops accepted-risk/false-positive findings
+  from the gate decision, printing a `NOTE: N finding(s) excluded from the
+  gate by disposition`. `--strict-gate` gates on everything, ignoring
+  dispositions.

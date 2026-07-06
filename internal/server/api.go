@@ -16,10 +16,13 @@ import (
 // plain data — every string field ultimately originates from scanned code or an
 // LLM and is therefore treated as hostile by the frontend (escaped on render).
 
-// GateInfo is a run's pass/fail against a severity threshold.
+// GateInfo is a run's pass/fail against a severity threshold. Suppressed
+// counts findings excluded from the gate by disposition (accepted-risk /
+// false-positive) — they stay in the report but no longer fail the build.
 type GateInfo struct {
-	Threshold string `json:"threshold"`
-	Failed    bool   `json:"failed"`
+	Threshold  string `json:"threshold"`
+	Failed     bool   `json:"failed"`
+	Suppressed int    `json:"suppressed,omitempty"`
 }
 
 // VerdictCounts is the triage rollup for a run.
@@ -94,15 +97,11 @@ type SummaryResponse struct {
 
 // dispositionRollup counts the run's findings by workflow status (open when no
 // record) and flags regressions (status "fixed" but still present in the run).
-func dispositionRollup(store runstore.Store, findings []model.Finding) map[string]int {
+func dispositionRollup(all map[string]disposition.Record, findings []model.Finding) map[string]int {
 	out := map[string]int{
 		disposition.StatusOpen: 0, disposition.StatusInProgress: 0,
 		disposition.StatusAcceptedRisk: 0, disposition.StatusFalsePositive: 0,
 		disposition.StatusFixed: 0, "regression": 0,
-	}
-	all, err := dispositionStore(store).All()
-	if err != nil {
-		all = map[string]disposition.Record{}
 	}
 	for _, f := range findings {
 		if rec, ok := all[f.ID]; ok {
@@ -146,9 +145,24 @@ type RunDetail struct {
 
 const rfc3339 = "2006-01-02T15:04:05Z07:00"
 
-// gateFor computes a run's gate outcome against the server's threshold.
-func gateFor(findings []model.Finding, gate *model.Severity, threshold string) GateInfo {
-	return GateInfo{Threshold: threshold, Failed: model.GateExceeded(findings, gate)}
+// gateFor computes a run's gate outcome against the server's threshold,
+// excluding findings suppressed by disposition (accepted-risk /
+// false-positive) — a human accepting a risk stops it failing CI, but it
+// stays in the report. dispositions may be nil (no suppression).
+func gateFor(findings []model.Finding, dispositions map[string]disposition.Record, gate *model.Severity, threshold string) GateInfo {
+	relevant := findings
+	suppressed := 0
+	if len(dispositions) > 0 {
+		relevant = make([]model.Finding, 0, len(findings))
+		for _, f := range findings {
+			if rec, ok := dispositions[f.ID]; ok && disposition.GateSuppressed(rec.Status) {
+				suppressed++
+				continue
+			}
+			relevant = append(relevant, f)
+		}
+	}
+	return GateInfo{Threshold: threshold, Failed: model.GateExceeded(relevant, gate), Suppressed: suppressed}
 }
 
 // countVerdicts tallies triage verdicts across findings.
@@ -272,10 +286,11 @@ func (s *Server) buildSummary(store runstore.Store) (SummaryResponse, error) {
 	resp.ByCategory = doc.Summary.ByCategory
 	resp.OWASP = owasp.Rollup(doc.Findings)
 	resp.Compliance = complianceSummary(doc.Findings)
+	disp, _ := dispositionStore(store).All()
 	resp.RiskBands = riskBands(doc.Findings)
-	resp.Gate = gateFor(doc.Findings, s.gate, s.gateName)
+	resp.Gate = gateFor(doc.Findings, disp, s.gate, s.gateName)
 	resp.Verdicts = countVerdicts(doc.Findings)
-	resp.Dispositions = dispositionRollup(store, doc.Findings)
+	resp.Dispositions = dispositionRollup(disp, doc.Findings)
 	return resp, nil
 }
 
@@ -288,6 +303,8 @@ func (s *Server) buildRuns(store runstore.Store) (RunsResponse, error) {
 	// Always a JSON array, never null: an empty run store must serialize to
 	// "runs": [] so the frontend can index/iterate it safely.
 	out := RunsResponse{Runs: []RunListItem{}}
+	// Dispositions are per-target, shared across the target's runs — load once.
+	disp, _ := dispositionStore(store).All()
 	var prev *report.Document
 	for _, r := range runs {
 		doc, err := store.Load(r.ID)
@@ -300,7 +317,7 @@ func (s *Server) buildRuns(store runstore.Store) (RunsResponse, error) {
 			CreatedAt:  r.CreatedAt.Format(rfc3339),
 			Total:      doc.Summary.Total,
 			BySeverity: doc.Summary.BySeverity,
-			Gate:       gateFor(doc.Findings, s.gate, s.gateName),
+			Gate:       gateFor(doc.Findings, disp, s.gate, s.gateName),
 			Delta:      delta.Counts(),
 			Verdicts:   countVerdicts(doc.Findings),
 		})
@@ -353,7 +370,7 @@ func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, err
 		ByCategory:   doc.Summary.ByCategory,
 		OWASP:        owasp.Rollup(doc.Findings),
 		Compliance:   complianceSummary(doc.Findings),
-		Gate:         gateFor(doc.Findings, s.gate, s.gateName),
+		Gate:         gateFor(doc.Findings, dispositions, s.gate, s.gateName),
 		Verdicts:     countVerdicts(doc.Findings),
 		Delta:        delta.Counts(),
 		NewIDs:       findingIDs(delta.New),

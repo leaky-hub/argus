@@ -147,13 +147,17 @@ export function CategoryBreakdown({ byCategory }: { byCategory: Record<string, n
 }
 
 export function GateBadge({ gate }: { gate: GateInfo }) {
+  const suppressed = gate.suppressed ?? 0;
+  const suffix = suppressed > 0
+    ? <span className="opacity-70" title="findings excluded from the gate by accepted-risk / false-positive disposition">· {suppressed} accepted</span>
+    : null;
   return gate.failed ? (
     <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-300">
-      ● FAIL <span className="opacity-70">≥ {gate.threshold}</span>
+      ● FAIL <span className="opacity-70">≥ {gate.threshold}</span> {suffix}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800 dark:bg-green-900/40 dark:text-green-300">
-      ● PASS <span className="opacity-70">≥ {gate.threshold}</span>
+      ● PASS <span className="opacity-70">≥ {gate.threshold}</span> {suffix}
     </span>
   );
 }

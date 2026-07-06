@@ -85,6 +85,9 @@ export interface FrameworkSummary {
 export interface GateInfo {
   threshold: string;
   failed: boolean;
+  // Findings excluded from the gate by disposition (accepted-risk /
+  // false-positive) — still in the report, just no longer failing CI.
+  suppressed?: number;
 }
 export interface VerdictCounts {
   truePositive: number;

@@ -100,6 +100,15 @@ export function Findings({
   const [minRisk, setMinRisk] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // A "clear filters" affordance — especially useful after deep-linking in
+  // from an Overview stat, which sets a filter for you.
+  const activeCount = [sev !== "all", cat !== "all", tool !== "all", verdict !== "all", status !== "all", framework !== "all", minRisk > 0, q.trim() !== ""].filter(Boolean).length;
+  const filtersActive = activeCount > 0;
+  const clearFilters = () => {
+    setQ(""); setSev("all"); setCat("all"); setTool("all"); setVerdict("all");
+    setStatus("all"); onFrameworkChange("all"); setMinRisk(0);
+  };
+
   // Local, optimistic overlay of finding dispositions seeded from the run
   // detail; re-seeded when the run changes. Operator+ can set/clear. A finding
   // with status "fixed" that is still present in this run is a REGRESSION.
@@ -214,8 +223,10 @@ export function Findings({
     <div className="space-y-4">
     {detail.coverage && <CoverageStrip cov={detail.coverage} />}
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      {/* Filter rail + list */}
-      <div className="lg:col-span-3">
+      {/* Filter rail + list. min-w-0 so a wide code block in either column
+          scrolls inside its own overflow-x-auto instead of expanding the grid
+          track and bleeding into the neighbour. */}
+      <div className="min-w-0 lg:col-span-3">
         <Panel
           title={`Findings (${filtered.length}/${detail.findings.length})`}
           right={
@@ -263,16 +274,28 @@ export function Findings({
                 className="w-24"
               />
             </label>
+            {filtersActive && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 self-center rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                title="Reset all filters"
+              >
+                ✕ Clear filters ({activeCount})
+              </button>
+            )}
           </div>
 
-          <div className="scroll-thin max-h-[62vh] overflow-y-auto">
-            <table className="w-full text-left text-sm">
+          <div className="scroll-thin max-h-[62vh] overflow-auto">
+            {/* table-fixed + bounded columns so a long title/ARN truncates
+                inside the Title cell instead of forcing the table wider than
+                its column and bleeding into the detail pane. */}
+            <table className="w-full table-fixed text-left text-sm">
               <thead className="sticky top-0 bg-white text-xs uppercase text-gray-500 dark:bg-gray-900">
                 <tr>
-                  <th className="py-2 pr-2">Risk</th>
-                  <th className="py-2 pr-2">Sev</th>
+                  <th className="w-14 py-2 pr-2">Risk</th>
+                  <th className="w-12 py-2 pr-2">Sev</th>
                   <th className="py-2 pr-2">Title</th>
-                  <th className="py-2 pr-2">Verdict</th>
+                  <th className="w-24 py-2 pr-2">Verdict</th>
                 </tr>
               </thead>
               <tbody>
@@ -290,26 +313,26 @@ export function Findings({
                     <td className="py-1.5 pr-2">
                       <SeverityBadge severity={f.severity} />
                     </td>
-                    <td className="py-1.5 pr-2">
-                      <div className="flex items-center gap-2">
+                    <td className="min-w-0 py-1.5 pr-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         {newSet.has(f.id) && (
-                          <span className="rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                          <span className="shrink-0 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
                             NEW
                           </span>
                         )}
                         {dispositions[f.id]?.status === "fixed" && (
-                          <span className="rounded bg-red-100 px-1 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300" title="Marked fixed but still detected — a regression">
+                          <span className="shrink-0 rounded bg-red-100 px-1 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300" title="Marked fixed but still detected — a regression">
                             REGRESSED
                           </span>
                         )}
                         {dispositions[f.id] && dispositions[f.id].status !== "fixed" && (
-                          <span className={`rounded px-1 text-[10px] font-semibold ${DISPOSITION_CHIP[dispositions[f.id].status]}`}>
+                          <span className={`shrink-0 rounded px-1 text-[10px] font-semibold ${DISPOSITION_CHIP[dispositions[f.id].status]}`}>
                             {DISPOSITION_LABEL[dispositions[f.id].status]}
                           </span>
                         )}
-                        <span className="line-clamp-1 font-mono text-xs">{f.title}</span>
+                        <span className="truncate font-mono text-xs">{f.title}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-400">
                         <CategoryBadge category={f.category} compact />
                         <span className="truncate">{locationLabel(f.location)}</span>
                       </div>
@@ -335,7 +358,7 @@ export function Findings({
       </div>
 
       {/* Detail pane */}
-      <div className="lg:col-span-2">
+      <div className="min-w-0 lg:col-span-2">
         {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} /> : null}
       </div>
     </div>
@@ -838,10 +861,13 @@ function RiskSignals({ signals }: { signals?: RiskSignal[] }) {
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  // minmax(0,1fr) (not bare 1fr, whose implicit min-width:auto is min-content)
+  // so a long unbreakable token in the value column can't force the grid wider
+  // than the pane; min-w-0 lets the value wrap/scroll inside its own box.
   return (
-    <div className="grid grid-cols-[80px_1fr] gap-2">
+    <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-2">
       <span className="text-xs font-medium uppercase text-gray-400">{label}</span>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

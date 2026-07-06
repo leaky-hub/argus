@@ -57,6 +57,7 @@ var authzTable = []authzRule{
 	{http.MethodPost, "/api/scans", auth.RoleOperator, false},
 	{http.MethodPost, "/api/explain", auth.RoleOperator, false},
 	{http.MethodPost, "/api/remediate", auth.RoleOperator, false},
+	{http.MethodPost, "/api/validate", auth.RoleOperator, false},
 	{http.MethodPost, "/api/cloud/posture-summary", auth.RoleOperator, false},
 	{http.MethodPost, "/api/dispositions", auth.RoleOperator, false},      // set finding workflow status
 	{http.MethodPost, "/api/dispositions/bulk", auth.RoleOperator, false}, // bulk apply/clear across a selection

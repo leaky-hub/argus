@@ -414,6 +414,19 @@ export interface RemediationResponse {
   safetyIssues?: string[];
 }
 
+// Advisory severity validation (verdict + impact/likelihood + a
+// deterministically-scored CVSS 3.1 vector). Never changes stored severity.
+export interface ValidationResponse {
+  verdict: "true-positive" | "false-positive" | "uncertain";
+  impact: string;
+  likelihood: string;
+  cvssVector: string;
+  cvssScore: number;
+  cvssSeverity: string; // None/Low/Medium/High/Critical/unrated
+  rationale: string;
+  model: string;
+}
+
 export const opsApi = {
   me: (): Promise<MeResponse> => send<MeResponse>("GET", "api/auth/me"),
   
@@ -481,6 +494,9 @@ export const opsApi = {
 
   remediate: (req: { targetId?: string; runId: string; findingId: string }): Promise<RemediationResponse> =>
     send<RemediationResponse>("POST", "api/remediate", req),
+
+  validate: (req: { targetId?: string; runId: string; findingId: string }): Promise<ValidationResponse> =>
+    send<ValidationResponse>("POST", "api/validate", req),
 
   setDisposition: (req: { targetId?: string; findingId: string; status: DispositionStatus; note?: string }): Promise<Disposition> =>
     send<Disposition>("POST", "api/dispositions", req),

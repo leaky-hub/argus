@@ -1,14 +1,19 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { useToast } from "../toast";
 import { DISPOSITION_CHIP, DISPOSITION_LABEL, VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
 const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
+// One neutral style for every drawer action button — the theme, not a rainbow.
+const ACTION_BTN =
+  "rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800";
+
 // Per-finding explain/remediate lifecycles; cached client-side so re-clicks don't refetch.
 type ExplainState = { loading: boolean; data?: ExplainResponse; error?: string };
 type RemediateState = { loading: boolean; data?: RemediationResponse; error?: string };
+type ValidateState = { loading: boolean; data?: ValidationResponse; error?: string };
 
 // CoverageStrip renders the run's skip accounting (schema 2.0.0): what the
 // scan did NOT look at. "No findings" over a tree of unscanned binaries is a
@@ -164,6 +169,7 @@ export function Findings({
   // Explain + remediate lifecycles, per finding (cached client-side).
   const [explainState, setExplainState] = useState<Record<string, ExplainState>>({});
   const [remediateState, setRemediateState] = useState<Record<string, RemediateState>>({});
+  const [validateState, setValidateState] = useState<Record<string, ValidateState>>({});
 
   const newSet = useMemo(() => new Set(detail.newIds), [detail.newIds]);
   const tools = useMemo(
@@ -275,6 +281,18 @@ export function Findings({
     } catch (err) {
       const msg = err instanceof Error ? err.message : "remediation failed";
       setRemediateState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
+    }
+  };
+
+  const handleValidate = async (f: Finding) => {
+    if (!canExplain) return; // operator+ gate, same as explain/remediate
+    setValidateState((prev) => ({ ...prev, [f.id]: { loading: true, data: prev[f.id]?.data } }));
+    try {
+      const res = await opsApi.validate({ targetId: origin?.targetId, runId: detail.id, findingId: f.id });
+      setValidateState((prev) => ({ ...prev, [f.id]: { loading: false, data: res } }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "validation failed";
+      setValidateState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
     }
   };
 
@@ -498,14 +516,14 @@ export function Findings({
 
       {/* Detail pane */}
       <div className="min-w-0 lg:col-span-2">
-        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} /> : null}
+        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} /> : null}
       </div>
     </div>
     </div>
   );
 }
 
-function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remediateState, onRemediate, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
+function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remediateState, onRemediate, validateState, onValidate, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
   f: Finding;
   isNew: boolean;
   origin?: { targetId?: string; gitUrl?: string; commit?: string };
@@ -514,6 +532,8 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
   onExplain: () => void;
   remediateState?: RemediateState;
   onRemediate: () => void;
+  validateState?: ValidateState;
+  onValidate: () => void;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   disposition?: Disposition;
@@ -714,81 +734,72 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
           </div>
         )}
 
-        {/* Explain Button & Result */}
+        {/* AI assist (operator+): one action row, one button style. All output
+            is advisory — it never changes a stored severity or applies a fix. */}
         {canExplain && (
-          <div className="mt-2">
-            {!explainState ? (
-              <button
-                onClick={onExplain}
-                className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
-              >
-                Explain Finding
-              </button>
-            ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">AI assist</span>
+              {!explainState && <button onClick={onExplain} className={ACTION_BTN}>Explain</button>}
+              {!validateState && <button onClick={onValidate} className={ACTION_BTN}>Validate severity</button>}
+              {!remediateState && <button onClick={onRemediate} className={ACTION_BTN}>Suggest fix</button>}
+            </div>
+
+            {explainState && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
                 {explainState.loading ? (
-                  <p className="text-xs text-gray-500">Explaining...</p>
+                  <p className="text-xs text-gray-500">Explaining…</p>
                 ) : explainState.error ? (
                   <div className="space-y-1">
                     <p className="text-xs text-red-600 dark:text-red-400">{explainState.error}</p>
-                    <button onClick={onExplain} className="text-xs text-blue-600 hover:underline dark:text-blue-400">retry</button>
+                    <button onClick={onExplain} className="text-xs text-gray-500 hover:underline">retry</button>
                   </div>
                 ) : explainState.data ? (
                   <>
-                    <p className="whitespace-pre-wrap break-words text-xs text-gray-800 dark:text-gray-200">
-                      {explainState.data.explanation}
-                    </p>
+                    <p className="whitespace-pre-wrap break-words text-xs text-gray-800 dark:text-gray-200">{explainState.data.explanation}</p>
                     {explainState.data.remediation && (
-                      <div className="mt-2">
-                        <span className="text-xs font-semibold text-gray-500">Fix:</span>
-                        <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">
-                          {explainState.data.remediation}
-                        </p>
-                      </div>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold text-gray-500">Fix: </span>{explainState.data.remediation}</p>
                     )}
-                    <div className="mt-1 flex items-center gap-2 text-[10px] text-gray-400">
-                      <span>{explainState.data.model}</span>
-                      {explainState.data.cached && <span>(cached)</span>}
-                    </div>
+                    <p className="mt-1 text-[10px] text-gray-400">{explainState.data.model}{explainState.data.cached ? " (cached)" : ""}</p>
                   </>
                 ) : null}
               </div>
             )}
-          </div>
-        )}
 
-        {/* AI-assisted remediation (operator+). Output is advice the user runs
-            themselves — never executed by the platform, never persisted. */}
-        {canExplain && (
-          <div className="mt-2">
-            {!remediateState ? (
-              <button
-                onClick={onRemediate}
-                className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
-              >
-                🛠 Suggest remediation
-              </button>
-            ) : remediateState.loading ? (
-              <p className="text-xs text-gray-500">Generating remediation…</p>
-            ) : remediateState.error ? (
-              <div className="space-y-1">
-                <p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p>
-                <button onClick={onRemediate} className="text-xs text-emerald-600 hover:underline dark:text-emerald-400">retry</button>
-              </div>
-            ) : remediateState.data ? (
-              <RemediationPanel
-                r={remediateState.data}
-                category={f.category}
-                location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)}
-                source={f.location.snippet && f.location.snippet.lines.length > 0 ? {
-                  lines: f.location.snippet.lines,
-                  startLine: f.location.snippet.startLine,
-                  flaggedStart: f.location.startLine ?? f.location.snippet.startLine,
-                  flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine,
-                } : undefined}
-                onRegenerate={onRemediate}
-              />
-            ) : null}
+            {validateState &&
+              (validateState.loading ? (
+                <p className="text-xs text-gray-500">Validating severity…</p>
+              ) : validateState.error ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-red-600 dark:text-red-400">{validateState.error}</p>
+                  <button onClick={onValidate} className="text-xs text-gray-500 hover:underline">retry</button>
+                </div>
+              ) : validateState.data ? (
+                <ValidationPanel v={validateState.data} bandedSeverity={f.severity} onRevalidate={onValidate} />
+              ) : null)}
+
+            {remediateState &&
+              (remediateState.loading ? (
+                <p className="text-xs text-gray-500">Generating fix…</p>
+              ) : remediateState.error ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p>
+                  <button onClick={onRemediate} className="text-xs text-gray-500 hover:underline">retry</button>
+                </div>
+              ) : remediateState.data ? (
+                <RemediationPanel
+                  r={remediateState.data}
+                  category={f.category}
+                  location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)}
+                  source={f.location.snippet && f.location.snippet.lines.length > 0 ? {
+                    lines: f.location.snippet.lines,
+                    startLine: f.location.snippet.startLine,
+                    flaggedStart: f.location.startLine ?? f.location.snippet.startLine,
+                    flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine,
+                  } : undefined}
+                  onRegenerate={onRemediate}
+                />
+              ) : null)}
           </div>
         )}
 
@@ -1002,6 +1013,42 @@ function MitigationPanel({ finding }: { finding: Finding }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ValidationPanel shows the advisory severity assessment: verdict, a CVSS 3.1
+// score computed from the model's vector, and the impact/likelihood behind it.
+// It never changes the finding's stored (banded) severity — it sits beside it.
+function ValidationPanel({ v, bandedSeverity, onRevalidate }: { v: ValidationResponse; bandedSeverity: Severity; onRevalidate: () => void }) {
+  const rated = v.cvssSeverity !== "unrated" && v.cvssSeverity !== "";
+  return (
+    <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Severity validation</span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_CHIP[v.verdict]}`}>{VERDICT_LABEL[v.verdict] ?? v.verdict}</span>
+        <button onClick={onRevalidate} className="ml-auto text-[10px] text-gray-500 hover:underline">re-validate</button>
+      </div>
+
+      {rated ? (
+        <>
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-2xl font-bold tabular-nums" style={{ color: riskColor(v.cvssScore) }}>{v.cvssScore.toFixed(1)}</span>
+            <span className="text-xs font-semibold uppercase" style={{ color: riskColor(v.cvssScore) }}>{v.cvssSeverity}</span>
+            <span className="text-[10px] text-gray-400">CVSS 3.1 base · this scan's banded severity: {bandedSeverity}</span>
+          </div>
+          <div className="break-all font-mono text-[10px] text-gray-500 dark:text-gray-400">{v.cvssVector}</div>
+        </>
+      ) : (
+        <p className="text-xs text-gray-500">No valid CVSS vector returned — showing the model's assessment only.</p>
+      )}
+
+      <div className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+        {v.impact && (<><span className="text-gray-400">Impact</span><span className="break-words text-gray-700 dark:text-gray-300">{v.impact}</span></>)}
+        {v.likelihood && (<><span className="text-gray-400">Likelihood</span><span className="break-words text-gray-700 dark:text-gray-300">{v.likelihood}</span></>)}
+      </div>
+      {v.rationale && <p className="break-words text-[11px] text-gray-500 dark:text-gray-400">{v.rationale}</p>}
+      <p className="text-[10px] text-gray-400">{v.model} · advisory; does not change the stored severity</p>
     </div>
   );
 }

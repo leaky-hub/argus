@@ -52,20 +52,40 @@ func parseVerdict(raw string) (model.Triage, error) {
 	}, nil
 }
 
-// decodeFirstObject finds and decodes the first JSON object in s, tolerating
-// prose or code fences around it (models add those), but nothing looser.
+// decodeFirstObject finds and decodes the first JSON object in the model's
+// output, tolerating prose or code fences around it (models add those).
 func decodeFirstObject(s string) (rawVerdict, error) {
+	return firstJSONObject[rawVerdict](s)
+}
+
+// firstJSONObject finds the first parseable JSON object in s and decodes it
+// into a fresh T, tolerating prose or code fences around the object. It is the
+// single JSON-extraction seam every triage parser shares.
+//
+// Provider responses are capped at 1 MB. A naive "restart a decoder at every
+// '{'" scan is O(n^2) on adversarial input — a long run that stays grammatically
+// valid until EOF (e.g. `{"x":{"x":{"x":…`) makes each attempt scan the whole
+// tail before failing, and there is a '{' at every step. A 1 MB such payload
+// pinned a core for ~25s. Legitimate output carries the object within the first
+// few '{' positions, so bound the number of candidates: the scan stays linear
+// and a hostile completion can no longer burn CPU.
+func firstJSONObject[T any](s string) (T, error) {
+	const maxCandidates = 64
+	tried := 0
 	for idx := 0; idx < len(s); idx++ {
 		if s[idx] != '{' {
 			continue
 		}
-		var v rawVerdict
-		dec := json.NewDecoder(strings.NewReader(s[idx:]))
-		if err := dec.Decode(&v); err == nil {
+		var v T
+		if err := json.NewDecoder(strings.NewReader(s[idx:])).Decode(&v); err == nil {
 			return v, nil
 		}
+		if tried++; tried >= maxCandidates {
+			break
+		}
 	}
-	return rawVerdict{}, errors.New("no JSON object in model output")
+	var zero T
+	return zero, errors.New("no JSON object in model output")
 }
 
 // sanitizeRationale is the ONLY path by which model free-text reaches a

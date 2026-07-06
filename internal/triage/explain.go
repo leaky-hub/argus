@@ -12,7 +12,6 @@ package triage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -172,26 +171,17 @@ type rawExplanation struct {
 // parseExplanation validates raw model output into bounded, sanitized text —
 // the ONLY path explain free-text takes to the browser.
 func parseExplanation(raw string) (Explanation, error) {
-	for idx := 0; idx < len(raw); idx++ {
-		if raw[idx] != '{' {
-			continue
-		}
-		var v rawExplanation
-		if err := jsonDecodeStrict(raw[idx:], &v); err == nil {
-			if strings.TrimSpace(v.Explanation) == "" {
-				return Explanation{}, errors.New("empty explanation")
-			}
-			return Explanation{
-				Explanation: sanitizeFreeText(v.Explanation, maxExplanationRunes),
-				Remediation: sanitizeFreeText(v.Remediation, maxRationaleRunes*2),
-			}, nil
-		}
+	v, err := firstJSONObject[rawExplanation](raw)
+	if err != nil {
+		return Explanation{}, err
 	}
-	return Explanation{}, errors.New("no JSON object in model output")
-}
-
-func jsonDecodeStrict(s string, v any) error {
-	return json.NewDecoder(strings.NewReader(s)).Decode(v)
+	if strings.TrimSpace(v.Explanation) == "" {
+		return Explanation{}, errors.New("empty explanation")
+	}
+	return Explanation{
+		Explanation: sanitizeFreeText(v.Explanation, maxExplanationRunes),
+		Remediation: sanitizeFreeText(v.Remediation, maxRationaleRunes*2),
+	}, nil
 }
 
 // sanitizeFreeText bounds model free-text: control characters (except

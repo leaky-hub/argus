@@ -179,19 +179,14 @@ type rawPosture struct {
 }
 
 func parsePosture(raw string) (PostureSummary, error) {
-	for idx := 0; idx < len(raw); idx++ {
-		if raw[idx] != '{' {
-			continue
-		}
-		var v rawPosture
-		if err := jsonDecodeStrict(raw[idx:], &v); err == nil {
-			if strings.TrimSpace(v.Summary) == "" {
-				return PostureSummary{}, fmt.Errorf("empty summary")
-			}
-			return PostureSummary{Summary: sanitizeFreeText(v.Summary, postureMaxRunes)}, nil
-		}
+	v, err := firstJSONObject[rawPosture](raw)
+	if err != nil {
+		return PostureSummary{}, err
 	}
-	return PostureSummary{}, fmt.Errorf("no JSON object in model output")
+	if strings.TrimSpace(v.Summary) == "" {
+		return PostureSummary{}, fmt.Errorf("empty summary")
+	}
+	return PostureSummary{Summary: sanitizeFreeText(v.Summary, postureMaxRunes)}, nil
 }
 
 func writeRows(b *strings.Builder, key string, rows []LabelCount) {

@@ -136,25 +136,22 @@ type rawValidation struct {
 }
 
 func parseValidation(raw string) (Validation, error) {
-	for idx := 0; idx < len(raw); idx++ {
-		if raw[idx] != '{' {
-			continue
-		}
-		var rv rawValidation
-		if err := jsonDecodeStrict(raw[idx:], &rv); err != nil {
-			continue
-		}
-		verdict := strings.TrimSpace(strings.ToLower(rv.Verdict))
-		if !validVerdicts[verdict] {
-			verdict = "uncertain"
-		}
-		return Validation{
-			Verdict:    verdict,
-			Impact:     sanitizeText(rv.Impact, maxDescriptionRunes),
-			Likelihood: sanitizeText(rv.Likelihood, maxDescriptionRunes),
-			CVSSVector: strings.TrimSpace(rv.CVSSVector),
-			Rationale:  sanitizeText(rv.Rationale, maxDescriptionRunes),
-		}, nil
+	rv, err := firstJSONObject[rawValidation](raw)
+	if err != nil {
+		return Validation{}, err
 	}
-	return Validation{}, fmt.Errorf("no JSON object found")
+	verdict := strings.TrimSpace(strings.ToLower(rv.Verdict))
+	if !validVerdicts[verdict] {
+		verdict = "uncertain"
+	}
+	return Validation{
+		Verdict:    verdict,
+		Impact:     sanitizeText(rv.Impact, maxDescriptionRunes),
+		Likelihood: sanitizeText(rv.Likelihood, maxDescriptionRunes),
+		// The vector is echoed back to the client and later re-parsed by
+		// internal/cvss; sanitize it like every other model field rather than
+		// passing raw model text through. cvss.Parse rejects anything malformed.
+		CVSSVector: sanitizeText(rv.CVSSVector, maxDescriptionRunes),
+		Rationale:  sanitizeText(rv.Rationale, maxDescriptionRunes),
+	}, nil
 }

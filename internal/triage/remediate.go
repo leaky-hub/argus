@@ -221,52 +221,46 @@ type rawRemediation struct {
 }
 
 func parseRemediation(raw string) (Remediation, error) {
-	for idx := 0; idx < len(raw); idx++ {
-		if raw[idx] != '{' {
-			continue
-		}
-		var v rawRemediation
-		if err := jsonDecodeStrict(raw[idx:], &v); err != nil {
-			continue
-		}
-		if strings.TrimSpace(v.Summary) == "" {
-			return Remediation{}, fmt.Errorf("empty summary")
-		}
-		kind := strings.TrimSpace(strings.ToLower(v.Kind))
-		if !validKinds[kind] {
-			kind = KindManual
-		}
-		rem := Remediation{
-			Summary:      sanitizeFreeText(v.Summary, maxRemediationRunes),
-			Kind:         kind,
-			Verification: sanitizeFreeText(v.Verification, maxRemediationRunes),
-		}
-		for _, s := range v.Steps {
-			if s = sanitizeFreeText(s, maxRemediationRunes); s != "" {
-				rem.Steps = append(rem.Steps, s)
-			}
-		}
-		for _, w := range v.Warnings {
-			if w = sanitizeFreeText(w, maxRemediationRunes); w != "" {
-				rem.Warnings = append(rem.Warnings, w)
-			}
-		}
-		for _, a := range v.Artifacts {
-			if strings.TrimSpace(a.Content) == "" {
-				continue
-			}
-			rem.Artifacts = append(rem.Artifacts, RemediationArtifact{
-				Language: sanitizeToken(a.Language),
-				Title:    sanitizeFreeText(a.Title, maxTitleRunes),
-				// Artifact content is code the user will read and run: preserve
-				// it verbatim except for control-char stripping and the rune cap
-				// the linter enforces. It is rendered as escaped text, never HTML.
-				Content: sanitizeArtifact(a.Content),
-			})
-		}
-		return rem, nil
+	v, err := firstJSONObject[rawRemediation](raw)
+	if err != nil {
+		return Remediation{}, err
 	}
-	return Remediation{}, fmt.Errorf("no JSON object in model output")
+	if strings.TrimSpace(v.Summary) == "" {
+		return Remediation{}, fmt.Errorf("empty summary")
+	}
+	kind := strings.TrimSpace(strings.ToLower(v.Kind))
+	if !validKinds[kind] {
+		kind = KindManual
+	}
+	rem := Remediation{
+		Summary:      sanitizeFreeText(v.Summary, maxRemediationRunes),
+		Kind:         kind,
+		Verification: sanitizeFreeText(v.Verification, maxRemediationRunes),
+	}
+	for _, s := range v.Steps {
+		if s = sanitizeFreeText(s, maxRemediationRunes); s != "" {
+			rem.Steps = append(rem.Steps, s)
+		}
+	}
+	for _, w := range v.Warnings {
+		if w = sanitizeFreeText(w, maxRemediationRunes); w != "" {
+			rem.Warnings = append(rem.Warnings, w)
+		}
+	}
+	for _, a := range v.Artifacts {
+		if strings.TrimSpace(a.Content) == "" {
+			continue
+		}
+		rem.Artifacts = append(rem.Artifacts, RemediationArtifact{
+			Language: sanitizeToken(a.Language),
+			Title:    sanitizeFreeText(a.Title, maxTitleRunes),
+			// Artifact content is code the user will read and run: preserve
+			// it verbatim except for control-char stripping and the rune cap
+			// the linter enforces. It is rendered as escaped text, never HTML.
+			Content: sanitizeArtifact(a.Content),
+		})
+	}
+	return rem, nil
 }
 
 // sanitizeToken bounds an artifact language tag to a short identifier.

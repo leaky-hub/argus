@@ -34,22 +34,45 @@ const (
 // This list is conservative on purpose: a false positive costs a manual step;
 // a false negative costs the user their infrastructure.
 var destructivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\brm\s+-[a-z]*[rf]`),                 // rm -rf / rm -f
+	regexp.MustCompile(`(?i)\brm\s+-\S*[rf]`),                    // rm -rf / rm -f / rm -Rf
+	regexp.MustCompile(`(?i)\brm\s+--(recursive|force)`),         // rm --recursive --force
 	regexp.MustCompile(`(?i)\bmkfs\b`),                           // format a filesystem
-	regexp.MustCompile(`(?i)\bdd\s+if=`),                         // raw disk write
+	regexp.MustCompile(`(?i)\bdd\b[^\n]*\b(if|of)=/dev/`),        // raw disk read/write, either arg order
 	regexp.MustCompile(`(?i)>\s*/dev/sd`),                        // clobber a device
 	regexp.MustCompile(`(?i)\b(shutdown|reboot|halt)\b`),         // take the host down
-	regexp.MustCompile(`(?i):\(\)\s*\{.*\}\s*;`),                 // fork bomb-ish
+	regexp.MustCompile(`(?i):\(\)\s*\{.*\}\s*;`),                 // classic fork bomb
 	regexp.MustCompile(`(?i)\bdrop\s+(table|database|schema)\b`), // destroy data
 	regexp.MustCompile(`(?i)\btruncate\s+table\b`),
+	// Piping a download straight into an interpreter — curl … | sh, wget … |
+	// bash, base64 -d … | sh. Remediation reconfigures; it never fetch-executes.
+	regexp.MustCompile(`(?i)\|\s*(sudo\s+)?(ba|z|da|k|c|tc)?sh\b`),
 	// Cloud destructive verbs (AWS CLI / az / gcloud): delete/terminate a
 	// resource is out of scope for remediation — reconfigure instead.
 	regexp.MustCompile(`(?i)\b(aws\s+\w+\s+delete-|delete-bucket|delete-security-group|terminate-instances|delete-db-instance|delete-stack)\b`),
 	regexp.MustCompile(`(?i)\baz\s+\w+\s+delete\b`),
 	regexp.MustCompile(`(?i)\bgcloud\s+\w+\s+delete\b`),
 	regexp.MustCompile(`(?i)\bkubectl\s+delete\b`),
-	// Blanket "allow all" or credential-disabling anti-fixes.
-	regexp.MustCompile(`(?i)\bchmod\s+-R?\s*777\b`),
+	// Blanket "allow all" permission anti-fixes: chmod 777 / 0777 / a+rwx, with
+	// or without flags, in either the octal or symbolic form.
+	regexp.MustCompile(`(?i)\bchmod\s+(-\S+\s+)*0?777\b`),
+	regexp.MustCompile(`(?i)\bchmod\s+(-\S+\s+)*[augo]*[+=]rwx\b`),
+}
+
+// lintNormalizations undo common shell obfuscations before matching so that
+// rm${IFS}-rf, r”m -rf, and backslash-newline line continuations can't slip a
+// destructive command past the patterns above. Matching runs against both the
+// raw artifact and its normalized form.
+var (
+	ifsExpansion  = regexp.MustCompile(`\$\{IFS\}|\$IFS`)
+	emptyQuotes   = regexp.MustCompile(`''|""`)
+	lineContinued = regexp.MustCompile(`\\\r?\n`)
+)
+
+func normalizeForLint(s string) string {
+	s = ifsExpansion.ReplaceAllString(s, " ")
+	s = lineContinued.ReplaceAllString(s, "")
+	s = emptyQuotes.ReplaceAllString(s, "")
+	return s
 }
 
 // credentialPatterns catch a literal secret embedded in an artifact — a
@@ -61,7 +84,12 @@ var credentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bASIA[0-9A-Z]{16}\b`),
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
 	regexp.MustCompile(`(?i)aws_secret_access_key\s*=\s*[^\s<$]{16,}`),
-	regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9/+_-]{12,}["']?`),
+	// No leading \b: it would miss db_password / FOO_SECRET because "_" is a word
+	// char. The value charset admits password punctuation (a "@" broke the old
+	// [A-Za-z0-9/+_-] run) but excludes code-structural chars .()[] so a read
+	// like os.environ["X"] or getenv("X") is not mistaken for a literal.
+	// Placeholders are filtered separately by placeholderRe.
+	regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key)["']?\s*[:=]\s*["']?[^\s"'<>${}()\[\].]{8,}`),
 }
 
 // placeholderRe recognizes a clearly-marked placeholder the model was told to
@@ -93,8 +121,9 @@ func lintRemediation(f model.Finding, r Remediation) (Remediation, []string) {
 			content = string([]rune(content)[:maxRemediationArtifactRune]) + "\n# … (truncated)"
 			r.Artifacts[i].Content = content
 		}
+		normalized := normalizeForLint(content)
 		for _, re := range destructivePatterns {
-			if re.MatchString(content) {
+			if re.MatchString(content) || re.MatchString(normalized) {
 				issues = append(issues, "artifact contains a potentially destructive command ("+re.String()+")")
 				unsafe = true
 			}

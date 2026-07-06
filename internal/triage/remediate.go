@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/leaky-hub/appsec/internal/llm"
+	"github.com/leaky-hub/appsec/internal/mitigation"
 	"github.com/leaky-hub/appsec/internal/model"
 )
 
@@ -157,6 +158,35 @@ func buildRemediatePrompt(f model.Finding, nonce string) string {
 		}
 	}
 	b.WriteString(end + "\n")
+
+	// Ground a code fix in the curated, human-vetted secure pattern for this
+	// weakness class (from internal/mitigation). This is TRUSTED reference
+	// content — not wrapped in the untrusted markers — so the model adapts a
+	// known-good shape to the code instead of inventing one. The library only
+	// resolves for mapped CWEs, which are code weaknesses.
+	if f.Category == model.CategorySAST {
+		lang := mitigation.LanguageForFile(f.Location.File)
+		if g, ok := mitigation.Lookup(f.CWEs, lang); ok {
+			var snip *mitigation.Snippet
+			for i := range g.Snippets {
+				if g.Snippets[i].Language == g.MatchedLanguage {
+					snip = &g.Snippets[i]
+					break
+				}
+			}
+			if snip == nil && len(g.Snippets) > 0 {
+				snip = &g.Snippets[0]
+			}
+			b.WriteString("\nSECURE PATTERN (trusted reference — Bulwark's vetted fix for " + g.Title + "; adapt it to the code above, do not copy it verbatim):\n")
+			b.WriteString("principle: " + g.Principle + "\n")
+			if snip != nil {
+				b.WriteString("secure example (" + snip.Language + "):\n" + snip.Secure + "\n")
+				if snip.Library != "" {
+					b.WriteString("use: " + snip.Library + "\n")
+				}
+			}
+		}
+	}
 
 	switch {
 	case secret:

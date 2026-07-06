@@ -1,0 +1,40 @@
+{
+  "weakness": "insecure-deserialization",
+  "title": "Insecure Deserialization",
+  "cwes": ["CWE-502"],
+  "principle": "Never deserialize untrusted bytes into live objects. Formats that reconstruct arbitrary types — Python pickle, Java's ObjectInputStream, PHP unserialize, Ruby Marshal — can execute code during deserialization. Use a data-only format (JSON) parsed into a known schema, and if a rich format is unavoidable, restrict it to an explicit allowlist of classes.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "json (or a schema validator) instead of pickle",
+      "vulnerable": "obj = pickle.loads(request.data)",
+      "secure": "obj = json.loads(request.data)   # data only; validate against a schema (pydantic/jsonschema)",
+      "note": "pickle.loads runs __reduce__ and can execute arbitrary code. Same for PyYAML's yaml.load — use yaml.safe_load. Never unpickle data crossing a trust boundary."
+    },
+    {
+      "language": "java",
+      "library": "Jackson/Gson (no default typing), or an ObjectInputFilter allowlist",
+      "vulnerable": "Object o = new ObjectInputStream(in).readObject();",
+      "secure": "// Prefer JSON with a fixed type:\nMyDto dto = objectMapper.readValue(in, MyDto.class);\n// If Java serialization is unavoidable, allowlist classes:\nois.setObjectInputFilter(ObjectInputFilter.Config.createFilter(\"com.example.*;!*\"));",
+      "note": "readObject on untrusted data is the classic RCE gadget-chain sink. Never enable Jackson's default typing (enableDefaultTyping / @JsonTypeInfo) on untrusted input."
+    },
+    {
+      "language": "php",
+      "library": "json_decode instead of unserialize",
+      "vulnerable": "$obj = unserialize($_POST['data']);",
+      "secure": "$obj = json_decode($_POST['data'], true);\n// If unserialize is required, forbid objects:\n$obj = unserialize($input, ['allowed_classes' => false]);",
+      "note": "unserialize triggers magic methods (__wakeup/__destruct) that drive PHP object-injection chains. json_decode returns plain data with no such side effects."
+    },
+    {
+      "language": "javascript",
+      "library": "JSON.parse; avoid eval and node-serialize",
+      "vulnerable": "const obj = require('node-serialize').unserialize(input);",
+      "secure": "const obj = JSON.parse(input);",
+      "note": "JSON.parse cannot instantiate types or run code. Packages like node-serialize/funcster and any eval-based parsing execute embedded functions — don't feed them untrusted input."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Deserialization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"},
+    {"title": "CWE-502: Deserialization of Untrusted Data", "url": "https://cwe.mitre.org/data/definitions/502.html"}
+  ]
+}

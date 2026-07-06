@@ -11,11 +11,12 @@ import {
   SummaryResponse,
   Target,
 } from "./api";
-import { Loading, ErrorNote, Wordmark } from "./components";
+import { Loading, ErrorNote, Wordmark, EmptyState } from "./components";
 import { useToast, useConfirm } from "./toast";
 import { fmtTime } from "./theme";
 import { Overview } from "./views/Overview";
 import { Findings } from "./views/Findings";
+import { RunDetailView } from "./views/RunDetailView";
 import { Runs } from "./views/Runs";
 import { Login } from "./views/Login";
 import { Operate } from "./views/Operate";
@@ -173,10 +174,19 @@ export function App() {
         setSummary(s);
         setRuns(r);
         setSelectedRunTarget(tgt);
-        setSelectedRun(s.latestId || r.runs?.[0]?.id || null);
       })
       .catch(onApiError);
   }, [authed, activeTarget, reloadKey, onApiError]);
+
+  // The Findings tab always shows the active target's LATEST run — every
+  // current finding, no run to pick. Per-run history lives in the Runs tab.
+  const [latestDetail, setLatestDetail] = useState<RunDetail | null>(null);
+  useEffect(() => {
+    if (!authed) { setLatestDetail(null); return; }
+    const lid = summary?.latestId || runs?.runs?.[0]?.id;
+    if (!lid) { setLatestDetail(null); return; }
+    api.run(lid, activeTarget || undefined).then(setLatestDetail).catch(onApiError);
+  }, [authed, summary?.latestId, activeTarget, reloadKey, onApiError]);
 
   // Fetch targets when ops is enabled
   useEffect(() => {
@@ -184,8 +194,10 @@ export function App() {
     opsApi.targets().then((r) => setTargets(r.targets)).catch(() => {});
   }, [authed, me?.authRequired, reloadKey]);
 
+  // detail is the run opened in the Runs tab (its drill-down). Null → the Runs
+  // tab shows the list.
   useEffect(() => {
-    if (!authed || !selectedRun) return;
+    if (!authed || !selectedRun) { setDetail(null); return; }
     api.run(selectedRun, selectedRunTarget).then(setDetail).catch(onApiError);
   }, [authed, selectedRun, selectedRunTarget, onApiError]);
 
@@ -283,9 +295,8 @@ export function App() {
   };
   const openFramework = (id: string) => drillTo("framework", id);
 
+  // Open one run's detail in the Runs tab (from a row, a deep link, or Operate).
   const openRun = (runId: string, targetId?: string, commit?: string) => {
-    // Switch the whole app to that run's target so Overview/Runs agree with
-    // the finding drawer, then open it with filters cleared.
     setActiveTarget(targetId ?? "");
     setSelectedRun(runId);
     setSelectedRunTarget(targetId);
@@ -293,8 +304,7 @@ export function App() {
     setFindingsFramework("all");
     setFindingsSeverity("all");
     setFindingsStatus("all");
-    setReloadKey((k) => k + 1);
-    setTab("findings");
+    setTab("runs");
   };
 
   if (error) return <ErrorNote error={error} />;
@@ -373,25 +383,6 @@ export function App() {
                 </select>
               </label>
             )}
-            {runs.runs.length > 0 && (
-              <label className="hidden items-center gap-1 text-xs text-gray-500 md:flex">
-                Run
-                <select
-                  value={selectedRun ?? ""}
-                  onChange={(e) => {
-                    setSelectedRun(e.target.value);
-                    setSelectedRunCommit(undefined);
-                  }}
-                  className="max-w-[190px] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                >
-                  {runs.runs.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {fmtTime(r.createdAt)} ({r.total})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             {user && (
               <div className="flex items-center gap-2 text-xs">
                 <span className="font-medium">{user.username}</span>
@@ -427,10 +418,10 @@ export function App() {
           />
         )}
         {activeTab === "findings" &&
-          (detail ? (
+          (latestDetail ? (
             <Findings
-              detail={detail}
-              origin={origin}
+              detail={latestDetail}
+              origin={activeTarget ? { targetId: activeTarget } : undefined}
               canExplain={canExplain}
               canSuppress={role === "admin" && !!activeTarget}
               onSuppress={handleSuppress}
@@ -442,24 +433,45 @@ export function App() {
               onStatusChange={setFindingsStatus}
             />
           ) : (
-            <Loading what="findings" />
+            <EmptyState title="No findings yet" hint="Save a scan (bulwark scan --save, or the Operate tab) to populate this view." />
           ))}
-        {activeTab === "runs" && (
-          <Runs
-            runs={runs}
-            selectedId={selectedRun}
-            onSelect={(id) => {
-              setSelectedRun(id);
-              setTab("findings");
-            }}
-            activeTarget={activeTarget}
-            canLaunch={canLaunch}
-            canDelete={role === "admin"}
-            rescanBusy={rescanBusy}
-            onRescan={handleRescan}
-            onDeleteRun={handleDeleteRun}
-          />
-        )}
+        {activeTab === "runs" &&
+          (selectedRun && detail ? (
+            <RunDetailView
+              detail={detail}
+              runLabel={fmtTime(runs.runs.find((r) => r.id === selectedRun)?.createdAt ?? "")}
+              targetId={activeTarget || undefined}
+              origin={origin}
+              onBack={() => setSelectedRun(null)}
+              onSelectFramework={openFramework}
+              canExplain={canExplain}
+              canSuppress={role === "admin" && !!activeTarget}
+              onSuppress={handleSuppress}
+              framework={findingsFramework}
+              onFrameworkChange={setFindingsFramework}
+              severity={findingsSeverity}
+              onSeverityChange={setFindingsSeverity}
+              status={findingsStatus}
+              onStatusChange={setFindingsStatus}
+            />
+          ) : (
+            <Runs
+              runs={runs}
+              selectedId={selectedRun}
+              onSelect={(id) => {
+                setSelectedRun(id);
+                setFindingsFramework("all");
+                setFindingsSeverity("all");
+                setFindingsStatus("all");
+              }}
+              activeTarget={activeTarget}
+              canLaunch={canLaunch}
+              canDelete={role === "admin"}
+              rescanBusy={rescanBusy}
+              onRescan={handleRescan}
+              onDeleteRun={handleDeleteRun}
+            />
+          ))}
         {activeTab === "operate" && opsEnabled && <Operate canLaunch={canLaunch} onOpenRun={openRun} />}
         {activeTab === "admin" && role === "admin" && <Admin selfUsername={user?.username ?? ""} />}
       </main>

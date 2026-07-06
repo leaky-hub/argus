@@ -203,6 +203,44 @@ export function Loading({ what }: { what: string }) {
   return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading {what}…</div>;
 }
 
+// Skeleton is a single shimmering placeholder block. Compose them into a
+// content-shaped skeleton so a loading view keeps the layout it will fill.
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />;
+}
+
+// ConsoleSkeleton stands in for the whole app shell while the first payload
+// loads: a header bar, a row of stat tiles, and a couple of panels, so the boot
+// reads as "arriving" rather than a bare "Loading…" line.
+export function ConsoleSkeleton() {
+  return (
+    <div className="mx-auto min-h-full max-w-7xl px-4 pb-16" aria-busy="true" aria-label="Loading console">
+      <div className="mb-6 flex items-center gap-3 py-3">
+        <Skeleton className="h-6 w-24" />
+        <Skeleton className="h-6 w-64" />
+        <Skeleton className="ml-auto h-6 w-40" />
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-3 h-8 w-16" />
+            <Skeleton className="mt-3 h-3 w-32" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="mt-4 h-40 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ErrorNote({ error }: { error: string }) {
   return (
     <div className="m-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

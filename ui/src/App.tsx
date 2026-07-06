@@ -11,7 +11,7 @@ import {
   SummaryResponse,
   Target,
 } from "./api";
-import { Loading, ErrorNote, Wordmark, EmptyState } from "./components";
+import { ConsoleSkeleton, ErrorNote, Wordmark, EmptyState } from "./components";
 import { CommandPalette, Command } from "./CommandPalette";
 import { useToast, useConfirm } from "./toast";
 import { fmtTime } from "./theme";
@@ -363,9 +363,9 @@ export function App() {
   };
 
   if (error) return <ErrorNote error={error} />;
-  if (me === null) return <Loading what="console" />;
+  if (me === null) return <ConsoleSkeleton />;
   if (me.authRequired && !user) return <Login onLogin={handleLogin} />;
-  if (!summary || !runs) return <Loading what="console" />;
+  if (!summary || !runs) return <ConsoleSkeleton />;
 
   const role = user?.role ?? "";
   const opsEnabled = me.authRequired; // zero users = the read-only console

@@ -43,6 +43,29 @@ body {
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+/* Loading skeletons: a slow sheen across a neutral block. Reduced-motion users
+   get a static block (the animation is applied via a motion-safe class). */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  @apply rounded bg-gray-200 dark:bg-gray-800;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton::after {
+    animation: shimmer 1.4s infinite;
+  }
+}
+
 /* Thin, unobtrusive scrollbars for the findings table. */
 .scroll-thin::-webkit-scrollbar {
   height: 8px;

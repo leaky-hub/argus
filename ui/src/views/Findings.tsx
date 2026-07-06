@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FixedSizeList, ListChildComponentProps } from "react-window";
 import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { useToast } from "../toast";
@@ -74,6 +75,97 @@ function CoverageStrip({ cov }: { cov: CoverageAccounting }) {
         </p>
       )}
     </Panel>
+  );
+}
+
+// Column grid shared by the list header and every virtualized row so they line
+// up. The leading 2rem checkbox column is present only when the user can triage.
+function listColumns(canDispose: boolean): string {
+  return `${canDispose ? "2rem " : ""}3.5rem 5rem minmax(0,1fr) 6rem`;
+}
+
+// FINDING_ROW_H is the fixed row height react-window positions against; it must
+// fit the two text lines (title + location) plus padding.
+const FINDING_ROW_H = 48;
+
+type RowData = {
+  items: Finding[];
+  columns: string;
+  selectedId: string | null;
+  selectedIds: Set<string>;
+  canDispose: boolean;
+  newSet: Set<string>;
+  dispositions: Record<string, { status: string }>;
+  onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
+};
+
+// FindingRow renders one virtualized row. react-window supplies `style` with the
+// absolute position; we merge the grid template into it.
+function FindingRow({ index, style, data }: ListChildComponentProps<RowData>) {
+  const f = data.items[index];
+  const isSel = f.id === data.selectedId;
+  const disp = data.dispositions[f.id];
+  return (
+    <div
+      id={`finding-row-${f.id}`}
+      onClick={() => data.onSelect(f.id)}
+      style={{ ...style, gridTemplateColumns: data.columns }}
+      className={`grid cursor-pointer items-center gap-x-2 border-t border-gray-100 px-3 text-sm dark:border-gray-800/70 ${
+        isSel ? "bg-accent-100 dark:bg-accent-500/10" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+      }`}
+    >
+      {data.canDispose && (
+        <span onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={data.selectedIds.has(f.id)}
+            onChange={() => data.onToggle(f.id)}
+            aria-label="Select finding"
+            className="cursor-pointer"
+          />
+        </span>
+      )}
+      <span>
+        <RiskPill score={f.riskScore} />
+      </span>
+      <span>
+        <SeverityBadge severity={f.severity} />
+      </span>
+      <span className="min-w-0">
+        <span className="flex min-w-0 items-center gap-2">
+          {data.newSet.has(f.id) && (
+            <span className="shrink-0 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+              NEW
+            </span>
+          )}
+          {disp?.status === "fixed" && (
+            <span className="shrink-0 rounded bg-red-100 px-1 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300" title="Marked fixed but still detected — a regression">
+              REGRESSED
+            </span>
+          )}
+          {disp && disp.status !== "fixed" && (
+            <span className={`shrink-0 rounded px-1 text-[10px] font-semibold ${DISPOSITION_CHIP[disp.status]}`}>
+              {DISPOSITION_LABEL[disp.status]}
+            </span>
+          )}
+          <span className="truncate text-xs font-medium">{f.displayName ?? f.title}</span>
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-400">
+          <CategoryBadge category={f.category} compact />
+          <span className="truncate">{locationLabel(f.location)}</span>
+        </span>
+      </span>
+      <span>
+        {f.triage ? (
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_CHIP[f.triage.verdict]}`}>
+            {VERDICT_LABEL[f.triage.verdict]}
+          </span>
+        ) : (
+          <span className="text-[11px] text-gray-400">—</span>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -246,6 +338,20 @@ export function Findings({
       return n;
     });
 
+  // The list virtualizes (react-window) so a 5,000-finding run renders only the
+  // rows on screen. It needs a pixel height, so measure the container.
+  const listBoxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<FixedSizeList>(null);
+  const [listHeight, setListHeight] = useState(480);
+  useEffect(() => {
+    const el = listBoxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setListHeight(el.clientHeight));
+    ro.observe(el);
+    setListHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
   // Keyboard navigation: ↑/↓ or j/k move the selection through the visible
   // list; x toggles it into the multi-select. Ignored while typing in a field.
   useEffect(() => {
@@ -253,15 +359,18 @@ export function Findings({
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !filtered.length) return;
       const idx = filtered.findIndex((f) => f.id === selected?.id);
-      let next: Finding | undefined;
-      if (e.key === "ArrowDown" || e.key === "j") next = filtered[Math.min(idx + 1, filtered.length - 1)];
-      else if (e.key === "ArrowUp" || e.key === "k") next = filtered[Math.max(idx - 1, 0)];
+      let nextIdx = idx;
+      if (e.key === "ArrowDown" || e.key === "j") nextIdx = Math.min(idx + 1, filtered.length - 1);
+      else if (e.key === "ArrowUp" || e.key === "k") nextIdx = Math.max(idx - 1, 0);
       else if (e.key === "x" && selected) { toggleSelect(selected.id); e.preventDefault(); return; }
       else return;
       e.preventDefault();
+      const next = filtered[nextIdx];
       if (next) {
         setSelectedId(next.id);
-        document.getElementById(`finding-row-${next.id}`)?.scrollIntoView({ block: "nearest" });
+        // scrollToItem, not scrollIntoView: a virtualized row may not be in the
+        // DOM until the list scrolls to it.
+        listRef.current?.scrollToItem(nextIdx, "smart");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -414,112 +523,65 @@ export function Findings({
             </div>
           )}
 
-          <div className="scroll-thin max-h-[62vh] overflow-auto">
-            {/* table-fixed + bounded columns so a long title/ARN truncates
-                inside the Title cell instead of forcing the table wider than
-                its column and bleeding into the detail pane. */}
-            <table className="w-full table-fixed text-left text-sm">
-              <thead className="sticky top-0 bg-white text-xs uppercase text-gray-500 dark:bg-gray-900">
-                <tr>
-                  {canDispose && (
-                    <th className="w-8 py-2">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={toggleSelectAll}
-                        aria-label="Select all visible findings"
-                        className="cursor-pointer"
-                      />
-                    </th>
-                  )}
-                  <th className="w-14 py-2 pr-2">Risk</th>
-                  <th className="w-20 py-2 pr-3">Sev</th>
-                  <th className="py-2 pr-2">Title</th>
-                  <th className="w-24 py-2 pr-2">Verdict</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={canDispose ? 5 : 4} className="py-12 text-center text-sm text-gray-500">
-                      {detail.findings.length === 0 ? (
-                        "No findings in this run."
-                      ) : (
-                        <>
-                          No findings match these filters.{" "}
-                          <button onClick={clearFilters} className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-                            Clear filters
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
+          {/* Header row, its columns matched to the virtualized rows below so a
+              long title/ARN truncates inside its cell instead of widening the
+              list into the detail pane. */}
+          <div
+            className="grid items-center gap-x-2 border-b border-gray-200 px-3 py-2 text-xs uppercase text-gray-500 dark:border-gray-800 dark:text-gray-400"
+            style={{ gridTemplateColumns: listColumns(canDispose) }}
+          >
+            {canDispose && (
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                aria-label="Select all visible findings"
+                className="cursor-pointer"
+              />
+            )}
+            <span>Risk</span>
+            <span>Sev</span>
+            <span>Title</span>
+            <span>Verdict</span>
+          </div>
+          {/* Virtualized body: only the on-screen rows render, so a 5,000-finding
+              run stays smooth. The fixed-height box lets react-window measure. */}
+          <div ref={listBoxRef} className="h-[62vh]">
+            {filtered.length === 0 ? (
+              <div className="py-12 text-center text-sm text-gray-500">
+                {detail.findings.length === 0 ? (
+                  "No findings in this run."
+                ) : (
+                  <>
+                    No findings match these filters.{" "}
+                    <button onClick={clearFilters} className="font-medium text-accent-600 hover:underline dark:text-accent-400">
+                      Clear filters
+                    </button>
+                  </>
                 )}
-                {filtered.map((f) => (
-                  <tr
-                    key={f.id}
-                    id={`finding-row-${f.id}`}
-                    onClick={() => setSelectedId(f.id)}
-                    className={`cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50 ${
-                      selected?.id === f.id ? "bg-blue-50 dark:bg-blue-950/40" : ""
-                    }`}
-                  >
-                    {canDispose && (
-                      <td className="py-1.5" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(f.id)}
-                          onChange={() => toggleSelect(f.id)}
-                          aria-label="Select finding"
-                          className="cursor-pointer"
-                        />
-                      </td>
-                    )}
-                    <td className="py-1.5 pr-2">
-                      <RiskPill score={f.riskScore} />
-                    </td>
-                    <td className="py-1.5 pr-3">
-                      <SeverityBadge severity={f.severity} />
-                    </td>
-                    <td className="min-w-0 py-1.5 pr-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {newSet.has(f.id) && (
-                          <span className="shrink-0 rounded bg-emerald-100 px-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-                            NEW
-                          </span>
-                        )}
-                        {dispositions[f.id]?.status === "fixed" && (
-                          <span className="shrink-0 rounded bg-red-100 px-1 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300" title="Marked fixed but still detected — a regression">
-                            REGRESSED
-                          </span>
-                        )}
-                        {dispositions[f.id] && dispositions[f.id].status !== "fixed" && (
-                          <span className={`shrink-0 rounded px-1 text-[10px] font-semibold ${DISPOSITION_CHIP[dispositions[f.id].status]}`}>
-                            {DISPOSITION_LABEL[dispositions[f.id].status]}
-                          </span>
-                        )}
-                        <span className="truncate text-xs font-medium">{f.displayName ?? f.title}</span>
-                      </div>
-                      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-400">
-                        <CategoryBadge category={f.category} compact />
-                        <span className="truncate">{locationLabel(f.location)}</span>
-                      </div>
-                    </td>
-                    <td className="py-1.5 pr-2">
-                      {f.triage ? (
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_CHIP[f.triage.verdict]}`}>
-                          {VERDICT_LABEL[f.triage.verdict]}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-gray-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <p className="py-8 text-center text-sm text-gray-500">No findings match these filters.</p>
+              </div>
+            ) : (
+              <FixedSizeList
+                ref={listRef}
+                height={listHeight}
+                width="100%"
+                itemCount={filtered.length}
+                itemSize={FINDING_ROW_H}
+                className="scroll-thin"
+                itemData={{
+                  items: filtered,
+                  columns: listColumns(canDispose),
+                  selectedId: selected?.id ?? null,
+                  selectedIds,
+                  canDispose,
+                  newSet,
+                  dispositions,
+                  onSelect: setSelectedId,
+                  onToggle: toggleSelect,
+                }}
+              >
+                {FindingRow}
+              </FixedSizeList>
             )}
           </div>
         </Panel>

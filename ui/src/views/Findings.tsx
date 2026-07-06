@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
+import { useToast } from "../toast";
 import { DISPOSITION_CHIP, DISPOSITION_LABEL, VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
 const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -112,16 +113,27 @@ export function Findings({
   // Local, optimistic overlay of finding dispositions seeded from the run
   // detail; re-seeded when the run changes. Operator+ can set/clear. A finding
   // with status "fixed" that is still present in this run is a REGRESSION.
+  const toast = useToast();
   const canDispose = !!canExplain; // operator+, same gate as explain/remediate
   const [dispositions, setDispositions] = useState<Record<string, Disposition>>(detail.dispositions ?? {});
   useEffect(() => { setDispositions(detail.dispositions ?? {}); }, [detail.id, detail.dispositions]);
   const setDisposition = async (findingId: string, s: DispositionStatus, note: string) => {
-    const rec = await opsApi.setDisposition({ targetId: origin?.targetId, findingId, status: s, note });
-    setDispositions((prev) => ({ ...prev, [findingId]: rec }));
+    try {
+      const rec = await opsApi.setDisposition({ targetId: origin?.targetId, findingId, status: s, note });
+      setDispositions((prev) => ({ ...prev, [findingId]: rec }));
+      toast({ kind: "success", message: `Marked ${DISPOSITION_LABEL[s].toLowerCase()}.` });
+    } catch (e) {
+      toast({ kind: "error", message: `Could not set disposition: ${String(e)}` });
+    }
   };
   const clearDisposition = async (findingId: string) => {
-    await opsApi.clearDisposition(findingId, origin?.targetId);
-    setDispositions((prev) => { const next = { ...prev }; delete next[findingId]; return next; });
+    try {
+      await opsApi.clearDisposition(findingId, origin?.targetId);
+      setDispositions((prev) => { const next = { ...prev }; delete next[findingId]; return next; });
+      toast({ kind: "success", message: "Disposition cleared (back to open)." });
+    } catch (e) {
+      toast({ kind: "error", message: `Could not clear disposition: ${String(e)}` });
+    }
   };
 
   // Explain + remediate lifecycles, per finding (cached client-side).
@@ -283,6 +295,15 @@ export function Findings({
                 ✕ Clear filters ({activeCount})
               </button>
             )}
+            <a
+              href={api.exportUrl(detail.id, "html", origin?.targetId)}
+              target="_blank"
+              rel="noopener"
+              className="ml-auto inline-flex items-center gap-1 self-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+              title="Open a professional report for this run (print to PDF from the browser)"
+            >
+              ↗ Export report
+            </a>
           </div>
 
           <div className="scroll-thin max-h-[62vh] overflow-auto">

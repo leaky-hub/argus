@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { opsApi, UserInfo, Target, TargetConfig, AuditEntry, ApiError, KNOWN_SCANNERS, PROFILES } from "../api";
 import { Panel, Loading, ErrorNote, EmptyState } from "../components";
+import { useConfirm } from "../toast";
 import { fmtTime } from "../theme";
 
 export function Admin({ selfUsername }: { selfUsername: string }) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -528,7 +530,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   }
 
   async function handleUserRemove(userId: string, username: string) {
-    if (!window.confirm(`Remove ${username}?`)) return;
+    if (!(await confirm({ title: `Remove ${username}?`, message: "This user will lose console access.", confirmLabel: "Remove", danger: true }))) return;
     setUserError(null);
     try {
       await opsApi.deleteUser(userId);
@@ -616,7 +618,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   }
 
   async function handleRemoveTarget(targetId: string) {
-    if (!window.confirm("Remove this target?")) return;
+    if (!(await confirm({ title: "Remove this target?", message: "Its scan history stays on disk but the target is unregistered.", confirmLabel: "Remove", danger: true }))) return;
     setTargetError(null);
     try {
       await opsApi.deleteTarget(targetId);

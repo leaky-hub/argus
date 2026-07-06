@@ -230,7 +230,7 @@ export const api = {
   },
   // The download URL for a run export (SARIF or JSON). Server sets
   // Content-Disposition; the browser downloads. GET (viewer) — no CSRF.
-  exportUrl: (id: string, format: "sarif" | "json", targetId?: string) => {
+  exportUrl: (id: string, format: "sarif" | "json" | "html", targetId?: string) => {
     const q = new URLSearchParams({ format });
     if (targetId) q.set("target", targetId);
     return `api/runs/${encodeURIComponent(id)}/export?${q.toString()}`;

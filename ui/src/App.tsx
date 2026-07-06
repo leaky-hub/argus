@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   opsApi,
@@ -12,6 +12,7 @@ import {
   Target,
 } from "./api";
 import { Loading, ErrorNote, Wordmark } from "./components";
+import { useToast, useConfirm } from "./toast";
 import { fmtTime } from "./theme";
 import { Overview } from "./views/Overview";
 import { Findings } from "./views/Findings";
@@ -28,17 +29,39 @@ const ROLE_CHIP: Record<string, string> = {
   viewer: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
-function tabFromHash(): Tab {
-  const h = window.location.hash.replace("#", "");
-  return h === "findings" || h === "runs" || h === "operate" || h === "admin" ? h : "overview";
+// UrlState is the app view encoded in the query string so a view is
+// shareable, reload-safe, and back/forward-navigable.
+type UrlState = { tab: Tab; target: string; run: string | null; fw: string; sev: string; status: string };
+
+function readUrlState(): UrlState {
+  const p = new URLSearchParams(window.location.search);
+  const t = p.get("tab") ?? "";
+  const tab = (["findings", "runs", "operate", "admin"].includes(t) ? t : "overview") as Tab;
+  return {
+    tab,
+    target: p.get("target") ?? "",
+    run: p.get("run"),
+    fw: p.get("fw") ?? "all",
+    sev: p.get("sev") ?? "all",
+    status: p.get("st") ?? "all",
+  };
+}
+
+function urlFromState(s: UrlState): string {
+  const p = new URLSearchParams();
+  if (s.tab !== "overview") p.set("tab", s.tab);
+  if (s.target) p.set("target", s.target);
+  if (s.run) p.set("run", s.run);
+  if (s.fw !== "all") p.set("fw", s.fw);
+  if (s.sev !== "all") p.set("sev", s.sev);
+  if (s.status !== "all") p.set("st", s.status);
+  const qs = p.toString();
+  return qs ? `?${qs}` : window.location.pathname;
 }
 
 export function App() {
-  const [tab, setTabState] = useState<Tab>(tabFromHash);
-  const setTab = (t: Tab) => {
-    setTabState(t);
-    window.location.hash = t;
-  };
+  const [initial] = useState(readUrlState);
+  const [tab, setTab] = useState<Tab>(initial.tab);
   const [dark, setDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
 
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -46,21 +69,53 @@ export function App() {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [runs, setRuns] = useState<RunsResponse | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
-  const [selectedRun, setSelectedRun] = useState<string | null>(null);
-  const [selectedRunTarget, setSelectedRunTarget] = useState<string | undefined>(undefined);
+  const [selectedRun, setSelectedRun] = useState<string | null>(initial.run);
+  const [selectedRunTarget, setSelectedRunTarget] = useState<string | undefined>(initial.run ? initial.target || undefined : undefined);
   const [selectedRunCommit, setSelectedRunCommit] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [targets, setTargets] = useState<Target[]>([]);
   // "" = the served repo's own run store; otherwise a registered target's id.
   // Overview/Runs/Findings all read this store.
-  const [activeTarget, setActiveTarget] = useState<string>("");
+  const [activeTarget, setActiveTarget] = useState<string>(initial.target);
   const [rescanBusy, setRescanBusy] = useState(false);
   // Findings filters lifted here so the Overview panels can deep-link into a
   // filtered Findings view (every stat is a drill-down).
-  const [findingsFramework, setFindingsFramework] = useState<string>("all");
-  const [findingsSeverity, setFindingsSeverity] = useState<string>("all");
-  const [findingsStatus, setFindingsStatus] = useState<string>("all");
+  const [findingsFramework, setFindingsFramework] = useState<string>(initial.fw);
+  const [findingsSeverity, setFindingsSeverity] = useState<string>(initial.sev);
+  const [findingsStatus, setFindingsStatus] = useState<string>(initial.status);
+
+  // Keep the URL in lockstep with the view: pushState on navigation-significant
+  // changes (tab/target/run) so Back works, replaceState for incidental filter
+  // tweaks. A popstate re-applies the URL without re-pushing (navKey guard).
+  const navKeyRef = useRef(`${initial.tab}|${initial.target}|${initial.run ?? ""}`);
+  useEffect(() => {
+    const s: UrlState = { tab, target: activeTarget, run: selectedRun, fw: findingsFramework, sev: findingsSeverity, status: findingsStatus };
+    const url = urlFromState(s);
+    const navKey = `${tab}|${activeTarget}|${selectedRun ?? ""}`;
+    if (navKey !== navKeyRef.current) {
+      navKeyRef.current = navKey;
+      window.history.pushState(null, "", url);
+    } else {
+      window.history.replaceState(null, "", url);
+    }
+  }, [tab, activeTarget, selectedRun, findingsFramework, findingsSeverity, findingsStatus]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const s = readUrlState();
+      navKeyRef.current = `${s.tab}|${s.target}|${s.run ?? ""}`; // so the sync effect replaces, not pushes
+      setTab(s.tab);
+      setActiveTarget(s.target);
+      setSelectedRun(s.run);
+      setSelectedRunTarget(s.run ? s.target || undefined : undefined);
+      setFindingsFramework(s.fw);
+      setFindingsSeverity(s.sev);
+      setFindingsStatus(s.status);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -68,6 +123,9 @@ export function App() {
 
   // Session expiry mid-use surfaces as a 401 on any call: drop back to the
   // login page instead of a dead error screen.
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const onApiError = useCallback((e: unknown) => {
     if (e instanceof ApiError && e.status === 401) {
       setUser(null);
@@ -76,6 +134,15 @@ export function App() {
     }
     setError(String(e));
   }, []);
+
+  // For action failures (not page loads): a toast, not a full-page error.
+  const onActionError = useCallback(
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) return onApiError(e);
+      toast({ kind: "error", message: e instanceof ApiError ? e.message : String(e) });
+    },
+    [onApiError, toast],
+  );
 
   // Boot: ask the server whether this console requires a login at all.
   useEffect(() => {
@@ -150,10 +217,11 @@ export function App() {
     opsApi
       .launchScan(activeTarget, {})
       .then(() => {
+        toast({ kind: "success", message: "Re-scan queued — results will appear when it finishes." });
         // The run lands when the serial queue finishes; nudge a reload shortly.
         setTimeout(() => setReloadKey((k) => k + 1), 1500);
       })
-      .catch(onApiError)
+      .catch(onActionError)
       .finally(() => setRescanBusy(false));
   };
 
@@ -161,35 +229,48 @@ export function App() {
   // ignore list (admin, audited). Only registered targets have a
   // console-editable config; the served repo's own appsec.yml is not touched
   // from here. Preserves the rest of the target's config block.
-  const handleSuppress = (ruleId: string) => {
+  const handleSuppress = async (ruleId: string) => {
     const t = targets.find((t) => t.id === activeTarget);
     if (!t || !ruleId) return;
     const existing = t.config ?? {};
     const rules = existing.ignoreRules ?? [];
     if (rules.includes(ruleId)) {
-      window.alert(`Rule "${ruleId}" is already suppressed for this target.`);
+      toast({ kind: "info", message: `Rule "${ruleId}" is already suppressed for this target.` });
       return;
     }
-    if (!window.confirm(`Suppress rule "${ruleId}" for target "${t.name}"? Findings from this rule will stop appearing (admin action, audited).`))
-      return;
+    const ok = await confirm({
+      title: `Suppress rule "${ruleId}"?`,
+      message: `Findings from this rule will stop appearing for target "${t.name}" (admin action, audited).`,
+      confirmLabel: "Suppress",
+      danger: true,
+    });
+    if (!ok) return;
     opsApi
       .updateTarget(activeTarget, { config: { ...existing, ignoreRules: [...rules, ruleId] } })
       .then((updated) => {
         setTargets((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
         setReloadKey((k) => k + 1);
+        toast({ kind: "success", message: `Rule "${ruleId}" suppressed.` });
       })
-      .catch(onApiError);
+      .catch(onActionError);
   };
 
-  const handleDeleteRun = (runId: string) => {
-    if (!window.confirm("Delete this run from history? This cannot be undone.")) return;
+  const handleDeleteRun = async (runId: string) => {
+    const ok = await confirm({
+      title: "Delete this run from history?",
+      message: "This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     opsApi
       .deleteRun(runId, activeTarget || undefined)
       .then(() => {
         if (selectedRun === runId) setSelectedRun(null);
         setReloadKey((k) => k + 1);
+        toast({ kind: "success", message: "Run deleted." });
       })
-      .catch(onApiError);
+      .catch(onActionError);
   };
 
   // Deep-links from Overview panels into a filtered Findings view. Each sets

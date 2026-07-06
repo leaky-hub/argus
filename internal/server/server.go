@@ -30,6 +30,7 @@ import (
 
 	"github.com/leaky-hub/appsec/internal/audit"
 	"github.com/leaky-hub/appsec/internal/config"
+	"github.com/leaky-hub/appsec/internal/disposition"
 	"github.com/leaky-hub/appsec/internal/jobs"
 	"github.com/leaky-hub/appsec/internal/llm"
 	"github.com/leaky-hub/appsec/internal/model"
@@ -271,9 +272,58 @@ func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store r
 		if err := report.WriteJSON(w, doc.Findings); err != nil {
 			return
 		}
+	case "html":
+		// A professional, print-to-PDF report with the run's gate and workflow
+		// context. Served inline so the browser renders (and prints) it.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `inline; filename="`+fname+`.html"`)
+		if err := report.WriteHTML(w, doc.Findings, s.htmlMeta(store, id, doc.Findings)); err != nil {
+			return
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "format must be sarif or json")
+		writeErr(w, http.StatusBadRequest, "format must be sarif, json, or html")
 	}
+}
+
+// htmlMeta assembles the presentation context for an exported report: the
+// target label, the run's gate outcome (disposition-aware), and the
+// per-finding workflow statuses.
+func (s *Server) htmlMeta(store runstore.Store, id string, findings []model.Finding) report.HTMLMeta {
+	dispMap := map[string]string{}
+	if all, err := dispositionStore(store).All(); err == nil {
+		for fid, rec := range all {
+			dispMap[fid] = rec.Status
+		}
+	}
+	gate := gateFor(findings, mustDispositions(store), s.gate, s.gateName)
+	return report.HTMLMeta{
+		Target:         s.reportTarget(store),
+		RunID:          id,
+		GeneratedAt:    time.Now().Format("2006-01-02 15:04 MST"),
+		GateThreshold:  s.gateName,
+		GateFailed:     gate.Failed,
+		GateSuppressed: gate.Suppressed,
+		Dispositions:   dispMap,
+	}
+}
+
+// mustDispositions returns the store's dispositions or an empty map.
+func mustDispositions(store runstore.Store) map[string]disposition.Record {
+	all, err := dispositionStore(store).All()
+	if err != nil {
+		return nil
+	}
+	return all
+}
+
+// reportTarget is a human label for the report header: the served repo's base
+// name, or the run store's owning directory for a target.
+func (s *Server) reportTarget(store runstore.Store) string {
+	dir := filepath.Dir(filepath.Dir(store.Dir)) // strip /.appsec/runs
+	if base := filepath.Base(dir); base != "" && base != "." && base != "/" {
+		return base
+	}
+	return ""
 }
 
 // runStoreFor resolves which run history a read serves: the served repo's

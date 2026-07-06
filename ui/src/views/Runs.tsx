@@ -100,6 +100,15 @@ export function Runs({
                 <td className="py-2.5 pr-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center gap-1.5">
                     <a
+                      href={api.exportUrl(r.id, "html", activeTarget || undefined)}
+                      target="_blank"
+                      rel="noopener"
+                      className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                      title="Open a professional report (print to PDF from the browser)"
+                    >
+                      Report
+                    </a>
+                    <a
                       href={api.exportUrl(r.id, "sarif", activeTarget || undefined)}
                       className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                       title="Download this run as SARIF"

@@ -28,7 +28,7 @@ import (
 var errGateFailed = errors.New("severity gate exceeded")
 
 func init() {
-	scanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, or json (default from config)")
+	scanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, json, or html (default from config)")
 	scanCmd.Flags().String("fail-severity", "", "Fail if findings meet or exceed this severity (critical|high|medium|low|info|none)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to bulwark.yml (or appsec.yml) configuration file")
 	scanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
@@ -254,6 +254,8 @@ func writeReport(cmd *cobra.Command, format string, findings []model.Finding) er
 		err = report.WriteJSON(w, findings)
 	case "markdown", "":
 		err = report.WriteMarkdown(w, findings)
+	case "html":
+		err = report.WriteHTML(w, findings, report.HTMLMeta{GeneratedAt: time.Now().Format("2006-01-02 15:04 MST")})
 	default:
 		err = fmt.Errorf("unsupported format: %s", format)
 	}

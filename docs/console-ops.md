@@ -586,3 +586,27 @@ disposition does). This applies in two places from the same
   from the gate decision, printing a `NOTE: N finding(s) excluded from the
   gate by disposition`. `--strict-gate` gates on everything, ignoring
   dispositions.
+
+## 15. Professional report export & console feedback
+
+**Report export.** Any run exports as a branded, print-ready HTML report
+(`GET /api/runs/{id}/export?format=html`, viewer): an executive summary
+(severity mix + disposition-aware gate outcome), compliance posture, and every
+finding grouped by severity with location, risk, description, remediation,
+mapped controls and workflow status. It is fully self-contained (inline CSS, an
+inline SVG mark — no external fetch) and print-optimized, so "Save as PDF" from
+the browser produces a clean deliverable. `report.WriteHTML` renders through
+`html/template`, so untrusted finding text is auto-escaped — an exported report
+is never an XSS vector. The same writer backs `bulwark scan --format html`.
+Console entry points: a "Report" link per run in the Runs tab and an "Export
+report" link in the Findings toolbar.
+
+**Feedback.** Mutations surface a toast (success/error) instead of failing
+silently, and destructive actions (delete run, suppress rule, remove user/target)
+use an in-app confirm dialog rather than `window.confirm`. Both live in
+`ui/src/toast.tsx` (`ToastProvider`/`ConfirmProvider`).
+
+**URL-addressable views.** The active tab, target, selected run, and the
+Findings framework/severity/status filters are encoded in the query string, so a
+view is shareable and reload-safe; navigation-significant changes use
+`pushState` so the browser Back button works.

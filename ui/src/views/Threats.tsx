@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  opsApi, ThreatModel, ThreatModelDetail, Threat, ThreatStatus, StrideCategory, LibraryComponent, ApiError,
+  opsApi, ThreatModel, ThreatModelDetail, Threat, ThreatStatus, StrideCategory, LibraryComponent, ThreatSuggestion, ApiError,
 } from "../api";
 import { Panel, Loading, EmptyState } from "../components";
 import { useToast, useConfirm } from "../toast";
@@ -21,7 +21,7 @@ const STATUS_DOT: Record<ThreatStatus, string> = {
 };
 const selectClass = "rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800";
 
-export function Threats({ canEdit, canDelete }: { canEdit: boolean; canDelete: boolean }) {
+export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canDelete: boolean; target: string }) {
   const [models, setModels] = useState<ThreatModel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -49,6 +49,21 @@ export function Threats({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
   const refresh = () => setReloadKey((k) => k + 1);
   const err = (e: unknown) => toast({ kind: "error", message: e instanceof ApiError ? e.message : String(e) });
 
+  const [generating, setGenerating] = useState(false);
+  const generateFromIaC = async () => {
+    setGenerating(true);
+    try {
+      const r = await opsApi.threatModelFromTarget(target, "Baseline from IaC");
+      toast({ kind: "success", message: `Baseline created: ${r.components} component(s), ${r.threats} threat(s).` });
+      setSelectedId(r.modelId);
+      refresh();
+    } catch (e) {
+      err(e);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const remove = async () => {
     if (!selected) return;
     const ok = await confirm({ title: "Delete this threat model?", message: "The model, its components, and its threats are removed. Findings are untouched.", confirmLabel: "Delete", danger: true });
@@ -65,7 +80,14 @@ export function Threats({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
       <div className="lg:col-span-2">
         <Panel
           title={`Threat models (${models.length})`}
-          right={canEdit ? <button onClick={() => setCreating(true)} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700">New model</button> : undefined}
+          right={canEdit ? (
+            <div className="flex items-center gap-2">
+              <button onClick={generateFromIaC} disabled={generating} className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800" title="Scan the current target's IaC and build a baseline model">
+                {generating ? "Scanning…" : "Generate from IaC"}
+              </button>
+              <button onClick={() => setCreating(true)} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700">New model</button>
+            </div>
+          ) : undefined}
         >
           {creating && <CreateModel onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setSelectedId(id); refresh(); }} onErr={err} />}
           {models.length === 0 && !creating ? (
@@ -127,6 +149,24 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
     try { await opsApi.setThreatStatus(detail.id, threatId, status); onChange(); } catch (e) { onErr(e); }
   };
 
+  const [suggestions, setSuggestions] = useState<ThreatSuggestion[] | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const suggest = async () => {
+    setSuggesting(true);
+    try {
+      const r = await opsApi.suggestThreats(detail.id);
+      setSuggestions(r.suggestions);
+      if (r.suggestions.length === 0) onErr("The model suggested no new threats.");
+    } catch (e) { onErr(e); } finally { setSuggesting(false); }
+  };
+  const confirm = async (s: ThreatSuggestion) => {
+    try {
+      await opsApi.addThreat(detail.id, { category: s.category, title: s.title, description: s.description, source: "assisted" });
+      setSuggestions((prev) => prev?.filter((x) => x !== s) ?? null);
+      onChange();
+    } catch (e) { onErr(e); }
+  };
+
   return (
     <Panel title={detail.id} right={canDelete ? <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button> : undefined}>
       <h3 className="text-base font-semibold">{detail.name}</h3>
@@ -152,7 +192,27 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
       </div>
 
       <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Threats ({detail.threats.length})</div>
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Threats ({detail.threats.length})</div>
+          {canEdit && (
+            <button onClick={suggest} disabled={suggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-[11px] font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to suggest additional threats (you confirm each)">
+              {suggesting ? "Thinking…" : "AI suggest"}
+            </button>
+          )}
+        </div>
+        {suggestions && suggestions.length > 0 && (
+          <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-50/50 p-2 dark:bg-amber-950/20">
+            <div className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
+            <ul className="space-y-1">
+              {suggestions.map((s, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs">
+                  <span className="min-w-0 flex-1"><span className="font-medium">{s.title}</span> <span className="text-gray-400">· {s.category}</span>{s.description && <span className="block text-gray-500 dark:text-gray-400">{s.description}</span>}</span>
+                  <button onClick={() => confirm(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-accent-700">Add</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {detail.threats.length === 0 ? (
           <p className="mt-1 text-xs text-gray-500">No threats yet. Add a component with a tech, then enumerate STRIDE over it.</p>
         ) : (

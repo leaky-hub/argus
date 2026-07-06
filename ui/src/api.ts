@@ -621,4 +621,11 @@ export const opsApi = {
     send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threat-status`, { threatId, status }),
   linkThreat: (modelId: string, req: { threatId: string; kind: string; ref: string; targetId?: string; remove?: boolean }): Promise<void> =>
     send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/links`, req),
+  threatModelFromTarget: (targetId: string, name?: string): Promise<{ modelId: string; components: number; threats: number }> =>
+    send<{ modelId: string; components: number; threats: number }>("POST", "api/threat-models/from-target", { targetId, name }),
+  suggestThreats: (modelId: string): Promise<{ suggestions: ThreatSuggestion[]; model: string }> =>
+    send<{ suggestions: ThreatSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest`, {}),
+  addThreat: (modelId: string, req: { category: StrideCategory; title: string; description?: string; componentId?: string; mitigation?: string; source?: string }): Promise<Threat> =>
+    send<Threat>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, req),
 };
+export interface ThreatSuggestion { category: StrideCategory; title: string; description?: string; component?: string; }

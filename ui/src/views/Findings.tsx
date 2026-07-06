@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
-import { CoverageAccounting, ExplainResponse, Finding, locationLabel, opsApi, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { CoverageAccounting, ExplainResponse, Finding, locationLabel, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
 const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
-// Per-finding explain lifecycle; cached client-side so re-clicks don't refetch.
+// Per-finding explain/remediate lifecycles; cached client-side so re-clicks don't refetch.
 type ExplainState = { loading: boolean; data?: ExplainResponse; error?: string };
+type RemediateState = { loading: boolean; data?: RemediationResponse; error?: string };
 
 // CoverageStrip renders the run's skip accounting (schema 2.0.0): what the
 // scan did NOT look at. "No findings" over a tree of unscanned binaries is a
@@ -85,8 +86,9 @@ export function Findings({
   const [framework, setFramework] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Explain state per finding
+  // Explain + remediate lifecycles, per finding (cached client-side).
   const [explainState, setExplainState] = useState<Record<string, ExplainState>>({});
+  const [remediateState, setRemediateState] = useState<Record<string, RemediateState>>({});
 
   const newSet = useMemo(() => new Set(detail.newIds), [detail.newIds]);
   const tools = useMemo(
@@ -148,6 +150,18 @@ export function Findings({
     } catch (err) {
       const msg = err instanceof Error ? err.message : "explanation failed";
       setExplainState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
+    }
+  };
+
+  const handleRemediate = async (f: Finding) => {
+    if (!canExplain) return; // remediation is the same operator+ gate as explain
+    setRemediateState((prev) => ({ ...prev, [f.id]: { loading: true, data: prev[f.id]?.data } }));
+    try {
+      const res = await opsApi.remediate({ targetId: origin?.targetId, runId: detail.id, findingId: f.id });
+      setRemediateState((prev) => ({ ...prev, [f.id]: { loading: false, data: res } }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "remediation failed";
+      setRemediateState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
     }
   };
 
@@ -268,20 +282,22 @@ export function Findings({
 
       {/* Detail pane */}
       <div className="lg:col-span-2">
-        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} canSuppress={canSuppress} onSuppress={onSuppress} /> : null}
+        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} /> : null}
       </div>
     </div>
     </div>
   );
 }
 
-function Detail({ f, isNew, origin, canExplain, explainState, onExplain, canSuppress, onSuppress }: {
+function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remediateState, onRemediate, canSuppress, onSuppress }: {
   f: Finding;
   isNew: boolean;
   origin?: { targetId?: string; gitUrl?: string; commit?: string };
   canExplain?: boolean;
   explainState?: ExplainState;
   onExplain: () => void;
+  remediateState?: RemediateState;
+  onRemediate: () => void;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
 }) {
@@ -514,6 +530,30 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, canSupp
           </div>
         )}
 
+        {/* AI-assisted remediation (operator+). Output is advice the user runs
+            themselves — never executed by the platform, never persisted. */}
+        {canExplain && (
+          <div className="mt-2">
+            {!remediateState ? (
+              <button
+                onClick={onRemediate}
+                className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+              >
+                🛠 Suggest remediation
+              </button>
+            ) : remediateState.loading ? (
+              <p className="text-xs text-gray-500">Generating remediation…</p>
+            ) : remediateState.error ? (
+              <div className="space-y-1">
+                <p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p>
+                <button onClick={onRemediate} className="text-xs text-emerald-600 hover:underline dark:text-emerald-400">retry</button>
+              </div>
+            ) : remediateState.data ? (
+              <RemediationPanel r={remediateState.data} category={f.category} onRegenerate={onRemediate} />
+            ) : null}
+          </div>
+        )}
+
         {f.triage && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
             <div className="mb-1 flex items-center gap-2">
@@ -540,6 +580,85 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, canSupp
         )}
       </div>
     </Panel>
+  );
+}
+
+// RemediationPanel renders an AI-assisted remediation: summary, ordered
+// steps, copyable script/patch artifacts, and a verification (re-scan) step.
+// Everything is escaped text (hostile-data rule). The amber banner and the
+// "you run this" framing are load-bearing: the platform never executes any of
+// it, and a finding clears only on re-scan.
+const KIND_LABEL: Record<string, string> = {
+  "cli-script": "CLI script", "code-patch": "Code patch",
+  "dependency-upgrade": "Dependency upgrade", "secret-rotation": "Secret rotation",
+  manual: "Manual steps",
+};
+function RemediationPanel({ r, category, onRegenerate }: { r: RemediationResponse; category: string; onRegenerate: () => void }) {
+  const infra = category === "CLOUD" || category === "IAC";
+  return (
+    <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+      <div className="flex items-center gap-2">
+        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+          {KIND_LABEL[r.kind] ?? r.kind}
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">AI-generated · review before running</span>
+        <button onClick={onRegenerate} className="ml-auto text-[10px] text-emerald-700 hover:underline dark:text-emerald-400">regenerate</button>
+      </div>
+
+      <p className="break-words text-xs font-medium text-gray-800 dark:text-gray-200">{r.summary}</p>
+
+      {/* The banner: this is advice you run yourself, and only a re-scan confirms it. */}
+      <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+        You run this yourself with your own credentials — Bulwark never applies it{infra ? ", and it modifies live infrastructure" : ""}. Re-scan to confirm the finding clears.
+      </div>
+
+      {r.safetyIssues && r.safetyIssues.length > 0 && (
+        <div className="rounded border border-red-300 bg-red-50 px-2 py-1.5 text-[11px] text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          <span className="font-semibold">Safety linter defanged this suggestion:</span>
+          <ul className="ml-4 list-disc">{r.safetyIssues.map((s, i) => <li key={i}>{s}</li>)}</ul>
+        </div>
+      )}
+
+      {r.steps && r.steps.length > 0 && (
+        <ol className="ml-4 list-decimal space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
+          {r.steps.map((s, i) => <li key={i} className="break-words">{s}</li>)}
+        </ol>
+      )}
+
+      {r.artifacts?.map((a, i) => <ArtifactBlock key={i} a={a} />)}
+
+      {r.warnings && r.warnings.map((w, i) => (
+        <p key={i} className="text-[11px] text-amber-700 dark:text-amber-400">⚠ {w}</p>
+      ))}
+
+      {r.verification && (
+        <p className="text-[11px] text-gray-600 dark:text-gray-400"><span className="font-semibold">Verify:</span> {r.verification}</p>
+      )}
+      <p className="text-[10px] text-gray-400">{r.model}</p>
+    </div>
+  );
+}
+
+function ArtifactBlock({ a }: { a: RemediationArtifact }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(a.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {});
+  };
+  return (
+    <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
+      <div className="flex items-center gap-2 bg-gray-100 px-2 py-1 text-[10px] text-gray-500 dark:bg-gray-800">
+        <span className="font-mono uppercase">{a.language}</span>
+        {a.title && <span className="truncate">{a.title}</span>}
+        <button onClick={copy} className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-900/40">
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+      {/* Escaped text only — never dangerouslySetInnerHTML. */}
+      <pre className="scroll-thin overflow-x-auto whitespace-pre bg-gray-50 p-2 font-mono text-[11px] text-gray-800 dark:bg-gray-900 dark:text-gray-200">{a.content}</pre>
+    </div>
   );
 }
 

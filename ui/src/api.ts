@@ -344,6 +344,21 @@ export interface FrameworksResponse { frameworks: FrameworkInfo[] }
 
 export interface ExplainResponse { explanation: string; remediation?: string; model: string; cached: boolean }
 
+// AI-assisted remediation (on-demand, never persisted). Artifacts are scripts
+// the USER runs — the platform never executes them. safetyIssues, when
+// present, mean the deterministic linter withheld/defanged something.
+export interface RemediationArtifact { language: string; title: string; content: string }
+export interface RemediationResponse {
+  summary: string;
+  kind: "cli-script" | "code-patch" | "dependency-upgrade" | "secret-rotation" | "manual";
+  steps?: string[];
+  artifacts?: RemediationArtifact[];
+  warnings?: string[];
+  verification?: string;
+  model: string;
+  safetyIssues?: string[];
+}
+
 export const opsApi = {
   me: (): Promise<MeResponse> => send<MeResponse>("GET", "api/auth/me"),
   
@@ -408,4 +423,7 @@ export const opsApi = {
 
   explain: (req: { targetId?: string; runId: string; findingId: string }): Promise<ExplainResponse> =>
     send<ExplainResponse>("POST", "api/explain", req),
+
+  remediate: (req: { targetId?: string; runId: string; findingId: string }): Promise<RemediationResponse> =>
+    send<RemediationResponse>("POST", "api/remediate", req),
 };

@@ -66,6 +66,8 @@ export function Findings({
   canExplain,
   canSuppress,
   onSuppress,
+  framework,
+  onFrameworkChange,
 }: {
   detail: RunDetail;
   origin?: {
@@ -76,6 +78,10 @@ export function Findings({
   canExplain?: boolean;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
+  // The framework filter is controlled by App so the Overview compliance
+  // panel can deep-link into a filtered Findings view.
+  framework: string;
+  onFrameworkChange: (v: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [sev, setSev] = useState<string>("all");
@@ -83,7 +89,6 @@ export function Findings({
   const [tool, setTool] = useState<string>("all");
   const [verdict, setVerdict] = useState<string>("all");
   const [minRisk, setMinRisk] = useState(0);
-  const [framework, setFramework] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Explain + remediate lifecycles, per finding (cached client-side).
@@ -203,9 +208,11 @@ export function Findings({
             />
             <Select
               value={framework}
-              onChange={setFramework}
+              onChange={onFrameworkChange}
               label="Framework"
-              options={["all", ...frameworks]}
+              // Include the externally-set framework even if this run has no
+              // finding mapped to it, so a deep-link never shows a blank Select.
+              options={["all", ...(framework !== "all" && !frameworks.includes(framework) ? [framework] : []), ...frameworks]}
             />
             <label className="inline-flex items-center gap-1 text-xs text-gray-500">
               Min risk {minRisk.toFixed(0)}

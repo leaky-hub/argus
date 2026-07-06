@@ -15,7 +15,7 @@ import { Panel, StatCard, SeverityDonut, GateBadge, EmptyState, CategoryBreakdow
 import { OWASP_COLORS, SEV_COLOR, fmtTime } from "../theme";
 import { CompliancePanel } from "./CompliancePanel";
 
-export function Overview({ summary }: { summary: SummaryResponse }) {
+export function Overview({ summary, onSelectFramework }: { summary: SummaryResponse; onSelectFramework?: (id: string) => void }) {
   if (summary.runCount === 0) {
     return (
       <EmptyState
@@ -139,7 +139,7 @@ export function Overview({ summary }: { summary: SummaryResponse }) {
         )}
       </Panel>
 
-      <CompliancePanel compliance={summary.compliance} />
+      <CompliancePanel compliance={summary.compliance} onSelect={onSelectFramework} />
 
       <Panel title="OWASP Top 10 (2021) rollup">
         {owasp.length === 0 ? (

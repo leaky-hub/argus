@@ -1,7 +1,7 @@
 import { FrameworkSummary } from "../api";
 import { Panel } from "../components";
 
-export function CompliancePanel({ compliance }: { compliance: FrameworkSummary[] }) {
+export function CompliancePanel({ compliance, onSelect }: { compliance: FrameworkSummary[]; onSelect?: (id: string) => void }) {
   if (!compliance || compliance.length === 0) {
     return (
       <Panel title="Compliance posture">
@@ -18,8 +18,19 @@ export function CompliancePanel({ compliance }: { compliance: FrameworkSummary[]
           if (rowTotal === 0) return null;
           const pct = (n: number) => `${(n / rowTotal) * 100}%`;
 
+          // A row is a drill-down into the framework-filtered Findings view
+          // when a handler is provided and there is something to show.
+          const clickable = !!onSelect && (fw.violatedControls > 0 || fw.unmappedFindings > 0);
+
           return (
-            <div key={fw.id} className="py-3 first:pt-0 last:pb-0">
+            <div
+              key={fw.id}
+              className={`py-3 first:pt-0 last:pb-0 ${clickable ? "-mx-2 cursor-pointer rounded px-2 hover:bg-gray-50 dark:hover:bg-gray-800/50" : ""}`}
+              onClick={clickable ? () => onSelect!(fw.id) : undefined}
+              role={clickable ? "button" : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect!(fw.id); } } : undefined}
+              title={clickable ? `Show ${fw.id} findings` : undefined}>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="w-full shrink-0 sm:w-36">
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{fw.id}</span>
@@ -62,7 +73,8 @@ export function CompliancePanel({ compliance }: { compliance: FrameworkSummary[]
 
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
         Controls violated / no violations detected / not assessable by static scanning, per framework.
-        Deterministic, hand-curated mapping — run `appsec comply` for the full gap report.
+        {onSelect ? " Click a framework to see its findings. " : " "}
+        Deterministic, hand-curated mapping — run `bulwark comply` for the full gap report.
       </p>
     </Panel>
   );

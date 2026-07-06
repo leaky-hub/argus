@@ -56,6 +56,9 @@ export function App() {
   // Overview/Runs/Findings all read this store.
   const [activeTarget, setActiveTarget] = useState<string>("");
   const [rescanBusy, setRescanBusy] = useState(false);
+  // The Findings framework filter, lifted here so the Overview compliance
+  // panel can deep-link into a filtered Findings view.
+  const [findingsFramework, setFindingsFramework] = useState<string>("all");
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -185,6 +188,12 @@ export function App() {
         setReloadKey((k) => k + 1);
       })
       .catch(onApiError);
+  };
+
+  // Deep-link from an Overview compliance row into the filtered Findings list.
+  const openFramework = (id: string) => {
+    setFindingsFramework(id);
+    setTab("findings");
   };
 
   const openRun = (runId: string, targetId?: string, commit?: string) => {
@@ -321,7 +330,7 @@ export function App() {
       </header>
 
       <main>
-        {activeTab === "overview" && <Overview summary={summary} />}
+        {activeTab === "overview" && <Overview summary={summary} onSelectFramework={openFramework} />}
         {activeTab === "findings" &&
           (detail ? (
             <Findings
@@ -330,6 +339,8 @@ export function App() {
               canExplain={canExplain}
               canSuppress={role === "admin" && !!activeTarget}
               onSuppress={handleSuppress}
+              framework={findingsFramework}
+              onFrameworkChange={setFindingsFramework}
             />
           ) : (
             <Loading what="findings" />

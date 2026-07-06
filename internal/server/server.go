@@ -106,15 +106,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
-	mux.HandleFunc("/api/users", s.handleUsers)        // GET list, POST create (admin)
-	mux.HandleFunc("/api/users/", s.handleUserByID)    // PATCH, DELETE (admin)
-	mux.HandleFunc("/api/targets", s.handleTargets)    // GET (viewer), POST (admin)
-	mux.HandleFunc("/api/targets/", s.handleTargetByID) // DELETE (admin)
-	mux.HandleFunc("/api/scans", s.handleScans)        // GET (viewer), POST (operator)
-	mux.HandleFunc("/api/scans/", s.handleScanByID)    // GET /api/scans/{jobId}
-	mux.HandleFunc("/api/frameworks", s.handleFrameworks) // GET (viewer)
-	mux.HandleFunc("/api/explain", s.handleExplain)    // POST (operator)
-	mux.HandleFunc("/api/audit", s.handleAudit)        // GET (admin)
+	mux.HandleFunc("/api/users", s.handleUsers)                  // GET list, POST create (admin)
+	mux.HandleFunc("/api/users/", s.handleUserByID)              // PATCH, DELETE (admin)
+	mux.HandleFunc("/api/targets", s.handleTargets)              // GET (viewer), POST (admin)
+	mux.HandleFunc("/api/targets/", s.handleTargetByID)          // DELETE (admin)
+	mux.HandleFunc("/api/cloud/profiles", s.handleCloudProfiles) // GET (admin): discovered profile names
+	mux.HandleFunc("/api/scans", s.handleScans)                  // GET (viewer), POST (operator)
+	mux.HandleFunc("/api/scans/", s.handleScanByID)              // GET /api/scans/{jobId}
+	mux.HandleFunc("/api/frameworks", s.handleFrameworks)        // GET (viewer)
+	mux.HandleFunc("/api/explain", s.handleExplain)              // POST (operator)
+	mux.HandleFunc("/api/audit", s.handleAudit)                  // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))
 }
@@ -225,6 +226,11 @@ func (s *Server) runStoreFor(w http.ResponseWriter, r *http.Request) (runstore.S
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "target not found")
 		return runstore.Store{}, false
+	}
+	// Cloud targets have no filesystem root; their history lives in the
+	// per-target cloud store (locked decision 9).
+	if t.Kind() == targets.TypeCloud {
+		return runstore.Store{Dir: s.targets.CloudRunStore(t)}, true
 	}
 	return runstore.ForRepo(s.targets.Root(t)), true
 }

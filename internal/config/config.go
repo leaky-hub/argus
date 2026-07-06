@@ -19,6 +19,15 @@ type Config struct {
 	Format       string       `yaml:"format"`           // sarif|markdown|json
 	TimeoutSec   int          `yaml:"timeout"`          // per-scanner timeout, seconds
 	Triage       TriageConfig `yaml:"triage"`           // AI triage configuration
+	Cloud        CloudConfig  `yaml:"cloud"`            // cloud posture scan configuration
+}
+
+// CloudConfig holds cloud posture scan settings (schema 2.1.0). Credentials
+// are NEVER configured here — only a per-provider run timeout. The profile
+// reference is a CLI flag or a registered console target, validated against
+// the local config's closed list at run time.
+type CloudConfig struct {
+	TimeoutSec int `yaml:"timeout"` // whole-scan timeout, seconds (prowler runs are long)
 }
 
 // TriageConfig holds the AI-triage configuration.
@@ -50,6 +59,9 @@ func Default() Config {
 			MaxFindings:      200,
 			ExcludeFP:        false,
 			AllowSecretCloud: false,
+		},
+		Cloud: CloudConfig{
+			TimeoutSec: 1800, // prowler full-account scans routinely take many minutes
 		},
 	}
 }

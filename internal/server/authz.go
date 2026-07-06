@@ -45,6 +45,11 @@ var authzTable = []authzRule{
 	{http.MethodPatch, "/api/targets/", auth.RoleAdmin, false},
 	{http.MethodDelete, "/api/targets/", auth.RoleAdmin, false},
 
+	// Cloud profile discovery reveals local-config profile NAMES and feeds the
+	// admin-only cloud-target registration form — admin, and refused in
+	// zero-users mode like every other config-disclosing route.
+	{http.MethodGet, "/api/cloud/profiles", auth.RoleAdmin, false},
+
 	{http.MethodGet, "/api/scans", auth.RoleViewer, true},
 	{http.MethodGet, "/api/scans/", auth.RoleViewer, true},
 	{http.MethodPost, "/api/scans", auth.RoleOperator, false},

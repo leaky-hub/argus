@@ -391,9 +391,9 @@ export function App() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                   activeTab === t.id
-                    ? "bg-blue-600 text-white"
+                    ? "bg-accent-100 text-accent-700 dark:bg-accent-500/15 dark:text-accent-200"
                     : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
                 }`}
               >

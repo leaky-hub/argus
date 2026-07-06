@@ -1,13 +1,14 @@
 import { Severity } from "./api";
 
 // Severity → hex, matching tailwind.config.js `sev` ramp, for recharts (which
-// needs literal colors, not classes).
+// needs literal colors, not classes). Severity is the one saturated channel in
+// the app, so these are the only strong hues on a chart.
 export const SEV_COLOR: Record<Severity, string> = {
-  critical: "#b91c1c",
-  high: "#ea580c",
-  medium: "#d97706",
-  low: "#2563eb",
-  info: "#6b7280",
+  critical: "#c92a30",
+  high: "#d95d10",
+  medium: "#c98a10",
+  low: "#2f74c0",
+  info: "#6b7386",
 };
 
 // Tailwind classes for severity chips.
@@ -96,8 +97,8 @@ export function fmtTime(iso: string): string {
 }
 
 export function riskColor(score: number): string {
-  if (score >= 9) return "#b91c1c";
-  if (score >= 7) return "#ea580c";
-  if (score >= 4) return "#d97706";
-  return "#2563eb";
+  if (score >= 9) return "#c92a30";
+  if (score >= 7) return "#d95d10";
+  if (score >= 4) return "#c98a10";
+  return "#2f74c0";
 }

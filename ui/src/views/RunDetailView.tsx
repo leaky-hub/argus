@@ -71,7 +71,7 @@ export function RunDetailView({
           href={api.exportUrl(detail.id, "html", targetId)}
           target="_blank"
           rel="noopener"
-          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+          className="rounded-md border border-accent-200 bg-accent-50 px-2 py-1 text-xs font-medium text-accent-700 hover:bg-accent-100 dark:border-accent-800 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:bg-accent-500/20"
         >
           ↗ Export report
         </a>

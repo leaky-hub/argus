@@ -493,7 +493,7 @@ export function Findings({
               href={api.exportUrl(detail.id, "html", origin?.targetId)}
               target="_blank"
               rel="noopener"
-              className="ml-auto inline-flex items-center gap-1 self-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+              className="ml-auto inline-flex items-center gap-1 self-center rounded-md border border-accent-200 bg-accent-50 px-2 py-1 text-xs font-medium text-accent-700 hover:bg-accent-100 dark:border-accent-800 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:bg-accent-500/20"
               title="Open a professional report for this run (print to PDF from the browser)"
             >
               ↗ Export report
@@ -502,8 +502,8 @@ export function Findings({
 
           {/* Bulk action bar: one locked write across the selection. */}
           {canDispose && selectedIds.size > 0 && (
-            <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-md bg-blue-50 px-3 py-2 text-xs dark:bg-blue-950/30">
-              <span className="font-semibold text-blue-800 dark:text-blue-200">{selectedIds.size} selected</span>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-md bg-accent-50 px-3 py-2 text-xs dark:bg-accent-500/10">
+              <span className="font-semibold text-accent-800 dark:text-accent-200">{selectedIds.size} selected</span>
               <span className="ml-1 text-gray-500">set</span>
               {(["in-progress", "accepted-risk", "false-positive", "fixed"] as DispositionStatus[]).map((s) => (
                 <button
@@ -732,7 +732,7 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
           {f.cwes && f.cwes.length > 0 && <Row label="CWE"><span className="flex flex-wrap gap-1">{f.cwes.map(renderCwe)}</span></Row>}
           {f.package && <Row label="Package"><code className="text-xs">{f.package}</code></Row>}
           {f.cve && <Row label="CVE"><code className="text-xs">{f.cve}</code></Row>}
-          {forgeLink && <Row label="Source"><a href={forgeLink.href} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline dark:text-blue-400">view at {forgeLink.shortSha} →</a></Row>}
+          {forgeLink && <Row label="Source"><a href={forgeLink.href} target="_blank" rel="noreferrer" className="text-xs text-accent-600 hover:underline dark:text-accent-400">view at {forgeLink.shortSha} →</a></Row>}
           <RiskSignals signals={f.riskSignals} />
         </Section>
 
@@ -826,7 +826,7 @@ function DispositionControl({ disposition, canDispose, onDispose, onClear }: {
         <button
           onClick={() => act(onClear)}
           disabled={busy}
-          className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${current === "open" ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300"}`}
+          className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${current === "open" ? "bg-accent-600 text-white" : "bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300"}`}
         >
           Open
         </button>
@@ -854,7 +854,7 @@ function DispositionControl({ disposition, canDispose, onDispose, onClear }: {
           <button
             onClick={() => act(() => onDispose(disposition.status, note))}
             disabled={busy}
-            className="shrink-0 rounded bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="shrink-0 rounded bg-accent-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Save note
           </button>

@@ -144,7 +144,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           <button
             onClick={handleAddUser}
             disabled={!newUser.username || !newUser.password}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Add user
           </button>
@@ -186,7 +186,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 <td className="py-2 pr-3">
                   <button
                     onClick={() => handleConfigureTarget(t)}
-                    className="mr-2 text-xs text-blue-600 hover:underline dark:text-blue-400"
+                    className="mr-2 text-xs text-accent-600 hover:underline dark:text-accent-400"
                   >
                     configure
                   </button>
@@ -209,19 +209,19 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Type:</span>
             <button
               onClick={() => setNewTargetType("dir")}
-              className={`rounded px-2 py-1 text-xs ${newTargetType === 'dir' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'dir' ? 'bg-accent-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
             >
               Directory
             </button>
             <button
               onClick={() => setNewTargetType("git")}
-              className={`rounded px-2 py-1 text-xs ${newTargetType === 'git' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'git' ? 'bg-accent-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
             >
               Git Repo
             </button>
             <button
               onClick={() => { setNewTargetType("cloud"); loadCloudProfiles(); }}
-              className={`rounded px-2 py-1 text-xs ${newTargetType === 'cloud' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'cloud' ? 'bg-accent-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
             >
               Cloud
             </button>
@@ -339,7 +339,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           <button
             onClick={handleAddTarget}
             disabled={!newTargetName || (newTargetType === "dir" ? !newTargetPath : newTargetType === "git" ? !newTargetUrl : !cloudProfileName)}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Register target
           </button>
@@ -457,7 +457,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
             <button
               onClick={() => handleSaveConfig(configuringTargetId)}
-              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              className="rounded bg-accent-600 px-3 py-1 text-xs font-medium text-white hover:bg-accent-700"
             >
               Save Configuration
             </button>
@@ -717,7 +717,7 @@ function UserRow({
             <>
               <button
                 onClick={() => setShowPwInput(!showPwInput)}
-                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                className="text-xs text-accent-600 hover:underline dark:text-accent-400"
               >
                 reset password
               </button>
@@ -745,7 +745,7 @@ function UserRow({
                 setShowPwInput(false);
                 setPwValue("");
               }}
-              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+              className="rounded bg-accent-600 px-2 py-1 text-xs text-white hover:bg-accent-700"
             >
               confirm
             </button>

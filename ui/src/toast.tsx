@@ -137,7 +137,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 ref={(el) => el?.focus()}
                 onClick={() => close(true)}
                 className={`rounded px-4 py-2 text-sm font-medium text-white ${
-                  dialog.opts.danger ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+                  dialog.opts.danger ? "bg-red-600 hover:bg-red-700" : "bg-accent-600 hover:bg-accent-700"
                 }`}
               >
                 {dialog.opts.confirmLabel ?? "Confirm"}

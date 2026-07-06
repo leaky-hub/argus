@@ -91,7 +91,7 @@ export function App() {
       .then(([s, r]) => {
         setSummary(s);
         setRuns(r);
-        setSelectedRun((cur) => cur ?? (s.latestId || r.runs[0]?.id || null));
+        setSelectedRun((cur) => cur ?? (s.latestId || r.runs?.[0]?.id || null));
       })
       .catch(onApiError);
   }, [authed, reloadKey, onApiError]);

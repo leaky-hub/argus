@@ -193,7 +193,9 @@ func (s *Server) buildSummary() (SummaryResponse, error) {
 	if err != nil {
 		return SummaryResponse{}, err
 	}
-	resp := SummaryResponse{RunCount: len(runs), BySeverity: map[string]int{}, ByCategory: map[string]int{}, OWASP: owasp.Rollup(nil), Compliance: complianceSummary(nil)}
+	// Trend is a JSON array, never null (empty store → []): the Overview chart
+	// maps over it. BySeverity/ByCategory are already non-nil maps.
+	resp := SummaryResponse{RunCount: len(runs), BySeverity: map[string]int{}, ByCategory: map[string]int{}, OWASP: owasp.Rollup(nil), Compliance: complianceSummary(nil), Trend: []TrendPoint{}}
 	if len(runs) == 0 {
 		return resp, nil
 	}
@@ -238,7 +240,9 @@ func (s *Server) buildRuns(store runstore.Store) (RunsResponse, error) {
 	if err != nil {
 		return RunsResponse{}, err
 	}
-	var out RunsResponse
+	// Always a JSON array, never null: an empty run store must serialize to
+	// "runs": [] so the frontend can index/iterate it safely.
+	out := RunsResponse{Runs: []RunListItem{}}
 	var prev *report.Document
 	for _, r := range runs {
 		doc, err := store.Load(r.ID)

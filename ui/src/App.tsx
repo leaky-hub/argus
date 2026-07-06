@@ -22,8 +22,9 @@ import { Runs } from "./views/Runs";
 import { Login } from "./views/Login";
 import { Operate } from "./views/Operate";
 import { Admin } from "./views/Admin";
+import { Tickets } from "./views/Tickets";
 
-type Tab = "overview" | "findings" | "runs" | "operate" | "admin";
+type Tab = "overview" | "findings" | "tickets" | "runs" | "operate" | "admin";
 
 // One neutral chip for the role badge — it's identity, not urgency, so it
 // stays quiet and lets severity own the app's only saturated color.
@@ -44,7 +45,7 @@ type UrlState = { tab: Tab; target: string; run: string | null; fw: string; sev:
 function readUrlState(): UrlState {
   const p = new URLSearchParams(window.location.search);
   const t = p.get("tab") ?? "";
-  const tab = (["findings", "runs", "operate", "admin"].includes(t) ? t : "overview") as Tab;
+  const tab = (["findings", "tickets", "runs", "operate", "admin"].includes(t) ? t : "overview") as Tab;
   return {
     // No target param → portfolio; an explicit (even empty) one is honored.
     target: p.has("target") ? (p.get("target") ?? "") : ALL_TARGETS,
@@ -386,6 +387,7 @@ export function App() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
     { id: "findings", label: "Findings" },
+    { id: "tickets", label: "Tickets" },
     { id: "runs", label: "Runs" },
     ...(opsEnabled ? [{ id: "operate" as Tab, label: "Operate" }] : []),
     ...(opsEnabled && role === "admin" ? [{ id: "admin" as Tab, label: "Admin" }] : []),
@@ -624,6 +626,7 @@ export function App() {
               onDeleteRun={handleDeleteRun}
             />
           ))}
+        {activeTab === "tickets" && <Tickets canEdit={canLaunch} canDelete={role === "admin"} />}
         {activeTab === "operate" && opsEnabled && <Operate canLaunch={canLaunch} onOpenRun={openRun} />}
         {activeTab === "admin" && role === "admin" && <Admin selfUsername={user?.username ?? ""} />}
       </main>

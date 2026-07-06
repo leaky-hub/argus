@@ -201,6 +201,41 @@ export interface Disposition {
   updatedAt: string;
 }
 
+// --- Ticketing ---
+export type TicketStatus = "open" | "in-progress" | "blocked" | "done";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export interface TicketRollup {
+  total: number;
+  resolved: number;
+  max?: Severity;
+  bySeverity: Record<string, number>;
+}
+export interface Ticket {
+  id: string;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  assignee?: string;
+  targetId?: string;
+  dueDate?: string;
+  externalUrl?: string;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt: string;
+}
+export interface TicketView extends Ticket {
+  linkCount: number;
+  rollup: TicketRollup;
+}
+export interface TicketLink { findingId: string; targetId?: string; }
+export interface TicketComment { id: string; kind: string; author?: string; body: string; createdAt: string; }
+export interface TicketDetail extends Ticket {
+  links: TicketLink[];
+  comments: TicketComment[];
+  rollup: TicketRollup;
+}
+
 export interface RunDetail {
   id: string;
   createdAt: string;
@@ -510,4 +545,27 @@ export const opsApi = {
   // single locked write. Returns how many were updated.
   bulkDisposition: (req: { targetId?: string; findingIds: string[]; status?: DispositionStatus; note?: string }): Promise<{ updated: number }> =>
     send<{ updated: number }>("POST", "api/dispositions/bulk", req),
+
+  // --- Ticketing ---
+  tickets: (filter?: { status?: string; assignee?: string }): Promise<{ tickets: TicketView[] }> => {
+    const q = new URLSearchParams();
+    if (filter?.status) q.set("status", filter.status);
+    if (filter?.assignee) q.set("assignee", filter.assignee);
+    const qs = q.toString();
+    return send<{ tickets: TicketView[] }>("GET", `api/tickets${qs ? `?${qs}` : ""}`);
+  },
+  ticket: (id: string): Promise<TicketDetail> =>
+    send<TicketDetail>("GET", `api/tickets/${encodeURIComponent(id)}`),
+  createTicket: (req: { title: string; description?: string; priority?: string; assignee?: string; targetId?: string; findingIds?: string[] }): Promise<Ticket> =>
+    send<Ticket>("POST", "api/tickets", req),
+  updateTicket: (id: string, patch: Partial<{ title: string; description: string; status: TicketStatus; priority: TicketPriority; assignee: string; dueDate: string }>): Promise<Ticket> =>
+    send<Ticket>("PATCH", `api/tickets/${encodeURIComponent(id)}`, patch),
+  deleteTicket: (id: string): Promise<void> =>
+    send<void>("DELETE", `api/tickets/${encodeURIComponent(id)}`),
+  ticketComment: (id: string, body: string): Promise<TicketComment> =>
+    send<TicketComment>("POST", `api/tickets/${encodeURIComponent(id)}/comments`, { body }),
+  ticketLink: (id: string, findingId: string, targetId?: string, remove?: boolean): Promise<{ links: TicketLink[] }> =>
+    send<{ links: TicketLink[] }>("POST", `api/tickets/${encodeURIComponent(id)}/links`, { findingId, targetId, remove }),
+  ticketCloseFixed: (id: string): Promise<{ markedFixed: number }> =>
+    send<{ markedFixed: number }>("POST", `api/tickets/${encodeURIComponent(id)}/close-fixed`, {}),
 };

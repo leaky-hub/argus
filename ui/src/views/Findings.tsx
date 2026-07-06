@@ -10,6 +10,17 @@ const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, lo
 const ACTION_BTN =
   "rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800";
 
+// Section is a labeled block in the finding drawer, so the detail reads as
+// Details / Compliance / Fix / Triage instead of one wall of text.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
+      <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</h4>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
 // Per-finding explain/remediate lifecycles; cached client-side so re-clicks don't refetch.
 type ExplainState = { loading: boolean; data?: ExplainResponse; error?: string };
 type RemediateState = { loading: boolean; data?: RemediationResponse; error?: string };
@@ -615,32 +626,29 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
   return (
     <Panel title="Finding detail">
       <div className="space-y-3 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <SeverityBadge severity={f.severity} />
-          <CategoryBadge category={f.category} />
-          <RiskPill score={f.riskScore} />
-          {f.toolSeverity && f.toolSeverity !== f.severity && (
-            <span className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400" title="Severity is banded from the deterministic risk score; this is what the tool itself reported.">tool said: {f.toolSeverity}</span>
-          )}
-          {f.meta?.gitHistory === "true" && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300" title="Found in git history, not the current worktree — rotate the credential; deleting the file does not revoke it.">GIT HISTORY{f.meta?.gitShallow === "true" ? " (shallow)" : ""}</span>
-          )}
-          {isNew && (
-            <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-              NEW
-            </span>
-          )}
-          <span className="text-xs text-gray-400">{(f.tools ?? [f.tool]).join(", ")}</span>
+        {/* Header: what you're viewing and where it sits in severity. */}
+        <div>
+          <h3 className="break-words text-base font-semibold">{f.displayName ?? f.title}</h3>
+          <p className="break-words font-mono text-[11px] text-gray-400">{f.displayName ? f.title : f.ruleId}{f.displayName && f.ruleId ? ` · ${f.ruleId}` : ""}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <SeverityBadge severity={f.severity} />
+            <CategoryBadge category={f.category} />
+            <RiskPill score={f.riskScore} />
+            {f.toolSeverity && f.toolSeverity !== f.severity && (
+              <span className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400" title="Severity is banded from the deterministic risk score; this is what the tool itself reported.">tool said: {f.toolSeverity}</span>
+            )}
+            {f.meta?.gitHistory === "true" && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300" title="Found in git history, not the current worktree — rotate the credential; deleting the file does not revoke it.">GIT HISTORY{f.meta?.gitShallow === "true" ? " (shallow)" : ""}</span>
+            )}
+            {isNew && <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">NEW</span>}
+            <span className="text-xs text-gray-400">{(f.tools ?? [f.tool]).join(", ")}</span>
+          </div>
         </div>
 
-        {/* Workflow disposition (operator+): durable human status, keyed by
-            fingerprint so it follows this finding across re-scans. */}
-        <DispositionControl disposition={disposition} canDispose={canDispose} onDispose={onDispose} onClear={onClearDispose} />
-
-        {/* Code Frame */}
-        {f.location.snippet && (
-          <Row label="Code">
-            <div className="overflow-x-auto whitespace-pre font-mono text-xs bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-800">
+        <Section title="Details">
+          {f.description && <p className="whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{f.description}</p>}
+          {f.location.snippet && (
+            <div className="scroll-thin overflow-x-auto whitespace-pre rounded border border-gray-200 bg-gray-50 p-2 font-mono text-xs dark:border-gray-800 dark:bg-gray-900">
               {f.location.snippet.lines.map((line, i) => {
                 const lineNum = f.location.snippet!.startLine + i;
                 const start = f.location.startLine ?? 0;
@@ -655,180 +663,64 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
                 );
               })}
             </div>
-          </Row>
-        )}
+          )}
+          <Row label={f.location.resource && !f.location.file ? "Resource" : "Location"}><code className="break-all text-xs">{locationLabel(f.location)}</code></Row>
+          {f.meta?.commit && <Row label="Commit"><code className="break-all text-xs">{f.meta.commit}</code></Row>}
+          <Row label="Rule"><code className="break-all text-xs">{f.ruleId}</code></Row>
+          {f.cwes && f.cwes.length > 0 && <Row label="CWE"><span className="flex flex-wrap gap-1">{f.cwes.map(renderCwe)}</span></Row>}
+          {f.package && <Row label="Package"><code className="text-xs">{f.package}</code></Row>}
+          {f.cve && <Row label="CVE"><code className="text-xs">{f.cve}</code></Row>}
+          {forgeLink && <Row label="Source"><a href={forgeLink.href} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline dark:text-blue-400">view at {forgeLink.shortSha} →</a></Row>}
+          <RiskSignals signals={f.riskSignals} />
+        </Section>
 
-        {/* All values below are hostile data rendered as escaped text only.
-            Lead with the clean weakness name; keep the scanner's own title and
-            rule id as the detail line. */}
-        <h3 className="break-words text-sm font-semibold">{f.displayName ?? f.title}</h3>
-        <p className="break-words font-mono text-[11px] text-gray-400">{f.displayName ? f.title : f.ruleId}{f.displayName && f.ruleId ? ` · ${f.ruleId}` : ""}</p>
-        {f.description && <p className="mt-1 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{f.description}</p>}
-
-        <Row label={f.location.resource && !f.location.file ? "Resource" : "Location"}>
-          <code className="break-all text-xs">{locationLabel(f.location)}</code>
-        </Row>
-        {f.meta?.commit && (
-          <Row label="Commit"><code className="break-all text-xs">{f.meta.commit}</code></Row>
-        )}
-        <Row label="Rule">
-          <code className="break-all text-xs">{f.ruleId}</code>
-        </Row>
-        {f.cwes && f.cwes.length > 0 && (
-          <Row label="CWE">
-            <span className="flex flex-wrap gap-1">
-              {f.cwes.map(renderCwe)}
-            </span>
-          </Row>
-        )}
-        {f.package && <Row label="Package"><code className="text-xs">{f.package}</code></Row>}
-        {f.cve && <Row label="CVE"><code className="text-xs">{f.cve}</code></Row>}
-        
-        {/* Grouped Compliance Controls */}
         {Object.keys(groupedControls).length > 0 && (
-          Object.entries(groupedControls).map(([fw, controls]) => (
-            <Row key={fw} label={fw}>
-              <span className="flex flex-wrap gap-1">
-                {controls.map((c) => (
-                  <span
-                    key={c}
-                    className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
-                    title="Framework control this finding violates (see `appsec comply`)"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </span>
-            </Row>
-          ))
+          <Section title="Compliance">
+            {Object.entries(groupedControls).map(([fw, controls]) => (
+              <Row key={fw} label={fw}><span className="flex flex-wrap gap-1">{controls.map((c) => (<span key={c} className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300" title="Framework control this finding violates (see `argus comply`)">{c}</span>))}</span></Row>
+            ))}
+          </Section>
         )}
 
-        {/* Forge Deep Link */}
-        {forgeLink && (
-          <Row label="Source">
-            <a
-              href={forgeLink.href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-            >
-              view at {forgeLink.shortSha} →
-            </a>
-          </Row>
-        )}
-
-        <RiskSignals signals={f.riskSignals} />
-
-        {/* Actions: explain (operator+) and suppress (admin, target-scoped) */}
-        {(canExplain || canSuppress) && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {canSuppress && f.ruleId && (
-              <button
-                onClick={() => onSuppress?.(f.ruleId)}
-                className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                title={`Add rule "${f.ruleId}" to this target's ignore list so it stops appearing (admin, audited)`}
-              >
-                Suppress rule
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* AI assist (operator+): one action row, one button style. All output
-            is advisory — it never changes a stored severity or applies a fix. */}
-        {canExplain && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">AI assist</span>
-              {!explainState && <button onClick={onExplain} className={ACTION_BTN}>Explain</button>}
-              {!validateState && <button onClick={onValidate} className={ACTION_BTN}>Validate severity</button>}
-              {!remediateState && <button onClick={onRemediate} className={ACTION_BTN}>Suggest fix</button>}
-            </div>
-
-            {explainState && (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
-                {explainState.loading ? (
-                  <p className="text-xs text-gray-500">Explaining…</p>
-                ) : explainState.error ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-red-600 dark:text-red-400">{explainState.error}</p>
-                    <button onClick={onExplain} className="text-xs text-gray-500 hover:underline">retry</button>
-                  </div>
-                ) : explainState.data ? (
-                  <>
-                    <p className="whitespace-pre-wrap break-words text-xs text-gray-800 dark:text-gray-200">{explainState.data.explanation}</p>
-                    {explainState.data.remediation && (
-                      <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold text-gray-500">Fix: </span>{explainState.data.remediation}</p>
-                    )}
-                    <p className="mt-1 text-[10px] text-gray-400">{explainState.data.model}{explainState.data.cached ? " (cached)" : ""}</p>
-                  </>
-                ) : null}
+        {(canExplain || f.remediation || (f.cwes && f.cwes.length > 0)) && (
+          <Section title="Fix">
+            {canExplain && (
+              <div className="flex flex-wrap items-center gap-2">
+                {!explainState && <button onClick={onExplain} className={ACTION_BTN}>Explain</button>}
+                {!remediateState && <button onClick={onRemediate} className={ACTION_BTN}>Suggest fix</button>}
+                {canSuppress && f.ruleId && <button onClick={() => onSuppress?.(f.ruleId)} className={ACTION_BTN} title={`Add rule "${f.ruleId}" to this target's ignore list (admin, audited)`}>Suppress rule</button>}
               </div>
             )}
-
-            {validateState &&
-              (validateState.loading ? (
-                <p className="text-xs text-gray-500">Validating severity…</p>
-              ) : validateState.error ? (
-                <div className="space-y-1">
-                  <p className="text-xs text-red-600 dark:text-red-400">{validateState.error}</p>
-                  <button onClick={onValidate} className="text-xs text-gray-500 hover:underline">retry</button>
-                </div>
-              ) : validateState.data ? (
-                <ValidationPanel v={validateState.data} bandedSeverity={f.severity} onRevalidate={onValidate} />
-              ) : null)}
-
-            {remediateState &&
-              (remediateState.loading ? (
-                <p className="text-xs text-gray-500">Generating fix…</p>
-              ) : remediateState.error ? (
-                <div className="space-y-1">
-                  <p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p>
-                  <button onClick={onRemediate} className="text-xs text-gray-500 hover:underline">retry</button>
-                </div>
-              ) : remediateState.data ? (
-                <RemediationPanel
-                  r={remediateState.data}
-                  category={f.category}
-                  location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)}
-                  source={f.location.snippet && f.location.snippet.lines.length > 0 ? {
-                    lines: f.location.snippet.lines,
-                    startLine: f.location.snippet.startLine,
-                    flaggedStart: f.location.startLine ?? f.location.snippet.startLine,
-                    flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine,
-                  } : undefined}
-                  onRegenerate={onRemediate}
-                />
-              ) : null)}
-          </div>
-        )}
-
-        <MitigationPanel finding={f} />
-
-        {f.triage && (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
-            <div className="mb-1 flex items-center gap-2">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_CHIP[f.triage.verdict]}`}>
-                {VERDICT_LABEL[f.triage.verdict]}
-              </span>
-              {typeof f.triage.confidence === "number" && (
-                <span className="text-xs text-gray-500">confidence {(f.triage.confidence * 100).toFixed(0)}%</span>
-              )}
-              {f.triage.model && <span className="ml-auto text-[10px] text-gray-400">{f.triage.model}</span>}
-            </div>
-            {f.triage.rationale && (
-              <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">
-                {f.triage.rationale}
-              </p>
+            {explainState && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+                {explainState.loading ? <p className="text-xs text-gray-500">Explaining…</p> : explainState.error ? (<div className="space-y-1"><p className="text-xs text-red-600 dark:text-red-400">{explainState.error}</p><button onClick={onExplain} className="text-xs text-gray-500 hover:underline">retry</button></div>) : explainState.data ? (<><p className="whitespace-pre-wrap break-words text-xs text-gray-800 dark:text-gray-200">{explainState.data.explanation}</p>{explainState.data.remediation && (<p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold text-gray-500">Fix: </span>{explainState.data.remediation}</p>)}<p className="mt-1 text-[10px] text-gray-400">{explainState.data.model}{explainState.data.cached ? " (cached)" : ""}</p></>) : null}
+              </div>
             )}
-          </div>
+            {remediateState && (remediateState.loading ? <p className="text-xs text-gray-500">Generating fix…</p> : remediateState.error ? (<div className="space-y-1"><p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p><button onClick={onRemediate} className="text-xs text-gray-500 hover:underline">retry</button></div>) : remediateState.data ? (<RemediationPanel r={remediateState.data} category={f.category} location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)} source={f.location.snippet && f.location.snippet.lines.length > 0 ? { lines: f.location.snippet.lines, startLine: f.location.snippet.startLine, flaggedStart: f.location.startLine ?? f.location.snippet.startLine, flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine } : undefined} onRegenerate={onRemediate} />) : null)}
+            <MitigationPanel finding={f} />
+            {f.remediation && <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold text-gray-500">Scanner note: </span>{f.remediation}</p>}
+          </Section>
         )}
 
-        {f.remediation && (
-          <Row label="Remediation">
-            <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">{f.remediation}</p>
-          </Row>
-        )}
+        <Section title="Triage">
+          {canExplain && (
+            <div className="space-y-2">
+              {!validateState && <button onClick={onValidate} className={ACTION_BTN}>Validate severity</button>}
+              {validateState && (validateState.loading ? <p className="text-xs text-gray-500">Validating severity…</p> : validateState.error ? (<div className="space-y-1"><p className="text-xs text-red-600 dark:text-red-400">{validateState.error}</p><button onClick={onValidate} className="text-xs text-gray-500 hover:underline">retry</button></div>) : validateState.data ? (<ValidationPanel v={validateState.data} bandedSeverity={f.severity} onRevalidate={onValidate} />) : null)}
+            </div>
+          )}
+          <DispositionControl disposition={disposition} canDispose={canDispose} onDispose={onDispose} onClear={onClearDispose} />
+          {f.triage && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
+              <div className="mb-1 flex items-center gap-2">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_CHIP[f.triage.verdict]}`}>{VERDICT_LABEL[f.triage.verdict]}</span>
+                {typeof f.triage.confidence === "number" && <span className="text-xs text-gray-500">confidence {(f.triage.confidence * 100).toFixed(0)}%</span>}
+                {f.triage.model && <span className="ml-auto text-[10px] text-gray-400">{f.triage.model}</span>}
+              </div>
+              {f.triage.rationale && <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300">{f.triage.rationale}</p>}
+            </div>
+          )}
+        </Section>
       </div>
     </Panel>
   );

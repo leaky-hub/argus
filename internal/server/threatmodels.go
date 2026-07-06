@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,8 +9,13 @@ import (
 	"time"
 
 	"github.com/leaky-hub/appsec/internal/audit"
+	"github.com/leaky-hub/appsec/internal/config"
+	"github.com/leaky-hub/appsec/internal/iacdetect"
+	"github.com/leaky-hub/appsec/internal/pipeline"
+	"github.com/leaky-hub/appsec/internal/targets"
 	"github.com/leaky-hub/appsec/internal/threatlib"
 	"github.com/leaky-hub/appsec/internal/threatmodel"
+	"github.com/leaky-hub/appsec/internal/triage"
 )
 
 // Threat-modeling endpoints. A model is scoped to a target; its components drive
@@ -80,6 +86,13 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 	actor := actorFrom(r)
 	now := time.Now()
 
+	// from-target is a create-like action (operator, under the POST /… rule):
+	// scan a target's IaC and build a baseline model with enumerated STRIDE.
+	if id == "from-target" && sub == "" && r.Method == http.MethodPost {
+		s.threatModelFromTarget(w, r, actor, now)
+		return
+	}
+
 	switch {
 	case sub == "" && r.Method == http.MethodGet:
 		m, err := s.threats.GetModel(id)
@@ -130,17 +143,24 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]int{"added": n})
 
 	case sub == "threats" && r.Method == http.MethodPost:
-		var req struct{ ComponentID, Category, Title, Description, Mitigation string }
+		var req struct{ ComponentID, Category, Title, Description, Mitigation, Source string }
 		if err := decodeBody(w, r, &req, 1<<20); err != nil {
 			return
 		}
-		t, err := s.threats.AddThreat(id, req.ComponentID, req.Category, req.Title, req.Description, "curated", req.Mitigation, actor, now)
+		source := req.Source
+		if source != "assisted" {
+			source = "curated" // confirming an AI suggestion sends source="assisted"
+		}
+		t, err := s.threats.AddThreat(id, req.ComponentID, req.Category, req.Title, req.Description, source, req.Mitigation, actor, now)
 		if err != nil {
 			s.writeThreatErr(w, err)
 			return
 		}
-		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "add-threat"})
+		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "add-threat", "source": source})
 		writeJSON(w, http.StatusCreated, t)
+
+	case sub == "suggest" && r.Method == http.MethodPost:
+		s.suggestThreats(w, r, id)
 
 	case sub == "threat-status" && r.Method == http.MethodPost:
 		var req struct{ ThreatID, Status string }
@@ -178,6 +198,145 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeErr(w, http.StatusNotFound, "unknown threat-model action")
 	}
+}
+
+// threatModelFromTarget scans a target's infrastructure-as-code, creates a
+// baseline model with the detected components, and enumerates STRIDE over each —
+// deterministic, no LLM. Bootstraps a threat model from what the repo declares.
+func (s *Server) threatModelFromTarget(w http.ResponseWriter, r *http.Request, actor string, now time.Time) {
+	var req struct{ TargetID, Name string }
+	if err := decodeBody(w, r, &req, 8192); err != nil {
+		return
+	}
+	dir, ok := s.targetDir(req.TargetID)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "target has no local directory to scan")
+		return
+	}
+	comps, err := iacdetect.Scan(dir)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to scan target")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = "Baseline threat model"
+	}
+	m, err := s.threats.CreateModel(req.TargetID, name, "Generated from infrastructure-as-code in the target. Review and refine.", actor, now)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	threatCount := 0
+	for _, c := range comps {
+		comp, err := s.threats.AddComponent(m.ID, "component", c.Name, c.Tech, "from "+c.Source, now)
+		if err != nil {
+			continue
+		}
+		if n, err := s.threats.EnumerateComponent(comp.ID, now); err == nil {
+			threatCount += n
+		}
+	}
+	s.audit(audit.EventThreatModel, actor, map[string]string{
+		"model": m.ID, "target": req.TargetID, "action": "from-target",
+		"components": itoa(len(comps)), "threats": itoa(threatCount),
+	})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"modelId": m.ID, "components": len(comps), "threats": threatCount,
+	})
+}
+
+// suggestThreats asks the target's configured LLM to propose additional STRIDE
+// threats for a model. Advisory only: the candidates are returned, never
+// persisted — the human confirms each via POST .../threats with source=assisted.
+// Same seam discipline as explain: config comes from the target tree, request
+// input can't pick the provider, output is validated against the STRIDE enum.
+func (s *Server) suggestThreats(w http.ResponseWriter, r *http.Request, id string) {
+	m, err := s.threats.GetModel(id)
+	if err != nil {
+		s.writeThreatErr(w, err)
+		return
+	}
+	comps, _ := s.threats.Components(id)
+	existing, _ := s.threats.Threats(id)
+
+	in := triage.SuggestInput{AppName: m.Name}
+	for _, c := range comps {
+		in.Components = append(in.Components, triage.SuggestComponent{Name: c.Name, Tech: c.Tech})
+	}
+	for _, t := range existing {
+		in.ExistingTitles = append(in.ExistingTitles, t.Title)
+	}
+	in.FindingCategories = s.findingCategoriesFor(m.TargetID)
+
+	// Provider/model/endpoint come from the target tree's appsec.yml, never the
+	// request. A cloud/absent dir falls back to defaults (local Ollama).
+	root, _ := s.targetDir(m.TargetID)
+	cfg, err := repoConfig(root)
+	if err != nil {
+		cfg = config.Default()
+	}
+	factory := s.llmFactory
+	if factory == nil {
+		factory = pipeline.NewLLMClient
+	}
+	client := factory(cfg)
+	ctx := r.Context()
+	if p, ok := client.(interface{ Ping(context.Context) error }); ok {
+		if err := p.Ping(ctx); err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "no reachable LLM provider — configure triage in the target's appsec.yml")
+			return
+		}
+	}
+	suggestions, err := triage.SuggestThreats(ctx, client, in, time.Duration(cfg.Triage.TimeoutSec)*time.Second)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.audit(audit.EventThreatUpdate, actorFrom(r), map[string]string{"model": id, "action": "suggest", "count": itoa(len(suggestions))})
+	writeJSON(w, http.StatusOK, map[string]any{"suggestions": suggestions, "model": client.Name()})
+}
+
+// findingCategoriesFor returns the distinct finding categories in a target's
+// latest run, as extra context for the suggestion prompt (best-effort).
+func (s *Server) findingCategoriesFor(targetID string) []string {
+	rs, ok := s.resolveRunStore(targetID)
+	if !ok {
+		return nil
+	}
+	runs, err := rs.List()
+	if err != nil || len(runs) == 0 {
+		return nil
+	}
+	doc, err := rs.Load(runs[len(runs)-1].ID)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range doc.Findings {
+		if f.Category != "" && !seen[f.Category] {
+			seen[f.Category] = true
+			out = append(out, f.Category)
+		}
+	}
+	return out
+}
+
+// targetDir resolves a target's local directory ("" = the served repo). A cloud
+// target has no directory to scan.
+func (s *Server) targetDir(targetID string) (string, bool) {
+	if targetID == "" {
+		return s.dir, true
+	}
+	if s.targets == nil {
+		return "", false
+	}
+	t, err := s.targets.Get(targetID)
+	if err != nil || t.Kind() == targets.TypeCloud {
+		return "", false
+	}
+	return s.targets.Root(t), true
 }
 
 func (s *Server) writeThreatErr(w http.ResponseWriter, err error) {

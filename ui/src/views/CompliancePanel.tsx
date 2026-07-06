@@ -74,7 +74,7 @@ export function CompliancePanel({ compliance, onSelect }: { compliance: Framewor
       <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
         Controls violated / no violations detected / not assessable by static scanning, per framework.
         {onSelect ? " Click a framework to see its findings. " : " "}
-        Deterministic, hand-curated mapping — run `bulwark comply` for the full gap report.
+        Deterministic, hand-curated mapping — run `argus comply` for the full gap report.
       </p>
     </Panel>
   );

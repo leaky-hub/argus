@@ -1,4 +1,4 @@
-// Package server is the `bulwark serve` web console: a local-first HTTP server
+// Package server is the `argus serve` web console: a local-first HTTP server
 // that exposes saved scan runs as a JSON API, serves the embedded React UI,
 // and — once users are configured — authenticates sessions and executes
 // scans against registered targets through a strictly serial job queue.
@@ -284,7 +284,7 @@ func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request, store r
 
 // handleRunExport streams a run as SARIF or JSON for download. The report is
 // re-rendered from the stored findings through the same writers the CLI uses,
-// so an exported SARIF is byte-for-byte what `bulwark scan -f sarif` produces.
+// so an exported SARIF is byte-for-byte what `argus scan -f sarif` produces.
 func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store runstore.Store, id string) {
 	doc, err := store.Load(id)
 	if err != nil {
@@ -293,7 +293,7 @@ func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store r
 	}
 	format := r.URL.Query().Get("format")
 	// A safe download filename derived from the validated run id (no path sep).
-	fname := "bulwark-" + strings.ReplaceAll(id, ":", "-")
+	fname := "argus-" + strings.ReplaceAll(id, ":", "-")
 	switch format {
 	case "sarif":
 		w.Header().Set("Content-Type", "application/sarif+json; charset=utf-8")

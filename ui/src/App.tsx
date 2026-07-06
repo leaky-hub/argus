@@ -474,7 +474,7 @@ export function App() {
               onStatusChange={setFindingsStatus}
             />
           ) : (
-            <EmptyState title="No findings yet" hint="Save a scan (bulwark scan --save, or the Operate tab) to populate this view." />
+            <EmptyState title="No findings yet" hint="Save a scan (argus scan --save, or the Operate tab) to populate this view." />
           ))}
         {activeTab === "runs" &&
           (concreteTarget === null ? (
@@ -522,7 +522,7 @@ export function App() {
       <footer className="mt-8 text-center text-[11px] text-gray-400">
         {opsEnabled
           ? "Local-first · authenticated console · actions audited to .appsec/audit.jsonl · finding data rendered inert"
-          : "Local-first · read-only (no users configured — bootstrap: bulwark user add) · finding data rendered inert"}
+          : "Local-first · read-only (no users configured — bootstrap: argus user add) · finding data rendered inert"}
       </footer>
     </div>
   );

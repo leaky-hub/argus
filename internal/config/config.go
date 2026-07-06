@@ -67,13 +67,13 @@ func Default() Config {
 }
 
 // DefaultConfigNames are the config filenames Load looks for in the CWD when
-// no explicit path is given, in preference order: the Bulwark name first, the
+// no explicit path is given, in preference order: the Argus name first, the
 // legacy appsec name second (accepted for compatibility). The docs use
-// bulwark.yml.
-var DefaultConfigNames = []string{"bulwark.yml", "appsec.yml"}
+// argus.yml.
+var DefaultConfigNames = []string{"argus.yml", "appsec.yml"}
 
 // Load reads configuration from path. An empty path means "the default config
-// file in the CWD if present" (bulwark.yml, then appsec.yml): a missing
+// file in the CWD if present" (argus.yml, then appsec.yml): a missing
 // default file yields Default() silently, but a missing EXPLICIT path is an
 // error — silently ignoring a config the user asked for would apply the wrong
 // severity gate.

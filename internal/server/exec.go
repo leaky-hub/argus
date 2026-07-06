@@ -238,7 +238,7 @@ func mergeConfig(t targets.Target, root string, opts jobs.Options) (config.Confi
 	return cfg, cfg.Validate()
 }
 
-// repoConfig loads the scanned tree's own config (bulwark.yml, then the
+// repoConfig loads the scanned tree's own config (argus.yml, then the
 // legacy appsec.yml), falling back to defaults when absent.
 func repoConfig(root string) (config.Config, error) {
 	for _, name := range config.DefaultConfigNames {

@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Severity, GateInfo } from "./api";
 import { SEV_CHIP, SEV_COLOR, CATEGORY_CHIP, CATEGORY_LABEL, CATEGORY_COLOR } from "./theme";
 
-// Logo is the Bulwark mark: a shield with a check. Inline SVG (no asset
+// Logo is the Argus mark: a shield with a check. Inline SVG (no asset
 // fetch, CSP-safe), sized by the `size` prop, tinted by currentColor's
 // sibling classes on the wrapper.
 export function Logo({ size = 22 }: { size?: number }) {
@@ -15,13 +15,13 @@ export function Logo({ size = 22 }: { size?: number }) {
   );
 }
 
-// Wordmark is the Logo + "Bulwark" name, used in the header and the login
+// Wordmark is the Logo + "Argus" name, used in the header and the login
 // page so the brand is one component, not a scattered string.
 export function Wordmark({ size = 22, className = "" }: { size?: number; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <Logo size={size} />
-      <span className="font-bold tracking-tight">Bulwark</span>
+      <span className="font-bold tracking-tight">Argus</span>
     </span>
   );
 }

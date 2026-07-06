@@ -10,9 +10,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "bulwark",
-	Short: "Bulwark — AppSec + cloud posture, one wall",
-	Long: `Bulwark runs open-source security scanners against your code and cloud
+	Use:   "argus",
+	Short: "Argus — AppSec + cloud posture, one wall",
+	Long: `Argus runs open-source security scanners against your code and cloud
 accounts, merges their output into one risk-scored, compliance-mapped findings
 model, gates CI on severity, and serves a web console for triage and reporting.
 It covers code (SAST), secrets, dependencies (SCA), infrastructure-as-code, and
@@ -27,7 +27,7 @@ cloud posture (prowler).`,
 // Execute runs the root command. Exit codes: 0 success, 1 severity gate
 // exceeded, 2 any other error.
 func Execute() int {
-	rootCmd.SetVersionTemplate("bulwark version {{.Version}}\n")
+	rootCmd.SetVersionTemplate("argus version {{.Version}}\n")
 	if err := rootCmd.Execute(); err != nil {
 		if errors.Is(err, errGateFailed) {
 			fmt.Fprintln(os.Stderr, "FAIL: severity gate exceeded")

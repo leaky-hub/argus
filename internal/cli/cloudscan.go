@@ -22,7 +22,7 @@ func init() {
 	cloudScanCmd.Flags().String("regions", "", "Comma-separated region filter (default: provider default)")
 	cloudScanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, or json (default from config)")
 	cloudScanCmd.Flags().String("fail-severity", "", "Fail if findings meet or exceed this severity (critical|high|medium|low|info|none)")
-	cloudScanCmd.Flags().StringP("config", "c", "", "Path to bulwark.yml (or appsec.yml) configuration file")
+	cloudScanCmd.Flags().StringP("config", "c", "", "Path to argus.yml (or appsec.yml) configuration file")
 	cloudScanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
 	cloudScanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	cloudScanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
@@ -43,8 +43,8 @@ prowler as AWS_PROFILE. Create a read-only security-audit principal
 (AWS SecurityAudit + ViewOnlyAccess) and point --profile at it; the platform
 runs with exactly what that profile can do.
 
-  bulwark cloud-scan --provider aws --profile security-audit
-  bulwark cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2`,
+  argus cloud-scan --provider aws --profile security-audit
+  argus cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2`,
 	Args: cobra.NoArgs,
 	RunE: runCloudScan,
 }

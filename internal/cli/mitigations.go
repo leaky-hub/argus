@@ -16,7 +16,7 @@ func init() {
 var mitigationsCmd = &cobra.Command{
 	Use:   "mitigations [weakness]",
 	Short: "Browse the secure-coding library (before/after fixes by weakness and language)",
-	Long: `Bulwark ships a curated, human-vetted library of secure-code fixes: for each
+	Long: `Argus ships a curated, human-vetted library of secure-code fixes: for each
 weakness class (SQL injection, XSS, SSRF, CSRF, session management, command
 injection, path traversal, …) it holds a fixing principle, before/after code
 per language, the library to use, and references.
@@ -26,7 +26,7 @@ With no argument it lists the classes. Pass a weakness id to print its fixes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		if len(args) == 0 {
-			fmt.Fprintln(out, "Secure-coding library — run `bulwark mitigations <id>` for the fixes:")
+			fmt.Fprintln(out, "Secure-coding library — run `argus mitigations <id>` for the fixes:")
 			for _, g := range mitigation.List() {
 				fmt.Fprintf(out, "  %-20s %s (%s)\n", g.Weakness, g.Title, strings.Join(g.CWEs, ", "))
 			}
@@ -34,7 +34,7 @@ With no argument it lists the classes. Pass a weakness id to print its fixes.`,
 		}
 		g, ok := mitigation.Get(args[0])
 		if !ok {
-			return fmt.Errorf("unknown weakness %q; run `bulwark mitigations` to list them", args[0])
+			return fmt.Errorf("unknown weakness %q; run `argus mitigations` to list them", args[0])
 		}
 		fmt.Fprintf(out, "# %s (%s)\n\n%s\n\n", g.Title, strings.Join(g.CWEs, ", "), g.Principle)
 		for _, s := range g.Snippets {

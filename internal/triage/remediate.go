@@ -177,7 +177,7 @@ func buildRemediatePrompt(f model.Finding, nonce string) string {
 			if snip == nil && len(g.Snippets) > 0 {
 				snip = &g.Snippets[0]
 			}
-			b.WriteString("\nSECURE PATTERN (trusted reference — Bulwark's vetted fix for " + g.Title + "; adapt it to the code above, do not copy it verbatim):\n")
+			b.WriteString("\nSECURE PATTERN (trusted reference — Argus's vetted fix for " + g.Title + "; adapt it to the code above, do not copy it verbatim):\n")
 			b.WriteString("principle: " + g.Principle + "\n")
 			if snip != nil {
 				b.WriteString("secure example (" + snip.Language + "):\n" + snip.Secure + "\n")

@@ -50,7 +50,7 @@ func TestWriteHTMLEscapesAndStructures(t *testing.T) {
 
 	// Structure: branding, both findings, gate, disposition badge, compliance.
 	for _, want := range []string{
-		"Bulwark", "Application Security Report", "acme/app",
+		"Argus", "Application Security Report", "acme/app",
 		"Untrusted input in query", "Use parameterized queries",
 		"AWS key", "Accepted risk", "FAIL", "1 accepted", "ASVS:V5.3.4", "CWE-89",
 	} {

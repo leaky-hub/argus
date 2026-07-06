@@ -25,7 +25,7 @@ export function Overview({ summary, onSelectFramework, onSelectSeverity, onSelec
     return (
       <EmptyState
         title="No runs saved yet"
-        hint="Run `bulwark scan <path> --save` to record a run, then reload. Two or more runs unlock the trend."
+        hint="Run `argus scan <path> --save` to record a run, then reload. Two or more runs unlock the trend."
       />
     );
   }

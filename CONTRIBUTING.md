@@ -1,6 +1,6 @@
-# Contributing to Bulwark
+# Contributing to Argus
 
-Thanks for helping build Bulwark. This project has a strong, specific ethos —
+Thanks for helping build Argus. This project has a strong, specific ethos —
 reading it first will save a round-trip on review.
 
 ## The ethos (read this before your first PR)
@@ -27,7 +27,7 @@ written in `docs/` *before* the code, and tests pin both.
 
 ```bash
 # Go toolchain (1.22+; CI uses stable) builds the CLI + embedded console.
-go build -o bulwark ./cmd/bulwark
+go build -o argus ./cmd/argus
 
 # Scanners on PATH enable the integration tests (all optional; tests skip
 # gracefully when a tool is absent):

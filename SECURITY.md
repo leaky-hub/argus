@@ -1,6 +1,6 @@
 # Security Policy
 
-Bulwark is a security tool, so we hold its own posture to the standard it
+Argus is a security tool, so we hold its own posture to the standard it
 enforces.
 
 ## Reporting a vulnerability
@@ -17,12 +17,12 @@ mitigation plan within **14 days** for confirmed high-severity issues.
 
 ## Supported versions
 
-Bulwark is pre-1.0. Security fixes land on `main`; there is no back-port
+Argus is pre-1.0. Security fixes land on `main`; there is no back-port
 branch yet. Pin a commit if you need stability.
 
 ## Threat model & security-relevant invariants
 
-Bulwark is local-first and processes hostile input (scanned code, tool output,
+Argus is local-first and processes hostile input (scanned code, tool output,
 LLM responses, cloud metadata). The design invariants below are enforced by
 tests — a change that breaks one should fail CI, and a report that one does
 not hold is a vulnerability:

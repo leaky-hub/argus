@@ -42,7 +42,7 @@ export function Runs({
       <Panel title="Run history" right={rescan}>
         <EmptyState
           title="No runs"
-          hint={activeTarget ? "Re-scan this target, or run `bulwark scan --save`." : "Record runs with `bulwark scan --save` or launch one from Operate."}
+          hint={activeTarget ? "Re-scan this target, or run `argus scan --save`." : "Record runs with `argus scan --save` or launch one from Operate."}
         />
       </Panel>
     );

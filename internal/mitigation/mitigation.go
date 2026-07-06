@@ -1,4 +1,4 @@
-// Package mitigation is Bulwark's open-source secure-coding library: for each
+// Package mitigation is Argus's open-source secure-coding library: for each
 // common weakness class (SQL injection, XSS, SSRF, CSRF, session management,
 // command injection, path traversal, …) it holds hand-curated, per-language
 // before/after code, the library to reach for, the one principle that fixes

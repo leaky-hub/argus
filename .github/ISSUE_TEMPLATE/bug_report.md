@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something Bulwark did wrong — a crash, a wrong finding, a broken command
+about: Something Argus did wrong — a crash, a wrong finding, a broken command
 title: ""
 labels: bug
 ---
@@ -16,7 +16,7 @@ A clear description of the bug.
 The exact command or console action, e.g.:
 
 ```
-bulwark scan ./repo --profile standard
+argus scan ./repo --profile standard
 ```
 
 ### Expected vs actual
@@ -25,7 +25,7 @@ What you expected, and what happened instead.
 
 ### Environment
 
-- Bulwark version / commit: (`bulwark --version`)
+- Argus version / commit: (`argus --version`)
 - OS:
 - Scanners on PATH and versions (if relevant): semgrep / gitleaks / trivy / checkov / prowler
 - If a scan result looks wrong: the finding's `ruleId`, `category`, and (if safe to share) the relevant snippet or the run JSON.

@@ -1,7 +1,7 @@
 # Compliance Mapping & Gap Assessment
 
 Phase 5 turns findings into audit evidence: every finding is mapped to the
-security controls it violates across real frameworks, and `bulwark comply`
+security controls it violates across real frameworks, and `argus comply`
 turns a scan into a per-framework control coverage report a GRC lead can hand
 to an auditor.
 
@@ -154,11 +154,11 @@ its `complianceControls` slot as `"<FRAMEWORK>:<control-id>"` (e.g.
 This is an always-on, deterministic pipeline stage after risk scoring —
 schema **1.2.0** (see `docs/findings-model.md`).
 
-## The gap report — `bulwark comply`
+## The gap report — `argus comply`
 
-`bulwark comply [path]` produces the per-framework gap assessment:
+`argus comply [path]` produces the per-framework gap assessment:
 
-- fresh scan of `path` by default (same adapters as `bulwark scan`, no triage —
+- fresh scan of `path` by default (same adapters as `argus scan`, no triage —
   the report is deterministic), or `--latest` / `--run <id>` to read a saved
   run from `<path>/.appsec/runs`;
 - `--format markdown` (default) or `json`; `-o` to write a file.

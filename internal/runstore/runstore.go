@@ -1,5 +1,5 @@
 // Package runstore persists scan reports as timestamped run files and computes
-// run-to-run deltas. It is the file-based history the `bulwark serve` console
+// run-to-run deltas. It is the file-based history the `argus serve` console
 // reads (no database in this phase).
 //
 // SECURITY-CRITICAL: the delta logic is the one place a finding can silently

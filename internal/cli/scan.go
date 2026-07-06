@@ -30,7 +30,7 @@ var errGateFailed = errors.New("severity gate exceeded")
 func init() {
 	scanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, json, or html (default from config)")
 	scanCmd.Flags().String("fail-severity", "", "Fail if findings meet or exceed this severity (critical|high|medium|low|info|none)")
-	scanCmd.Flags().StringP("config", "c", "", "Path to bulwark.yml (or appsec.yml) configuration file")
+	scanCmd.Flags().StringP("config", "c", "", "Path to argus.yml (or appsec.yml) configuration file")
 	scanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
 	scanCmd.Flags().String("scanners", "", "Comma-separated list of scanner names to run (e.g., semgrep,gitleaks)")
 	scanCmd.Flags().String("profile", "", "Scan profile: fast, standard, or max (default standard; config: profile)")
@@ -39,7 +39,7 @@ func init() {
 	scanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 	scanCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
-	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `bulwark comply`)")
+	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `argus comply`)")
 }
 
 var scanCmd = &cobra.Command{
@@ -213,7 +213,7 @@ func loadConfig(cmd *cobra.Command) (config.Config, error) {
 }
 
 // saveRun writes the current findings as a timestamped run file under the
-// scanned repo's .appsec/runs directory, for the `bulwark serve` console. The
+// scanned repo's .appsec/runs directory, for the `argus serve` console. The
 // repo root is the scan target directory (or the file's directory).
 // Snippets (schema 1.4.0) are captured only on the save path: the stdout
 // report is unchanged, run files gain the code frames the console renders.

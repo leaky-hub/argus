@@ -106,16 +106,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
-	mux.HandleFunc("/api/users", s.handleUsers)                  // GET list, POST create (admin)
-	mux.HandleFunc("/api/users/", s.handleUserByID)              // PATCH, DELETE (admin)
-	mux.HandleFunc("/api/targets", s.handleTargets)              // GET (viewer), POST (admin)
-	mux.HandleFunc("/api/targets/", s.handleTargetByID)          // DELETE (admin)
-	mux.HandleFunc("/api/cloud/profiles", s.handleCloudProfiles) // GET (admin): discovered profile names
-	mux.HandleFunc("/api/scans", s.handleScans)                  // GET (viewer), POST (operator)
-	mux.HandleFunc("/api/scans/", s.handleScanByID)              // GET /api/scans/{jobId}
-	mux.HandleFunc("/api/frameworks", s.handleFrameworks)        // GET (viewer)
-	mux.HandleFunc("/api/explain", s.handleExplain)              // POST (operator)
-	mux.HandleFunc("/api/audit", s.handleAudit)                  // GET (admin)
+	mux.HandleFunc("/api/users", s.handleUsers)                          // GET list, POST create (admin)
+	mux.HandleFunc("/api/users/", s.handleUserByID)                      // PATCH, DELETE (admin)
+	mux.HandleFunc("/api/targets", s.handleTargets)                      // GET (viewer), POST (admin)
+	mux.HandleFunc("/api/targets/", s.handleTargetByID)                  // DELETE (admin)
+	mux.HandleFunc("/api/cloud/profiles", s.handleCloudProfiles)         // GET (admin): discovered profile names
+	mux.HandleFunc("/api/scans", s.handleScans)                          // GET (viewer), POST (operator)
+	mux.HandleFunc("/api/scans/", s.handleScanByID)                      // GET /api/scans/{jobId}
+	mux.HandleFunc("/api/frameworks", s.handleFrameworks)                // GET (viewer)
+	mux.HandleFunc("/api/explain", s.handleExplain)                      // POST (operator)
+	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
+	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))
 }

@@ -153,7 +153,7 @@ func TestAuthzMatrix(t *testing.T) {
 	view := f.mustLogin("vera")
 
 	cases := []struct {
-		method, path                 string
+		method, path                  string
 		anon, viewer, operator, admin int
 	}{
 		{"GET", "/api/health", pass, pass, pass, pass},

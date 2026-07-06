@@ -236,6 +236,39 @@ export interface TicketDetail extends Ticket {
   rollup: TicketRollup;
 }
 
+// --- Threat modeling ---
+export type StrideCategory = "spoofing" | "tampering" | "repudiation" | "info-disclosure" | "denial-of-service" | "elevation";
+export type ThreatStatus = "open" | "mitigated" | "accepted" | "transferred";
+export interface ThreatModel {
+  id: string;
+  targetId?: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt: string;
+}
+export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; }
+export interface Threat {
+  id: string;
+  modelId: string;
+  componentId?: string;
+  category: StrideCategory;
+  title: string;
+  description?: string;
+  status: ThreatStatus;
+  source: "curated" | "assisted";
+  mitigation?: string;
+  createdAt: string;
+}
+export interface ThreatLink { kind: "finding" | "control" | "mitigation"; ref: string; targetId?: string; }
+export interface ThreatModelDetail extends ThreatModel {
+  components: ThreatComponent[];
+  threats: Threat[];
+  links: Record<string, ThreatLink[]>;
+}
+export interface LibraryComponent { tech: string; title: string; }
+
 export interface RunDetail {
   id: string;
   createdAt: string;
@@ -568,4 +601,24 @@ export const opsApi = {
     send<{ links: TicketLink[] }>("POST", `api/tickets/${encodeURIComponent(id)}/links`, { findingId, targetId, remove }),
   ticketCloseFixed: (id: string): Promise<{ markedFixed: number }> =>
     send<{ markedFixed: number }>("POST", `api/tickets/${encodeURIComponent(id)}/close-fixed`, {}),
+
+  // --- Threat modeling ---
+  threatLibrary: (): Promise<{ components: LibraryComponent[] }> =>
+    send<{ components: LibraryComponent[] }>("GET", "api/threat-library"),
+  threatModels: (target?: string): Promise<{ models: ThreatModel[] }> =>
+    send<{ models: ThreatModel[] }>("GET", `api/threat-models${target ? `?target=${encodeURIComponent(target)}` : ""}`),
+  threatModel: (id: string): Promise<ThreatModelDetail> =>
+    send<ThreatModelDetail>("GET", `api/threat-models/${encodeURIComponent(id)}`),
+  createThreatModel: (req: { name: string; targetId?: string; description?: string }): Promise<ThreatModel> =>
+    send<ThreatModel>("POST", "api/threat-models", req),
+  deleteThreatModel: (id: string): Promise<void> =>
+    send<void>("DELETE", `api/threat-models/${encodeURIComponent(id)}`),
+  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string }): Promise<ThreatComponent> =>
+    send<ThreatComponent>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, req),
+  enumerateComponent: (modelId: string, componentId: string): Promise<{ added: number }> =>
+    send<{ added: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/enumerate`, { componentId }),
+  setThreatStatus: (modelId: string, threatId: string, status: ThreatStatus): Promise<void> =>
+    send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threat-status`, { threatId, status }),
+  linkThreat: (modelId: string, req: { threatId: string; kind: string; ref: string; targetId?: string; remove?: boolean }): Promise<void> =>
+    send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/links`, req),
 };

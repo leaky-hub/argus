@@ -11,7 +11,7 @@ import {
   SummaryResponse,
   Target,
 } from "./api";
-import { Loading, ErrorNote } from "./components";
+import { Loading, ErrorNote, Wordmark } from "./components";
 import { fmtTime } from "./theme";
 import { Overview } from "./views/Overview";
 import { Findings } from "./views/Findings";
@@ -55,6 +55,7 @@ export function App() {
   // "" = the served repo's own run store; otherwise a registered target's id.
   // Overview/Runs/Findings all read this store.
   const [activeTarget, setActiveTarget] = useState<string>("");
+  const [rescanBusy, setRescanBusy] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -135,6 +136,57 @@ export function App() {
 
   // A finished job links straight to its run: refresh the lists so the new
   // run exists in the picker, then open it in Findings.
+  // Re-scan the active target: enqueue a job (options default; cloud targets
+  // take none) and refresh the lists so the run appears when the queue
+  // finishes. Closes the remediation loop — "re-scan to confirm the fix".
+  const handleRescan = () => {
+    if (!activeTarget || rescanBusy) return;
+    setRescanBusy(true);
+    opsApi
+      .launchScan(activeTarget, {})
+      .then(() => {
+        // The run lands when the serial queue finishes; nudge a reload shortly.
+        setTimeout(() => setReloadKey((k) => k + 1), 1500);
+      })
+      .catch(onApiError)
+      .finally(() => setRescanBusy(false));
+  };
+
+  // Suppress a finding's rule: append its ruleId to the ACTIVE TARGET's
+  // ignore list (admin, audited). Only registered targets have a
+  // console-editable config; the served repo's own appsec.yml is not touched
+  // from here. Preserves the rest of the target's config block.
+  const handleSuppress = (ruleId: string) => {
+    const t = targets.find((t) => t.id === activeTarget);
+    if (!t || !ruleId) return;
+    const existing = t.config ?? {};
+    const rules = existing.ignoreRules ?? [];
+    if (rules.includes(ruleId)) {
+      window.alert(`Rule "${ruleId}" is already suppressed for this target.`);
+      return;
+    }
+    if (!window.confirm(`Suppress rule "${ruleId}" for target "${t.name}"? Findings from this rule will stop appearing (admin action, audited).`))
+      return;
+    opsApi
+      .updateTarget(activeTarget, { config: { ...existing, ignoreRules: [...rules, ruleId] } })
+      .then((updated) => {
+        setTargets((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+        setReloadKey((k) => k + 1);
+      })
+      .catch(onApiError);
+  };
+
+  const handleDeleteRun = (runId: string) => {
+    if (!window.confirm("Delete this run from history? This cannot be undone.")) return;
+    opsApi
+      .deleteRun(runId, activeTarget || undefined)
+      .then(() => {
+        if (selectedRun === runId) setSelectedRun(null);
+        setReloadKey((k) => k + 1);
+      })
+      .catch(onApiError);
+  };
+
   const openRun = (runId: string, targetId?: string, commit?: string) => {
     // Switch the whole app to that run's target so Overview/Runs agree with
     // the finding drawer, then open it.
@@ -181,7 +233,7 @@ export function App() {
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-gray-200 bg-gray-50/90 px-4 py-3 backdrop-blur dark:border-gray-800 dark:bg-gray-950/90">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold">🛡️ appsec</span>
+            <Wordmark size={22} className="text-lg" />
             <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">
               console
             </span>
@@ -271,17 +323,31 @@ export function App() {
       <main>
         {activeTab === "overview" && <Overview summary={summary} />}
         {activeTab === "findings" &&
-          (detail ? <Findings detail={detail} origin={origin} canExplain={canExplain} /> : <Loading what="findings" />)}
+          (detail ? (
+            <Findings
+              detail={detail}
+              origin={origin}
+              canExplain={canExplain}
+              canSuppress={role === "admin" && !!activeTarget}
+              onSuppress={handleSuppress}
+            />
+          ) : (
+            <Loading what="findings" />
+          ))}
         {activeTab === "runs" && (
           <Runs
             runs={runs}
             selectedId={selectedRun}
             onSelect={(id) => {
               setSelectedRun(id);
-              setSelectedRunTarget(undefined);
-              setSelectedRunCommit(undefined);
               setTab("findings");
             }}
+            activeTarget={activeTarget}
+            canLaunch={canLaunch}
+            canDelete={role === "admin"}
+            rescanBusy={rescanBusy}
+            onRescan={handleRescan}
+            onDeleteRun={handleDeleteRun}
           />
         )}
         {activeTab === "operate" && opsEnabled && <Operate canLaunch={canLaunch} onOpenRun={openRun} />}
@@ -291,7 +357,7 @@ export function App() {
       <footer className="mt-8 text-center text-[11px] text-gray-400">
         {opsEnabled
           ? "Local-first · authenticated console · actions audited to .appsec/audit.jsonl · finding data rendered inert"
-          : "Local-first · read-only (no users configured — bootstrap: appsec user add) · finding data rendered inert"}
+          : "Local-first · read-only (no users configured — bootstrap: bulwark user add) · finding data rendered inert"}
       </footer>
     </div>
   );

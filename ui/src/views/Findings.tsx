@@ -63,6 +63,8 @@ export function Findings({
   detail,
   origin,
   canExplain,
+  canSuppress,
+  onSuppress,
 }: {
   detail: RunDetail;
   origin?: {
@@ -71,6 +73,8 @@ export function Findings({
     commit?: string;
   };
   canExplain?: boolean;
+  canSuppress?: boolean;
+  onSuppress?: (ruleId: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [sev, setSev] = useState<string>("all");
@@ -264,20 +268,22 @@ export function Findings({
 
       {/* Detail pane */}
       <div className="lg:col-span-2">
-        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} /> : null}
+        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} canSuppress={canSuppress} onSuppress={onSuppress} /> : null}
       </div>
     </div>
     </div>
   );
 }
 
-function Detail({ f, isNew, origin, canExplain, explainState, onExplain }: {
+function Detail({ f, isNew, origin, canExplain, explainState, onExplain, canSuppress, onSuppress }: {
   f: Finding;
   isNew: boolean;
   origin?: { targetId?: string; gitUrl?: string; commit?: string };
   canExplain?: boolean;
   explainState?: ExplainState;
   onExplain: () => void;
+  canSuppress?: boolean;
+  onSuppress?: (ruleId: string) => void;
 }) {
   // Forge deep link logic
   let forgeLink = null;
@@ -449,6 +455,21 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain }: {
         )}
 
         <RiskSignals signals={f.riskSignals} />
+
+        {/* Actions: explain (operator+) and suppress (admin, target-scoped) */}
+        {(canExplain || canSuppress) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {canSuppress && f.ruleId && (
+              <button
+                onClick={() => onSuppress?.(f.ruleId)}
+                className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                title={`Add rule "${f.ruleId}" to this target's ignore list so it stops appearing (admin, audited)`}
+              >
+                Suppress rule
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Explain Button & Result */}
         {canExplain && (

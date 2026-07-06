@@ -174,7 +174,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().UTC().Format(rfc3339)})
 }
 
+// aggregateTarget is the sentinel target id that means "every target
+// combined" — the portfolio Overview. A real target id can never be this.
+const aggregateTarget = "@all"
+
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("target") == aggregateTarget {
+		resp, err := s.buildAggregateSummary()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to build summary")
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	store, ok := s.runStoreFor(w, r)
 	if !ok {
 		return
@@ -185,6 +198,27 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// storesForAggregate is every run history in play: the served repo plus each
+// registered target (dir/git repo root, or the cloud per-target store).
+func (s *Server) storesForAggregate() []runstore.Store {
+	stores := []runstore.Store{s.store}
+	if s.targets == nil {
+		return stores
+	}
+	ts, err := s.targets.List()
+	if err != nil {
+		return stores
+	}
+	for _, t := range ts {
+		if t.Kind() == targets.TypeCloud {
+			stores = append(stores, runstore.Store{Dir: s.targets.CloudRunStore(t)})
+		} else {
+			stores = append(stores, runstore.ForRepo(s.targets.Root(t)))
+		}
+	}
+	return stores
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {

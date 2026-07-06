@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/coverage"
@@ -291,6 +292,56 @@ func (s *Server) buildSummary(store runstore.Store) (SummaryResponse, error) {
 	resp.Gate = gateFor(doc.Findings, disp, s.gate, s.gateName)
 	resp.Verdicts = countVerdicts(doc.Findings)
 	resp.Dispositions = dispositionRollup(disp, doc.Findings)
+	return resp, nil
+}
+
+// buildAggregateSummary is the portfolio Overview: the union of the LATEST run
+// of every target (served repo + registered targets), rolled up as one
+// posture. Totals, severity, category, OWASP, compliance, risk bands, the
+// disposition rollup, and the gate all span every target; the gate fails if
+// any target's latest run does. The per-run trend is per-target, so it is left
+// empty here (select a target to see it).
+func (s *Server) buildAggregateSummary() (SummaryResponse, error) {
+	resp := SummaryResponse{BySeverity: map[string]int{}, ByCategory: map[string]int{}, OWASP: owasp.Rollup(nil), Compliance: complianceSummary(nil), Trend: []TrendPoint{}}
+	var all []model.Finding
+	disp := map[string]disposition.Record{}
+	var latest time.Time
+	for _, store := range s.storesForAggregate() {
+		runs, err := store.List()
+		if err != nil || len(runs) == 0 {
+			continue
+		}
+		resp.RunCount += len(runs)
+		r := runs[len(runs)-1]
+		doc, err := store.Load(r.ID)
+		if err != nil {
+			continue
+		}
+		all = append(all, doc.Findings...)
+		if d, err := dispositionStore(store).All(); err == nil {
+			for k, v := range d {
+				disp[k] = v
+			}
+		}
+		if r.CreatedAt.After(latest) {
+			latest = r.CreatedAt
+			resp.LatestID = r.ID
+			resp.CreatedAt = r.CreatedAt.Format(rfc3339)
+		}
+	}
+	// Enrich so compliance/OWASP reflect the union even for runs saved before
+	// controls were written into the model. Deterministic and idempotent.
+	_ = compliance.Apply(all)
+	sum := model.Summarize(all)
+	resp.Total = sum.Total
+	resp.BySeverity = sum.BySeverity
+	resp.ByCategory = sum.ByCategory
+	resp.OWASP = owasp.Rollup(all)
+	resp.Compliance = complianceSummary(all)
+	resp.RiskBands = riskBands(all)
+	resp.Gate = gateFor(all, disp, s.gate, s.gateName)
+	resp.Verdicts = countVerdicts(all)
+	resp.Dispositions = dispositionRollup(disp, all)
 	return resp, nil
 }
 

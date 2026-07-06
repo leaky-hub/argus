@@ -161,3 +161,21 @@ func TestDispositionsBulkEndpoint(t *testing.T) {
 		t.Errorf("expected all cleared, got %+v", after.Dispositions)
 	}
 }
+
+// TestAggregateSummary: with no registered targets the portfolio (@all)
+// summary equals the served repo's; the endpoint routes @all to it.
+func TestAggregateSummary(t *testing.T) {
+	f := newConsole(t, nil)
+	seedRun(t, f.dir)
+	oper := f.mustLogin("oscar")
+
+	var scoped, agg SummaryResponse
+	json.Unmarshal(f.do("GET", "/api/summary", "", oper).Body.Bytes(), &scoped)
+	json.Unmarshal(f.do("GET", "/api/summary?target=@all", "", oper).Body.Bytes(), &agg)
+	if agg.Total == 0 || agg.Total != scoped.Total {
+		t.Errorf("aggregate total = %d, want = served repo total %d", agg.Total, scoped.Total)
+	}
+	if agg.BySeverity["high"] != scoped.BySeverity["high"] {
+		t.Errorf("aggregate severity mix diverged: %v vs %v", agg.BySeverity, scoped.BySeverity)
+	}
+}

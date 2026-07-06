@@ -646,3 +646,19 @@ invented example. With no snippet it must not fabricate a diff (steps plus a
 clearly-illustrative example instead). The console renders code patches as a
 side-by-side before/after view (DiffView) whose columns size to content and
 scroll both ways, with the finding's file:line in the header.
+
+## 18. Portfolio Overview (all targets)
+
+The Overview defaults to a portfolio scope: it aggregates the LATEST run of
+every target (served repo + each registered target) into one posture — total,
+severity mix, category split, OWASP, compliance, risk bands, the disposition
+rollup, and a gate that fails if any target's latest run fails. The target
+selector's "All targets" is this default; picking a specific target scopes the
+Overview to it. `GET /api/summary?target=@all` (the `@all` sentinel) builds it
+from `storesForAggregate` — every run history in play. The per-run trend is
+per-target, so it's empty under `@all`.
+
+Findings and Runs need a single store, so under `@all` they show a "pick a
+target" prompt rather than a meaningless merge; selecting one (or "This repo")
+scopes all three tabs. The scope lives in the URL (absent = portfolio), so a
+portfolio or per-target view is shareable and reload-safe.

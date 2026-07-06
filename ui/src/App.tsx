@@ -30,6 +30,10 @@ const ROLE_CHIP: Record<string, string> = {
   viewer: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+// ALL_TARGETS is the portfolio scope: the Overview aggregates every target's
+// latest run. The default when nothing is specified.
+const ALL_TARGETS = "@all";
+
 // UrlState is the app view encoded in the query string so a view is
 // shareable, reload-safe, and back/forward-navigable.
 type UrlState = { tab: Tab; target: string; run: string | null; fw: string; sev: string; status: string };
@@ -39,8 +43,9 @@ function readUrlState(): UrlState {
   const t = p.get("tab") ?? "";
   const tab = (["findings", "runs", "operate", "admin"].includes(t) ? t : "overview") as Tab;
   return {
+    // No target param → portfolio; an explicit (even empty) one is honored.
+    target: p.has("target") ? (p.get("target") ?? "") : ALL_TARGETS,
     tab,
-    target: p.get("target") ?? "",
     run: p.get("run"),
     fw: p.get("fw") ?? "all",
     sev: p.get("sev") ?? "all",
@@ -51,13 +56,36 @@ function readUrlState(): UrlState {
 function urlFromState(s: UrlState): string {
   const p = new URLSearchParams();
   if (s.tab !== "overview") p.set("tab", s.tab);
-  if (s.target) p.set("target", s.target);
+  if (s.target !== ALL_TARGETS) p.set("target", s.target); // @all is the default, omitted
   if (s.run) p.set("run", s.run);
   if (s.fw !== "all") p.set("fw", s.fw);
   if (s.sev !== "all") p.set("sev", s.sev);
   if (s.status !== "all") p.set("st", s.status);
   const qs = p.toString();
   return qs ? `?${qs}` : window.location.pathname;
+}
+
+// PickTarget is shown on Findings/Runs under the portfolio scope: those tabs
+// need one target's store, so it invites the user to pick one.
+function PickTarget({ what, targets, onPick }: { what: string; targets: Target[]; onPick: (id: string) => void }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-10 text-center dark:border-gray-800 dark:bg-gray-900">
+      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">All targets</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-gray-500 dark:text-gray-400">
+        The Overview combines every target. Pick one to see its {what}.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <button onClick={() => onPick("")} className="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
+          This repo
+        </button>
+        {targets.map((t) => (
+          <button key={t.id} onClick={() => onPick(t.id)} className="rounded-md border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
+            {t.name}{t.type === "cloud" ? " (cloud)" : t.type === "git" ? " (git)" : ""}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -161,32 +189,42 @@ export function App() {
 
   const authed = me !== null && (!me.authRequired || user !== null);
 
-  // Load read data once authenticated (or immediately in zero-users mode).
-  // Everything is scoped to the active target (empty = the served repo's own
-  // store): Overview, Runs, and the run picker all follow it, so a scan
-  // launched against a registered target shows up instead of vanishing into a
-  // store nothing reads. Changing the target resets the selected run.
+  // concreteTarget is the single store the drill-down tabs (Findings/Runs)
+  // read. The portfolio scope (@all) with registered targets has no single
+  // store, so it's null and those tabs prompt to pick one; @all with no
+  // targets is just the served repo ("").
+  const isPortfolio = activeTarget === ALL_TARGETS && targets.length > 0;
+  const concreteTarget: string | null = isPortfolio ? null : activeTarget === ALL_TARGETS ? "" : activeTarget;
+
+  // The Overview summary follows the selector; @all aggregates every target's
+  // latest run into one portfolio posture.
   useEffect(() => {
     if (!authed) return;
-    const tgt = activeTarget || undefined;
-    Promise.all([api.summary(tgt), api.runs(tgt)])
-      .then(([s, r]) => {
-        setSummary(s);
-        setRuns(r);
-        setSelectedRunTarget(tgt);
-      })
-      .catch(onApiError);
+    api.summary(activeTarget || undefined).then(setSummary).catch(onApiError);
   }, [authed, activeTarget, reloadKey, onApiError]);
 
-  // The Findings tab always shows the active target's LATEST run — every
-  // current finding, no run to pick. Per-run history lives in the Runs tab.
+  // Runs (and the Findings latest run) need a concrete store. Under the
+  // portfolio scope there is none, so the list is empty and the tabs prompt.
+  useEffect(() => {
+    if (!authed) return;
+    if (concreteTarget === null) {
+      setRuns({ runs: [] });
+      setSelectedRunTarget(undefined);
+      return;
+    }
+    setSelectedRunTarget(concreteTarget || undefined);
+    api.runs(concreteTarget || undefined).then(setRuns).catch(onApiError);
+  }, [authed, concreteTarget, reloadKey, onApiError]);
+
+  // The Findings tab shows the concrete target's LATEST run — every current
+  // finding, no run to pick. Per-run history lives in the Runs tab.
   const [latestDetail, setLatestDetail] = useState<RunDetail | null>(null);
   useEffect(() => {
-    if (!authed) { setLatestDetail(null); return; }
-    const lid = summary?.latestId || runs?.runs?.[0]?.id;
+    if (!authed || concreteTarget === null) { setLatestDetail(null); return; }
+    const lid = runs?.runs?.[0]?.id;
     if (!lid) { setLatestDetail(null); return; }
-    api.run(lid, activeTarget || undefined).then(setLatestDetail).catch(onApiError);
-  }, [authed, summary?.latestId, activeTarget, reloadKey, onApiError]);
+    api.run(lid, concreteTarget || undefined).then(setLatestDetail).catch(onApiError);
+  }, [authed, concreteTarget, runs, reloadKey, onApiError]);
 
   // Fetch targets when ops is enabled
   useEffect(() => {
@@ -372,8 +410,9 @@ export function App() {
                   value={activeTarget}
                   onChange={(e) => setActiveTarget(e.target.value)}
                   className="max-w-[200px] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  title="Which run history to show across Overview, Runs, and Findings"
+                  title="Scope. All targets = portfolio Overview; pick one to drill into its Findings and Runs"
                 >
+                  <option value={ALL_TARGETS}>All targets</option>
                   <option value="">This repo</option>
                   {targets.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -418,12 +457,14 @@ export function App() {
           />
         )}
         {activeTab === "findings" &&
-          (latestDetail ? (
+          (concreteTarget === null ? (
+            <PickTarget what="findings" targets={targets} onPick={setActiveTarget} />
+          ) : latestDetail ? (
             <Findings
               detail={latestDetail}
-              origin={activeTarget ? { targetId: activeTarget } : undefined}
+              origin={concreteTarget ? { targetId: concreteTarget } : undefined}
               canExplain={canExplain}
-              canSuppress={role === "admin" && !!activeTarget}
+              canSuppress={role === "admin" && !!concreteTarget}
               onSuppress={handleSuppress}
               framework={findingsFramework}
               onFrameworkChange={setFindingsFramework}
@@ -436,16 +477,18 @@ export function App() {
             <EmptyState title="No findings yet" hint="Save a scan (bulwark scan --save, or the Operate tab) to populate this view." />
           ))}
         {activeTab === "runs" &&
-          (selectedRun && detail ? (
+          (concreteTarget === null ? (
+            <PickTarget what="runs" targets={targets} onPick={setActiveTarget} />
+          ) : selectedRun && detail ? (
             <RunDetailView
               detail={detail}
               runLabel={fmtTime(runs.runs.find((r) => r.id === selectedRun)?.createdAt ?? "")}
-              targetId={activeTarget || undefined}
+              targetId={concreteTarget || undefined}
               origin={origin}
               onBack={() => setSelectedRun(null)}
               onSelectFramework={openFramework}
               canExplain={canExplain}
-              canSuppress={role === "admin" && !!activeTarget}
+              canSuppress={role === "admin" && !!concreteTarget}
               onSuppress={handleSuppress}
               framework={findingsFramework}
               onFrameworkChange={setFindingsFramework}
@@ -464,7 +507,7 @@ export function App() {
                 setFindingsSeverity("all");
                 setFindingsStatus("all");
               }}
-              activeTarget={activeTarget}
+              activeTarget={concreteTarget}
               canLaunch={canLaunch}
               canDelete={role === "admin"}
               rescanBusy={rescanBusy}

@@ -40,6 +40,7 @@ var authzTable = []authzRule{
 	{http.MethodDelete, "/api/runs/", auth.RoleAdmin, false}, // prune a run
 
 	{http.MethodGet, "/api/frameworks", auth.RoleViewer, true},
+	{http.MethodGet, "/api/mitigations", auth.RoleViewer, true}, // curated secure-coding guidance (static)
 
 	{http.MethodGet, "/api/targets", auth.RoleViewer, true},
 	{http.MethodPost, "/api/targets", auth.RoleAdmin, false},

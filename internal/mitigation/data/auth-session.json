@@ -1,0 +1,41 @@
+{
+  "weakness": "auth-session",
+  "title": "Authentication & Session Management",
+  "cwes": ["CWE-256", "CWE-287", "CWE-311", "CWE-312", "CWE-384", "CWE-522", "CWE-613", "CWE-620", "CWE-916"],
+  "principle": "Store passwords only as slow, salted adaptive hashes (bcrypt, scrypt, or Argon2id) — never plaintext, MD5, or SHA-256. On every successful login regenerate the session identifier to defeat session fixation, and set the cookie HttpOnly, Secure, and SameSite. Give sessions an idle and absolute timeout, and invalidate them server-side on logout.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "argon2-cffi or bcrypt; regenerate the session on login",
+      "vulnerable": "if user.password == request.form['password']:  # plaintext compare\n    session['uid'] = user.id",
+      "secure": "from argon2 import PasswordHasher\nph = PasswordHasher()\n# at signup: user.hash = ph.hash(password)\nph.verify(user.hash, password)          # raises on mismatch\nsession.clear(); session.regenerate()   # new session id after auth\nsession['uid'] = user.id",
+      "note": "Compare with the hasher's verify (constant-time), never ==. Set SESSION_COOKIE_HTTPONLY, _SECURE, and _SAMESITE. Rotate the id on privilege change too."
+    },
+    {
+      "language": "javascript",
+      "library": "bcrypt/argon2 + express-session regenerate + cookie flags",
+      "vulnerable": "if (password === user.password) req.session.uid = user.id;",
+      "secure": "const ok = await bcrypt.compare(password, user.hash);\nif (!ok) return res.status(401).end();\nreq.session.regenerate(err => {           // new id defeats fixation\n  req.session.uid = user.id;\n});\n// session({ cookie: { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 3600000 } })",
+      "note": "bcrypt.compare / argon2.verify are constant-time. Always regenerate() after login; set maxAge for an absolute timeout."
+    },
+    {
+      "language": "java",
+      "library": "Spring Security BCryptPasswordEncoder + session fixation protection",
+      "vulnerable": "if (user.getPassword().equals(input)) { /* login */ }",
+      "secure": "PasswordEncoder enc = new BCryptPasswordEncoder();\n// signup: user.setPassword(enc.encode(raw));\nif (!enc.matches(input, user.getPassword())) throw new BadCredentialsException(\"bad\");\n// Spring Security enables sessionManagement().sessionFixation().migrateSession() by default",
+      "note": "Keep Spring's default session-fixation protection on. Mark the cookie HttpOnly/Secure and set server.servlet.session.timeout."
+    },
+    {
+      "language": "go",
+      "library": "golang.org/x/crypto/bcrypt + a fresh session token on login",
+      "vulnerable": "if user.Password == input { setSession(w, user.ID) }",
+      "secure": "if err := bcrypt.CompareHashAndPassword(user.Hash, []byte(input)); err != nil {\n    http.Error(w, \"unauthorized\", 401); return\n}\nsid := newRandomID()          // CSPRNG; do not reuse a pre-login id\nstore.Set(sid, user.ID)\nhttp.SetCookie(w, &http.Cookie{Name: \"sid\", Value: sid, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})",
+      "note": "bcrypt.CompareHashAndPassword is constant-time. Mint a new session id from crypto/rand on login and drop the old one; set an expiry."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Password Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"},
+    {"title": "OWASP Session Management Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"},
+    {"title": "CWE-384: Session Fixation", "url": "https://cwe.mitre.org/data/definitions/384.html"}
+  ]
+}

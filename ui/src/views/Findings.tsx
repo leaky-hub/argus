@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
+import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { useToast } from "../toast";
 import { DISPOSITION_CHIP, DISPOSITION_LABEL, VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
@@ -404,7 +404,7 @@ export function Findings({
                     </th>
                   )}
                   <th className="w-14 py-2 pr-2">Risk</th>
-                  <th className="w-12 py-2 pr-2">Sev</th>
+                  <th className="w-20 py-2 pr-3">Sev</th>
                   <th className="py-2 pr-2">Title</th>
                   <th className="w-24 py-2 pr-2">Verdict</th>
                 </tr>
@@ -449,7 +449,7 @@ export function Findings({
                     <td className="py-1.5 pr-2">
                       <RiskPill score={f.riskScore} />
                     </td>
-                    <td className="py-1.5 pr-2">
+                    <td className="py-1.5 pr-3">
                       <SeverityBadge severity={f.severity} />
                     </td>
                     <td className="min-w-0 py-1.5 pr-2">
@@ -778,6 +778,8 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
           </div>
         )}
 
+        <MitigationPanel finding={f} />
+
         {f.triage && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
             <div className="mb-1 flex items-center gap-2">
@@ -880,6 +882,112 @@ function DispositionControl({ disposition, canDispose, onDispose, onClear }: {
         )}
       </div>
       {disposition && <p className="mt-1 text-[10px] text-gray-400">by {disposition.actor}</p>}
+    </div>
+  );
+}
+
+// langForFile mirrors internal/mitigation.LanguageForFile so the panel can
+// pick the right snippet before the fetch returns.
+function langForFile(path?: string): string {
+  const ext = (path ?? "").toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? "";
+  const map: Record<string, string> = {
+    ".py": "python", ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript",
+    ".cjs": "javascript", ".ts": "javascript", ".tsx": "javascript", ".java": "java",
+    ".go": "go", ".rb": "ruby", ".php": "php", ".cs": "csharp",
+  };
+  return map[ext] ?? "";
+}
+
+// CodeBlock is a copyable, escaped code snippet with a good/bad accent.
+function CodeBlock({ code, tone }: { code: string; tone: "bad" | "good" }) {
+  const [copied, setCopied] = useState(false);
+  const border = tone === "bad" ? "border-red-200 dark:border-red-900" : "border-emerald-200 dark:border-emerald-900";
+  return (
+    <div className={`relative overflow-hidden rounded border ${border}`}>
+      <button
+        onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+        className="absolute right-1 top-1 rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-white dark:bg-gray-800/80 dark:text-gray-300"
+      >
+        {copied ? "copied" : "copy"}
+      </button>
+      <pre className="scroll-thin overflow-x-auto bg-gray-50 p-2 font-mono text-[11px] text-gray-800 dark:bg-gray-900 dark:text-gray-200">{code}</pre>
+    </div>
+  );
+}
+
+// MitigationPanel shows curated secure-coding guidance for a finding's weakness
+// class: the fixing principle, a before/after snippet in the finding's language
+// (switchable), the library to reach for, and references. Static, human-vetted
+// content — distinct from the AI remediation above. Renders nothing when the
+// library has no entry for the finding's CWEs.
+function MitigationPanel({ finding }: { finding: Finding }) {
+  const cwes = finding.cwes ?? [];
+  const [state, setState] = useState<{ loading: boolean; data?: Mitigation | null; error?: string }>({ loading: false });
+  const [lang, setLang] = useState<string>("");
+
+  useEffect(() => {
+    if (!cwes.length) { setState({ loading: false, data: null }); return; }
+    let cancelled = false;
+    setState({ loading: true });
+    api
+      .mitigation(cwes, langForFile(finding.location.file))
+      .then((m) => {
+        if (cancelled) return;
+        setState({ loading: false, data: m });
+        setLang(m?.matchedLanguage || m?.snippets[0]?.language || "");
+      })
+      .catch((e) => { if (!cancelled) setState({ loading: false, error: String(e) }); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finding.id]);
+
+  if (!cwes.length || state.error) return null;
+  const m = state.data;
+  if (state.loading || !m) return null;
+  const snippet = m.snippets.find((s) => s.language === lang) ?? m.snippets[0];
+
+  return (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-indigo-800 dark:text-indigo-300">Secure code fix: {m.title}</h4>
+        <span className="text-[10px] uppercase tracking-wide text-gray-400">curated · human-vetted</span>
+      </div>
+      <p className="mb-2 text-xs text-gray-700 dark:text-gray-300">{m.principle}</p>
+
+      {m.snippets.length > 1 && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {m.snippets.map((s) => (
+            <button
+              key={s.language}
+              onClick={() => setLang(s.language)}
+              className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${s.language === snippet.language ? "bg-indigo-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300"}`}
+            >
+              {s.language}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {snippet && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">Vulnerable</div>
+          <CodeBlock code={snippet.vulnerable} tone="bad" />
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Secure</div>
+          <CodeBlock code={snippet.secure} tone="good" />
+          {snippet.library && <p className="text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold">Use:</span> {snippet.library}</p>}
+          {snippet.note && <p className="text-xs text-gray-500 dark:text-gray-400">{snippet.note}</p>}
+        </div>
+      )}
+
+      {m.references.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+          {m.references.map((r) => (
+            <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400">
+              {r.title} ↗
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

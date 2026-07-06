@@ -137,6 +137,28 @@ export interface TrendPoint {
   riskAvg: number;
 }
 
+// Curated secure-coding guidance for a weakness class (see internal/mitigation).
+export interface MitigationSnippet {
+  language: string;
+  library?: string;
+  vulnerable: string;
+  secure: string;
+  note?: string;
+}
+export interface MitigationReference {
+  title: string;
+  url: string;
+}
+export interface Mitigation {
+  weakness: string;
+  title: string;
+  cwes: string[];
+  principle: string;
+  snippets: MitigationSnippet[];
+  references: MitigationReference[];
+  matchedLanguage?: string;
+}
+
 export interface SummaryResponse {
   runCount: number;
   latestId: string;
@@ -234,6 +256,19 @@ export const api = {
     const q = new URLSearchParams({ format });
     if (targetId) q.set("target", targetId);
     return `api/runs/${encodeURIComponent(id)}/export?${q.toString()}`;
+  },
+  // Curated secure-coding guidance for a finding's CWEs. Resolves to null when
+  // the library has nothing for them (a 404), so callers can hide the panel.
+  mitigation: async (cwes: string[], lang?: string): Promise<Mitigation | null> => {
+    const q = new URLSearchParams();
+    cwes.forEach((c) => q.append("cwe", c));
+    if (lang) q.set("lang", lang);
+    try {
+      return await getJSON<Mitigation>(`api/mitigations?${q.toString()}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
   },
 };
 

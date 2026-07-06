@@ -1,0 +1,40 @@
+{
+  "weakness": "xss",
+  "title": "Cross-Site Scripting (XSS)",
+  "cwes": ["CWE-79", "CWE-80", "CWE-83", "CWE-87"],
+  "principle": "Treat all untrusted data as text and let the framework encode it for the output context (HTML body, attribute, JS, URL). Prefer APIs that set text, not markup. When you must render user-supplied HTML, sanitize it with a vetted allowlist library. The bug is almost always raw HTML built from input, or a template rendered without escaping.",
+  "snippets": [
+    {
+      "language": "javascript",
+      "library": "DOM textContent, framework auto-escaping, and DOMPurify for rich HTML",
+      "vulnerable": "el.innerHTML = userInput;",
+      "secure": "el.textContent = userInput;\n// If HTML is genuinely required:\nel.innerHTML = DOMPurify.sanitize(userInput);",
+      "note": "React/Vue/Angular escape by default; the sinks are innerHTML, dangerouslySetInnerHTML, v-html, and document.write. Only bypass them with sanitized output."
+    },
+    {
+      "language": "python",
+      "library": "the template engine's autoescape (Jinja2/Django) and markupsafe",
+      "vulnerable": "return render_template_string(\"<p>\" + name + \"</p>\")",
+      "secure": "return render_template(\"hello.html\", name=name)  # {{ name }} is auto-escaped\n# Never wrap untrusted input in markupsafe.Markup(...) or use |safe on it.",
+      "note": "Keep Jinja autoescape on (Flask defaults it on for .html). |safe, Markup(), and mark_safe() disable escaping — never apply them to user input."
+    },
+    {
+      "language": "java",
+      "library": "OWASP Java Encoder (and framework auto-escaping)",
+      "vulnerable": "out.println(\"<p>\" + name + \"</p>\");",
+      "secure": "out.println(\"<p>\" + Encoder.forHtml(name) + \"</p>\");",
+      "note": "Encode for the exact context: Encoder.forHtml, forHtmlAttribute, forJavaScript, forUriComponent. In templates keep escaping on (Thymeleaf th:text escapes; th:utext does not)."
+    },
+    {
+      "language": "go",
+      "library": "html/template (context-aware auto-escaping)",
+      "vulnerable": "fmt.Fprintf(w, \"<p>%s</p>\", name) // or text/template",
+      "secure": "t := template.Must(template.New(\"p\").Parse(\"<p>{{.}}</p>\")) // html/template\nt.Execute(w, name)",
+      "note": "Use html/template, not text/template, for HTML output — it escapes per context automatically. Do not wrap input in template.HTML, which marks it trusted."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Cross Site Scripting Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-79: Cross-site Scripting", "url": "https://cwe.mitre.org/data/definitions/79.html"}
+  ]
+}

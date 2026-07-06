@@ -610,3 +610,22 @@ use an in-app confirm dialog rather than `window.confirm`. Both live in
 Findings framework/severity/status filters are encoded in the query string, so a
 view is shareable and reload-safe; navigation-significant changes use
 `pushState` so the browser Back button works.
+
+## 16. Secure-coding library (mitigations)
+
+For findings that need a code change, Bulwark ships a curated, human-vetted
+library of fixes — the open-source counterpart to a countermeasure catalog.
+`internal/mitigation` holds one embedded JSON entry per weakness class (SQL
+injection, XSS, SSRF, CSRF, session management, command injection, path
+traversal, and growing): the principle that fixes the class, before/after code
+per language (Python, JavaScript/TypeScript, Java, Go), the library to reach
+for, and references (OWASP cheat sheets, CWE). Adding a weakness or a language
+is a data-only change — drop in a JSON file, no code.
+
+It is deliberately separate from the LLM remediation seam. That generates a
+bespoke, review-required fix per finding; this is fixed guidance you trust the
+way you trust the sources it cites. `GET /api/mitigations?cwe=&lang=` (viewer)
+maps a finding's CWEs to an entry and promotes the snippet for the finding's
+language; the Findings drawer shows it as a "Secure code fix" panel with
+copyable vulnerable/secure blocks. `bulwark mitigations [weakness]` browses the
+same library from the terminal.

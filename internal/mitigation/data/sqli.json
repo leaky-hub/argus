@@ -1,0 +1,40 @@
+{
+  "weakness": "sqli",
+  "title": "SQL Injection",
+  "cwes": ["CWE-89", "CWE-564", "CWE-943"],
+  "principle": "Keep user input out of query text. Send the SQL and the values separately with parameterized queries (prepared statements) so the driver treats input as data, never as executable SQL. An ORM's query builder is safe; its raw-SQL escape hatch and any string concatenation or interpolation are not.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "the DB driver's parameter binding (sqlite3, psycopg2) or SQLAlchemy",
+      "vulnerable": "cur.execute(\"SELECT * FROM users WHERE email = '%s'\" % email)",
+      "secure": "cur.execute(\"SELECT * FROM users WHERE email = %s\", (email,))",
+      "note": "Pass values as the second argument. Never build the string with %, f-strings, or +. For SQLAlchemy use text(...).bindparams or the ORM, not raw f-strings."
+    },
+    {
+      "language": "javascript",
+      "library": "the driver's placeholders (pg, mysql2) or a query builder (Knex, Prisma)",
+      "vulnerable": "db.query(`SELECT * FROM users WHERE email = '${email}'`)",
+      "secure": "db.query('SELECT * FROM users WHERE email = $1', [email])",
+      "note": "mysql2 uses ? placeholders; pg uses $1, $2. Never use a template literal to inline the value. Prisma/Knex parameterize automatically unless you call $queryRawUnsafe / knex.raw with interpolation."
+    },
+    {
+      "language": "java",
+      "library": "java.sql.PreparedStatement (or JPA parameter binding)",
+      "vulnerable": "stmt.executeQuery(\"SELECT * FROM users WHERE email = '\" + email + \"'\");",
+      "secure": "PreparedStatement ps = conn.prepareStatement(\"SELECT * FROM users WHERE email = ?\");\nps.setString(1, email);\nResultSet rs = ps.executeQuery();",
+      "note": "Use PreparedStatement with ? placeholders. In JPA use named/positional parameters (:email), never string-built JPQL. Statement.executeQuery with concatenation is the classic sink."
+    },
+    {
+      "language": "go",
+      "library": "database/sql placeholders",
+      "vulnerable": "db.Query(\"SELECT * FROM users WHERE email = '\" + email + \"'\")",
+      "secure": "db.Query(\"SELECT * FROM users WHERE email = ?\", email)",
+      "note": "Pass args after the query string; database/sql binds them. Postgres/pgx use $1, $2. fmt.Sprintf into a query is the bug."
+    }
+  ],
+  "references": [
+    {"title": "OWASP SQL Injection Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-89: SQL Injection", "url": "https://cwe.mitre.org/data/definitions/89.html"}
+  ]
+}

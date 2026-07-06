@@ -158,6 +158,12 @@ type Finding struct {
 	Meta       map[string]string `json:"meta,omitempty"`
 	RawPayload json.RawMessage   `json:"rawPayload,omitempty"`
 
+	// DisplayName is a clean, human-readable name for the weakness — e.g.
+	// "Cross-Site Scripting (XSS)" — set at read time from the CWE→weakness
+	// map. Never persisted; the console shows it in place of a noisy scanner
+	// title, keeping the original Title as the detail line.
+	DisplayName string `json:"displayName,omitempty"`
+
 	// Enrichment slots, populated by later phases.
 	ComplianceControls []string `json:"complianceControls,omitempty"` // Phase 5: "<FRAMEWORK>:<control-id>" values, e.g. "ASVS:V5.3.4"
 	Triage             *Triage  `json:"triage,omitempty"`             // Phase 2

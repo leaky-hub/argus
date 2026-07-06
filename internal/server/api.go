@@ -7,6 +7,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/coverage"
 	"github.com/leaky-hub/appsec/internal/disposition"
+	"github.com/leaky-hub/appsec/internal/mitigation"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/owasp"
 	"github.com/leaky-hub/appsec/internal/report"
@@ -392,6 +393,7 @@ func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, err
 	// Enrich at read time so runs saved before schema 1.2.0 still show control
 	// chips. Deterministic and idempotent; the stored file is untouched.
 	_ = compliance.Apply(doc.Findings)
+	setDisplayNames(doc.Findings)
 
 	runs, _ := store.List()
 	createdAt := id
@@ -430,6 +432,18 @@ func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, err
 		Coverage:     doc.Coverage,
 		Dispositions: dispositions,
 	}, nil
+}
+
+// setDisplayNames gives each finding a clean weakness name from the curated
+// CWE→weakness map (e.g. "SQL Injection"), so the console can lead with that
+// instead of a noisy scanner title. Findings whose CWEs don't map keep their
+// title (DisplayName stays empty and the UI falls back).
+func setDisplayNames(findings []model.Finding) {
+	for i := range findings {
+		if g, ok := mitigation.Lookup(findings[i].CWEs, ""); ok {
+			findings[i].DisplayName = g.Title
+		}
+	}
 }
 
 // dispositionStore resolves the finding-workflow store that sits beside a run

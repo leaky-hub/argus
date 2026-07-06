@@ -47,6 +47,7 @@ export interface Finding {
   category: string;
   ruleId: string;
   title: string;
+  displayName?: string; // clean weakness name from the CWE map; falls back to title
   description?: string;
   severity: Severity;
   toolSeverity?: Severity; // what the tool's own scale normalized to; severity is banded deterministic risk (2.0.0)

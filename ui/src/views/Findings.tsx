@@ -469,7 +469,7 @@ export function Findings({
                             {DISPOSITION_LABEL[dispositions[f.id].status]}
                           </span>
                         )}
-                        <span className="truncate font-mono text-xs">{f.title}</span>
+                        <span className="truncate text-xs font-medium">{f.displayName ?? f.title}</span>
                       </div>
                       <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-400">
                         <CategoryBadge category={f.category} compact />
@@ -638,9 +638,12 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
           </Row>
         )}
 
-        {/* All values below are hostile data rendered as escaped text only. */}
-        <h3 className="break-words font-mono text-sm font-semibold">{f.title}</h3>
-        {f.description && <p className="whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{f.description}</p>}
+        {/* All values below are hostile data rendered as escaped text only.
+            Lead with the clean weakness name; keep the scanner's own title and
+            rule id as the detail line. */}
+        <h3 className="break-words text-sm font-semibold">{f.displayName ?? f.title}</h3>
+        <p className="break-words font-mono text-[11px] text-gray-400">{f.displayName ? f.title : f.ruleId}{f.displayName && f.ruleId ? ` · ${f.ruleId}` : ""}</p>
+        {f.description && <p className="mt-1 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{f.description}</p>}
 
         <Row label={f.location.resource && !f.location.file ? "Resource" : "Location"}>
           <code className="break-all text-xs">{locationLabel(f.location)}</code>

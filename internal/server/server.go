@@ -39,6 +39,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server/auth"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/threatmodel"
 	"github.com/leaky-hub/appsec/internal/ticket"
 )
 
@@ -65,7 +66,8 @@ type Server struct {
 	targets  *targets.Registry
 	auditLog *audit.Log
 	queue    *jobs.Queue
-	tickets  *ticket.Store // nil when the SQLite store isn't wired (legacy mode)
+	tickets  *ticket.Store      // nil when the SQLite store isn't wired (legacy mode)
+	threats  *threatmodel.Store // nil disables threat-model endpoints
 }
 
 // Options configure a Server.
@@ -83,7 +85,8 @@ type Options struct {
 	Targets  *targets.Registry
 	Audit    *audit.Log
 	Queue    *jobs.Queue
-	Tickets  *ticket.Store // the SQLite-backed ticket store; nil disables ticket endpoints
+	Tickets  *ticket.Store      // the SQLite-backed ticket store; nil disables ticket endpoints
+	Threats  *threatmodel.Store // the SQLite-backed threat-model store; nil disables its endpoints
 }
 
 // New builds a Server and its routes.
@@ -97,7 +100,7 @@ func New(opts Options) *Server {
 		store: opts.Store, dir: dir, gate: opts.Gate, gateName: opts.GateName, static: opts.Static,
 		users: opts.Users, sessions: opts.Sessions, limiter: opts.Limiter,
 		targets: opts.Targets, auditLog: opts.Audit, queue: opts.Queue,
-		tickets: opts.Tickets,
+		tickets: opts.Tickets, threats: opts.Threats,
 	}
 	return s
 }
@@ -131,6 +134,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
 	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
 	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths
+	mux.HandleFunc("/api/threat-models", s.handleThreatModels)           // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)       // GET/DELETE + subaction POSTs
+	mux.HandleFunc("/api/threat-library", s.handleThreatLibrary)         // GET (viewer): component types for the picker
 	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))

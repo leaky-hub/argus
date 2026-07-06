@@ -19,6 +19,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/server/auth"
 	"github.com/leaky-hub/appsec/internal/store"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/threatmodel"
 	"github.com/leaky-hub/appsec/internal/ticket"
 )
 
@@ -89,6 +90,7 @@ func newConsole(t *testing.T, exec jobs.ExecFunc) *consoleFixture {
 		Audit:    audit.ForRepo(dir),
 		Queue:    queue,
 		Tickets:  tickets,
+		Threats:  threatmodel.NewStore(db),
 	})
 	f := &consoleFixture{t: t, srv: srv, handler: srv.Handler(), users: users, registry: registry, queue: queue, tickets: tickets, dir: dir, scanDir: scanDir}
 	f.targetID = tgt.ID
@@ -195,6 +197,13 @@ func TestAuthzMatrix(t *testing.T) {
 		{"PATCH", "/api/tickets/tk-1", 401, 403, pass, pass},
 		{"POST", "/api/tickets/tk-1/comments", 401, 403, pass, pass},
 		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass}, // delete is admin-only
+
+		{"GET", "/api/threat-library", 401, pass, pass, pass},
+		{"GET", "/api/threat-models", 401, pass, pass, pass},
+		{"POST", "/api/threat-models", 401, 403, pass, pass},
+		{"GET", "/api/threat-models/tm-1", 401, pass, pass, pass},
+		{"POST", "/api/threat-models/tm-1/components", 401, 403, pass, pass},
+		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass}, // delete is admin-only
 
 		{"GET", "/api/targets", 401, pass, pass, pass},
 		{"POST", "/api/targets", 401, 403, 403, pass},

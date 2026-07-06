@@ -17,6 +17,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/server/auth"
 	"github.com/leaky-hub/appsec/internal/store"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/threatmodel"
 	"github.com/leaky-hub/appsec/internal/ticket"
 	"github.com/leaky-hub/appsec/ui"
 )
@@ -101,6 +102,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Audit:    auditLog,
 		Queue:    queue,
 		Tickets:  ticket.NewStore(db),
+		Threats:  threatmodel.NewStore(db),
 	})
 
 	fmt.Fprintf(os.Stderr, "==> appsec console on http://%s  (serving %s/.appsec)\n", addr, dir)

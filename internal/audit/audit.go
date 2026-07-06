@@ -42,6 +42,8 @@ const (
 	EventTicketDelete   = "ticket.delete"
 	EventTicketLink     = "ticket.link"
 	EventTicketComment  = "ticket.comment"
+	EventThreatModel    = "threat.model"   // create/delete a model
+	EventThreatUpdate   = "threat.update"  // add/enumerate/status/link a threat or component
 )
 
 // Entry is one audit line.

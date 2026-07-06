@@ -228,12 +228,12 @@ export function App() {
     }
   }
 
-  const tabs: { id: Tab; label: string; persona: string }[] = [
-    { id: "overview", label: "Overview", persona: "GRC / exec" },
-    { id: "findings", label: "Findings", persona: "AppSec" },
-    { id: "runs", label: "Runs", persona: "SecOps" },
-    ...(opsEnabled ? [{ id: "operate" as Tab, label: "Operate", persona: "scan jobs" }] : []),
-    ...(opsEnabled && role === "admin" ? [{ id: "admin" as Tab, label: "Admin", persona: "users / audit" }] : []),
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "findings", label: "Findings" },
+    { id: "runs", label: "Runs" },
+    ...(opsEnabled ? [{ id: "operate" as Tab, label: "Operate" }] : []),
+    ...(opsEnabled && role === "admin" ? [{ id: "admin" as Tab, label: "Admin" }] : []),
   ];
   const activeTab = tabs.some((t) => t.id === tab) ? tab : "overview";
 
@@ -258,10 +258,8 @@ export function App() {
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
                 }`}
-                title={t.persona}
               >
                 {t.label}
-                <span className="ml-1.5 hidden text-[10px] opacity-70 sm:inline">{t.persona}</span>
               </button>
             ))}
           </nav>

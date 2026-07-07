@@ -185,6 +185,94 @@ func TestCloudRemediateAuthz(t *testing.T) {
 	if rec := f.do("POST", "/api/cloud/remediate", `{"targetId":"`+tid+`","runId":"`+rid+`","findingId":"`+fid+`","remediationId":"aws-s3-block-public-access","mode":"apply","profile":"not-a-profile"}`, admin); rec.Code != http.StatusBadGateway {
 		t.Errorf("unknown profile = %d, want 502", rec.Code)
 	}
+	// A missing profile on an AWS plan is a clean 400.
+	if rec := f.do("POST", "/api/cloud/remediate", `{"targetId":"`+tid+`","runId":"`+rid+`","findingId":"`+fid+`","remediationId":"aws-s3-block-public-access","mode":"apply"}`, admin); rec.Code != 400 {
+		t.Errorf("missing aws profile = %d, want 400", rec.Code)
+	}
 }
 
+// seedCloudTargetWithAzureFinding registers an Azure cloud target and saves a
+// run holding one blob-public-access finding on a storage account.
+func seedCloudTargetWithAzureFinding(t *testing.T, f *consoleFixture, admin session) (string, string, string) {
+	t.Helper()
+	rec := f.do(http.MethodPost, "/api/targets", `{"name":"prod azure","provider":"azure","account":"11111111-2222-3333-4444-555555555555"}`, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register azure target: %d %s", rec.Code, rec.Body.String())
+	}
+	var tgt struct{ ID string }
+	json.Unmarshal(rec.Body.Bytes(), &tgt)
+	target, err := f.registry.Get(tgt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := model.Finding{
+		Category: model.CategoryCloud,
+		Tool:     "prowler", Tools: []string{"prowler"},
+		RuleID:   "storage_blob_public_access_level_is_disabled",
+		Title:    "Storage account allows blob public access",
+		Severity: model.SeverityHigh,
+		Location: model.Location{Resource: "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/prod-rg/providers/Microsoft.Storage/storageAccounts/prodassets"},
+		Meta:     map[string]string{"provider": "azure", "service": "storage", "resourceType": "microsoft.storage/storageaccounts", "resourceName": "prodassets", "account": "11111111-2222-3333-4444-555555555555"},
+	}
+	finding.ID = model.Fingerprint(finding)
+	store := runstore.Store{Dir: f.registry.CloudRunStore(target)}
+	meta, err := store.Save([]model.Finding{finding}, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tgt.ID, meta.ID, finding.ID
+}
 
+// TestCloudRemediateAzureAmbientAuth: an Azure plan lists with its provider,
+// executes WITHOUT a profile (ambient az login), refuses one if sent, and the
+// executed argv is the catalog's az command against the finding's ARM id.
+func TestCloudRemediateAzureAmbientAuth(t *testing.T) {
+	f := newConsole(t, nil)
+	admin := f.mustLogin("alice")
+	tid, rid, fid := seedCloudTargetWithAzureFinding(t, f, admin)
+	enableRemediation(t, f)
+	fx := &recExec{out: "[]"}
+	f.srv.remediateExec = fx
+
+	// The listing carries the provider so the console can pick the credential UI.
+	rec := f.do("POST", "/api/cloud/remediations", `{"targetId":"`+tid+`","runId":"`+rid+`","findingId":"`+fid+`"}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Remediations []struct {
+			ID       string
+			Provider string
+		}
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Remediations) != 1 || out.Remediations[0].ID != "azure-storage-disallow-blob-public-access" || out.Remediations[0].Provider != "azure" {
+		t.Fatalf("wrong remediations: %+v", out.Remediations)
+	}
+
+	base := `{"targetId":"` + tid + `","runId":"` + rid + `","findingId":"` + fid + `","remediationId":"azure-storage-disallow-blob-public-access"`
+	// Sending a profile with an Azure plan is a clean 400.
+	if rec := f.do("POST", "/api/cloud/remediate", base+`,"mode":"dryrun","profile":"security-audit"}`, admin); rec.Code != 400 {
+		t.Errorf("azure with profile = %d, want 400", rec.Code)
+	}
+	// Without a profile it runs, on the az CLI, against the ARM id.
+	rec = f.do("POST", "/api/cloud/remediate", base+`,"mode":"apply"}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("azure apply: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fx.calls) != 1 || fx.calls[0][0] != "az" {
+		t.Fatalf("wrong binary ran: %v", fx.calls)
+	}
+	joined := strings.Join(fx.calls[0], " ")
+	if !strings.Contains(joined, "storageAccounts/prodassets") || !strings.Contains(joined, "--allow-blob-public-access false") {
+		t.Errorf("wrong az command: %q", joined)
+	}
+	if fx.profiles[0] != "" {
+		t.Errorf("azure run got a credential reference: %q", fx.profiles[0])
+	}
+	// Audited with the provider.
+	auditRaw, _ := os.ReadFile(filepath.Join(f.dir, ".appsec", "audit.jsonl"))
+	if !strings.Contains(string(auditRaw), `"provider":"azure"`) {
+		t.Errorf("azure remediation not audited with provider: %s", auditRaw)
+	}
+}

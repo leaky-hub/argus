@@ -3,11 +3,13 @@ import { opsApi, CloudRemediation, CloudRemediateResult, ApiError } from "../api
 import { useConfirm, useToast } from "../toast";
 
 // The curated cloud-remediation panel on a cloud finding. It lists the vetted
-// fixes that apply (informational, for anyone), and — when remediation is
-// enabled in config and the viewer is an admin — offers a dry-run preview and
-// an approved apply against a chosen write profile. The command text shown is
-// exactly what runs; nothing here is LLM-authored. A successful apply never
-// marks the finding fixed: the panel says to re-scan.
+// fixes that apply (informational, for anyone), and, when remediation is
+// enabled in config and the viewer is an admin, offers a dry-run preview and
+// an approved apply. The command text shown is exactly what runs; nothing here
+// is LLM-authored. A successful apply never marks the finding fixed: the panel
+// says to re-scan. Credentials follow the provider: AWS takes a named write
+// profile; Azure and GCP run with the operator's local az/gcloud login, scoped
+// by the account already validated into the command.
 
 function CommandBlock({ argv }: { argv: string[][] }) {
   return (
@@ -47,21 +49,27 @@ export function CloudRemediationPanel({ finding, runId, targetId, canApply }: {
     return () => { live = false; };
   }, [finding, runId, targetId]);
 
-  // Load the discovered write profiles once, only when apply is possible.
+  // Derive provider and CLI tool from the first remediation.
+  const provider = rems?.[0]?.provider ?? "aws";
+  const cli = provider === "azure" ? "az" : provider === "gcp" ? "gcloud" : "aws";
+
+  // Load the discovered write profiles once, only when apply is possible and provider is AWS.
   useEffect(() => {
-    if (!canApply || !enabled) return;
+    if (!canApply || !enabled || !rems || provider !== "aws") return;
     opsApi.cloudProfiles().then((r) => setProfiles(r.providers.find((p) => p.provider === "aws")?.profiles ?? [])).catch(() => {});
-  }, [canApply, enabled]);
+  }, [canApply, enabled, rems, provider]);
 
   const run = async (rem: CloudRemediation, mode: "dryrun" | "apply") => {
-    if (!profile) {
+    if (provider === "aws" && !profile) {
       toast({ kind: "error", message: "Pick a write profile first." });
       return;
     }
     if (mode === "apply") {
       const ok = await confirm({
         title: `Apply "${rem.title}"?`,
-        message: `This runs the shown command against your cloud account using the "${profile}" profile. ${rem.reversible ? "It's reversible." : "Review carefully."} The finding stays until a re-scan confirms the fix.`,
+        message: provider === "aws"
+          ? `This runs the shown command against your cloud account using the "${profile}" profile. ${rem.reversible ? "It's reversible." : "Review carefully."} The finding stays until a re-scan confirms the fix.`
+          : `This runs the shown command against your cloud account using your local ${cli} login. ${rem.reversible ? "It's reversible." : "Review carefully."} The finding stays until a re-scan confirms the fix.`,
         confirmLabel: "Apply",
         danger: !rem.reversible,
       });
@@ -69,7 +77,7 @@ export function CloudRemediationPanel({ finding, runId, targetId, canApply }: {
     }
     setBusy(`${rem.id}:${mode}`);
     try {
-      const res = await opsApi.cloudRemediate({ targetId, runId, findingId: finding, remediationId: rem.id, mode, profile });
+      const res = await opsApi.cloudRemediate({ targetId, runId, findingId: finding, remediationId: rem.id, mode, profile: provider === "aws" ? profile : undefined });
       setResult((prev) => ({ ...prev, [rem.id]: res }));
       if (mode === "apply") toast({ kind: "success", message: res.reScanHint });
     } catch (e) {
@@ -86,7 +94,7 @@ export function CloudRemediationPanel({ finding, runId, targetId, canApply }: {
     <div className="space-y-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Curated remediation</div>
 
-      {canApply && enabled && (
+      {canApply && enabled && provider === "aws" && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-gray-500">Write profile</span>
           <select value={profile} onChange={(e) => setProfile(e.target.value)} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800">
@@ -95,6 +103,10 @@ export function CloudRemediationPanel({ finding, runId, targetId, canApply }: {
           </select>
           <span className="text-gray-400">separate from the read-only audit profile</span>
         </div>
+      )}
+
+      {canApply && enabled && provider !== "aws" && (
+        <p className="text-[11px] text-gray-400">Runs with your local {cli} login. The account scope is already part of the command shown. No profile is sent.</p>
       )}
 
       {rems.map((rem) => (
@@ -128,7 +140,7 @@ export function CloudRemediationPanel({ finding, runId, targetId, canApply }: {
           {result[rem.id] && (
             <div className="mt-2">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                {result[rem.id].applied ? "Applied — re-scan to confirm" : "Dry-run output"}
+                {result[rem.id].applied ? "Applied. Re-scan to confirm" : "Dry-run output"}
               </div>
               {result[rem.id].results.map((cr, i) => (
                 <pre key={i} className="scroll-thin mt-1 overflow-x-auto rounded bg-gray-100 px-2 py-1 text-[11px] dark:bg-gray-800">{cr.error ? `error: ${cr.error}\n${cr.output}` : cr.output || "(no output)"}</pre>

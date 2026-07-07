@@ -31,6 +31,28 @@ func s3Plan(t *testing.T) Plan {
 	return p
 }
 
+func azurePlan(t *testing.T) Plan {
+	t.Helper()
+	r, _ := ByID("azure-storage-disallow-blob-public-access")
+	p, err := Build(r, providerFinding("azure", "storage_blob_public_access_level_is_disabled", testARMID,
+		map[string]string{"service": "storage", "resourceName": "prodassets"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func gcpPlan(t *testing.T) Plan {
+	t.Helper()
+	r, _ := ByID("gcp-storage-public-access-prevention")
+	p, err := Build(r, providerFinding("gcp", "cloudstorage_bucket_public_access", "",
+		map[string]string{"service": "cloudstorage", "resourceName": "my-bucket"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func TestRunDryRunAndApply(t *testing.T) {
 	fx := &fakeExec{out: "ok"}
 	r := &Runner{Exec: fx, ValidProfile: func(string) bool { return true }}
@@ -77,21 +99,70 @@ func TestRunSafetyGuard(t *testing.T) {
 	r := &Runner{Exec: fx, ValidProfile: func(string) bool { return true }}
 
 	bad := []struct {
-		name string
-		plan Plan
+		name    string
+		plan    Plan
+		profile string
 	}{
-		{"non-allowlisted binary", Plan{ID: "x", Apply: []Command{{"curl", "http://evil"}}}},
-		{"destructive verb", Plan{ID: "x", Apply: []Command{{"aws", "s3api", "delete-bucket", "--bucket", "b"}}}},
-		{"shell metachar", Plan{ID: "x", Apply: []Command{{"aws", "s3api", "get", "b; rm -rf /"}}}},
-		{"pipe", Plan{ID: "x", Apply: []Command{{"aws", "x", "| sh"}}}},
+		{"non-allowlisted binary", Plan{ID: "x", Provider: "aws", Apply: []Command{{"curl", "http://evil"}}}, "p"},
+		{"destructive verb", Plan{ID: "x", Provider: "aws", Apply: []Command{{"aws", "s3api", "delete-bucket", "--bucket", "b"}}}, "p"},
+		{"shell metachar", Plan{ID: "x", Provider: "aws", Apply: []Command{{"aws", "s3api", "get", "b; rm -rf /"}}}, "p"},
+		{"pipe", Plan{ID: "x", Provider: "aws", Apply: []Command{{"aws", "x", "| sh"}}}, "p"},
+		{"unknown provider", Plan{ID: "x", Provider: "oci", Apply: []Command{{"oci", "os", "bucket"}}}, ""},
+		{"azure plan may not run aws", Plan{ID: "x", Provider: "azure", Apply: []Command{{"aws", "s3api", "get-bucket-acl"}}}, ""},
+		{"aws plan may not run az", Plan{ID: "x", Provider: "aws", Apply: []Command{{"az", "storage", "account", "show"}}}, "p"},
+		{"az purge", Plan{ID: "x", Provider: "azure", Apply: []Command{{"az", "keyvault", "purge", "--name", "v"}}}, ""},
+		{"az destructive verb", Plan{ID: "x", Provider: "azure", Apply: []Command{{"az", "storage", "account", "delete", "--ids", "i"}}}, ""},
+		{"gcloud destructive verb", Plan{ID: "x", Provider: "gcp", Apply: []Command{{"gcloud", "storage", "buckets", "delete", "gs://b"}}}, ""},
+		{"gcloud remove subcommand", Plan{ID: "x", Provider: "gcp", Apply: []Command{{"gcloud", "projects", "remove-iam-policy-binding", "p"}}}, ""},
 	}
 	for _, tc := range bad {
-		if _, err := r.Run(context.Background(), tc.plan, Apply, "p"); err == nil {
+		if _, err := r.Run(context.Background(), tc.plan, Apply, tc.profile); err == nil {
 			t.Errorf("%s: guard did not refuse", tc.name)
 		}
 	}
 	if len(fx.calls) != 0 {
 		t.Errorf("a guarded command reached the executor: %v", fx.calls)
+	}
+}
+
+// TestRunCredentialSemantics: an AWS plan needs a validated profile; Azure and
+// GCP plans run with the operator's ambient az/gcloud login and REFUSE a
+// profile, and never consult the AWS profile list.
+func TestRunCredentialSemantics(t *testing.T) {
+	fx := &fakeExec{out: "ok"}
+	r := &Runner{Exec: fx, ValidProfile: func(string) bool { return false }} // no AWS profile is ever valid
+
+	for _, tc := range []struct {
+		name string
+		plan Plan
+	}{
+		{"azure", azurePlan(t)},
+		{"gcp", gcpPlan(t)},
+	} {
+		if _, err := r.Run(context.Background(), tc.plan, DryRun, "sec-write"); err == nil {
+			t.Errorf("%s: a profile must be refused", tc.name)
+		}
+		res, err := r.Run(context.Background(), tc.plan, DryRun, "")
+		if err != nil {
+			t.Errorf("%s: ambient-auth dry-run failed: %v", tc.name, err)
+		}
+		if len(res) == 0 {
+			t.Errorf("%s: no command ran", tc.name)
+		}
+	}
+	// Every executed command carried an empty credential reference.
+	for _, p := range fx.profiles {
+		if p != "" {
+			t.Errorf("non-AWS command got a profile: %q", p)
+		}
+	}
+	// The binaries were the providers' own CLIs.
+	if fx.calls[0][0] != "az" || fx.calls[1][0] != "gcloud" {
+		t.Errorf("wrong binaries ran: %v", fx.calls)
+	}
+	// And an AWS plan still requires a profile the validator accepts.
+	if _, err := r.Run(context.Background(), s3Plan(t), DryRun, "sec-write"); err == nil {
+		t.Error("aws: an unknown profile must be refused")
 	}
 }
 

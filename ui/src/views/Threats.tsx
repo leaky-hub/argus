@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<ThreatStatus, string> = {
 const STATUS_DOT: Record<ThreatStatus, string> = {
   open: "#c92a30", mitigated: "#1f8a4c", accepted: "#c98a10", transferred: "#6b7386",
 };
-const selectClass = "rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800";
+const selectClass = "rounded-md border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800";
 
 export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canDelete: boolean; target: string }) {
   const [models, setModels] = useState<ThreatModel[] | null>(null);
@@ -31,6 +31,7 @@ export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canD
   const [library, setLibrary] = useState<LibraryComponent[]>([]);
   const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [view, setView] = useState<"list" | "canvas">("list");
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -79,15 +80,15 @@ export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canD
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      <div className="lg:col-span-2">
+      <div className={view === "canvas" ? "hidden" : "lg:col-span-2"}>
         <Panel
           title={`Threat models (${models.length})`}
           right={canEdit ? (
             <div className="flex items-center gap-2">
-              <button onClick={generateFromIaC} disabled={generating} className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800" title="Scan the current target's IaC and build a baseline model">
+              <button onClick={generateFromIaC} disabled={generating} className="rounded-md border border-gray-300 px-2.5 py-1 text-sm font-medium hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800" title="Scan the current target's IaC and build a baseline model">
                 {generating ? "Scanning…" : "Generate from IaC"}
               </button>
-              <button onClick={() => setCreating(true)} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700">New model</button>
+              <button onClick={() => setCreating(true)} className="rounded-md bg-accent-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-accent-700">New model</button>
             </div>
           ) : undefined}
         >
@@ -99,7 +100,7 @@ export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canD
               {models.map((m) => (
                 <button key={m.id} onClick={() => setSelectedId(m.id)} className={`block w-full px-1 py-2 text-left ${selected?.id === m.id ? "bg-accent-100 dark:bg-accent-500/10" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}>
                   <span className="block text-sm font-medium">{m.name}</span>
-                  <span className="font-mono text-[11px] text-gray-400">{m.id}{m.targetId ? ` · ${m.targetId}` : ""}</span>
+                  <span className="font-mono text-xs text-gray-400">{m.id}{m.targetId ? ` · ${m.targetId}` : ""}</span>
                 </button>
               ))}
             </div>
@@ -107,9 +108,9 @@ export function Threats({ canEdit, canDelete, target }: { canEdit: boolean; canD
         </Panel>
       </div>
 
-      <div className="min-w-0 lg:col-span-3">
+      <div className={`min-w-0 ${view === "canvas" ? "lg:col-span-5" : "lg:col-span-3"}`}>
         {selected && detail ? (
-          <ModelDetail detail={detail} library={library} canEdit={canEdit} canDelete={canDelete} onChange={refresh} onDelete={remove} onErr={err} />
+          <ModelDetail detail={detail} library={library} canEdit={canEdit} canDelete={canDelete} view={view} setView={setView} onChange={refresh} onDelete={remove} onErr={err} />
         ) : (
           <Panel title="Model"><p className="py-10 text-center text-sm text-gray-500">Select a model to see its components and threats.</p></Panel>
         )}
@@ -127,14 +128,15 @@ function CreateModel({ onClose, onCreated, onErr }: { onClose: () => void; onCre
   return (
     <div className="mb-3 flex gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-800/40">
       <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Model name (e.g. Checkout service)" className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900" />
-      <button onClick={onClose} className="rounded-md border border-gray-300 px-2.5 py-1 text-xs dark:border-gray-700">Cancel</button>
-      <button onClick={submit} disabled={!name.trim()} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50">Create</button>
+      <button onClick={onClose} className="rounded-md border border-gray-300 px-2.5 py-1 text-sm dark:border-gray-700">Cancel</button>
+      <button onClick={submit} disabled={!name.trim()} className="rounded-md bg-accent-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50">Create</button>
     </div>
   );
 }
 
-function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, onErr }: {
+function ModelDetail({ detail, library, canEdit, canDelete, view, setView, onChange, onDelete, onErr }: {
   detail: ThreatModelDetail; library: LibraryComponent[]; canEdit: boolean; canDelete: boolean;
+  view: "list" | "canvas"; setView: (v: "list" | "canvas") => void;
   onChange: () => void; onDelete: () => void; onErr: (e: unknown) => void;
 }) {
   const byCategory = useMemo(() => {
@@ -151,7 +153,6 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
     try { await opsApi.setThreatStatus(detail.id, threatId, status); onChange(); } catch (e) { onErr(e); }
   };
 
-  const [view, setView] = useState<"list" | "canvas">("list");
   const savePositions = async (positions: { componentId: string; x: number; y: number; w?: number; h?: number }[]) => {
     try { await opsApi.saveThreatPositions(detail.id, positions); } catch (e) { onErr(e); }
   };
@@ -231,7 +232,7 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
       title={detail.id}
       right={
         <span className="flex items-center gap-2">
-          <span className="flex items-center rounded-md border border-gray-300 text-[11px] dark:border-gray-700">
+          <span className="flex items-center rounded-md border border-gray-300 text-xs dark:border-gray-700">
             {(["list", "canvas"] as const).map((v) => (
               <button key={v} onClick={() => setView(v)} className={`px-2 py-0.5 font-medium capitalize ${view === v ? "bg-accent-600 text-white" : "hover:bg-gray-100 dark:hover:bg-gray-800"} ${v === "list" ? "rounded-l" : "rounded-r"}`}>
                 {v}
@@ -239,13 +240,13 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
             ))}
           </span>
           {detail.threats.length > 0 && (
-            <span className="flex items-center gap-1 text-[11px]">
+            <span className="flex items-center gap-1 text-xs">
               <span className="text-gray-400">Export</span>
               <button onClick={() => exportThreatsCSV(detail.threats, { components: detail.components, links: detail.links })} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">CSV</button>
               <button onClick={() => exportThreatsJSON(detail.threats)} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">JSON</button>
             </span>
           )}
-          {canDelete && <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button>}
+          {canDelete && <button onClick={onDelete} className="text-sm text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button>}
         </span>
       }
     >
@@ -265,7 +266,7 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
             onAddFlow={addFlow}
             onRemoveFlow={removeFlow}
           />
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             Add nodes from the toolbar and click the canvas to place them; click a node to rename, re-tech, or delete it; drag to move. Give a selected trust boundary a zone type (DMZ, VPC, subnet…) and drag its corner to resize. The red badge counts a component's threats.
           </p>
         </div>
@@ -274,26 +275,26 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
       <div className={view === "canvas" ? "hidden" : ""}>
       <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
         <div className="flex items-center justify-between">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Components ({detail.components.length})</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Components ({detail.components.length})</div>
           {canEdit && (
-            <button onClick={suggestComponents} disabled={compSuggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-[11px] font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to propose components from the repo layout (you confirm each)">
+            <button onClick={suggestComponents} disabled={compSuggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to propose components from the repo layout (you confirm each)">
               {compSuggesting ? "Thinking…" : "AI suggest"}
             </button>
           )}
         </div>
         {compSuggestions && compSuggestions.length > 0 && (
           <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-50/50 p-2 dark:bg-amber-950/20">
-            <div className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
+            <div className="mb-1 text-xs font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
             <ul className="space-y-1">
               {compSuggestions.map((s, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs">
+                <li key={i} className="flex items-start gap-2 text-sm">
                   <span className="min-w-0 flex-1">
                     <span className="font-medium">{s.name}</span>
-                    {s.tech && <span className="ml-1 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800">{s.tech}</span>}
+                    {s.tech && <span className="ml-1 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 dark:bg-gray-800">{s.tech}</span>}
                     {s.kind && s.kind !== "component" && <span className="ml-1 text-gray-400">· {s.kind}</span>}
                     {s.rationale && <span className="block text-gray-500 dark:text-gray-400">{s.rationale}</span>}
                   </span>
-                  <button onClick={() => confirmComponent(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-accent-700">Add</button>
+                  <button onClick={() => confirmComponent(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-accent-700">Add</button>
                 </li>
               ))}
             </ul>
@@ -303,53 +304,53 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
           {detail.components.map((c) => (
             <div key={c.id} className="flex items-center gap-2 text-sm">
               <span className="font-medium">{c.name}</span>
-              {c.tech && <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800">{c.tech}</span>}
-              {c.source === "assisted" && <span className="shrink-0 rounded border border-amber-400/50 px-1 text-[10px] text-amber-600 dark:text-amber-400">assisted</span>}
-              {c.source === "detected" && <span className="shrink-0 rounded border border-gray-400/50 px-1 text-[10px] text-gray-500 dark:border-gray-600/50 dark:text-gray-400">detected</span>}
+              {c.tech && <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 dark:bg-gray-800">{c.tech}</span>}
+              {c.source === "assisted" && <span className="shrink-0 rounded border border-amber-400/50 px-1 text-[11px] text-amber-600 dark:text-amber-400">assisted</span>}
+              {c.source === "detected" && <span className="shrink-0 rounded border border-gray-400/50 px-1 text-[11px] text-gray-500 dark:border-gray-600/50 dark:text-gray-400">detected</span>}
               {canEdit && c.tech && (
-                <button onClick={() => enumerate(c.id)} className="ml-auto rounded-md border border-gray-300 px-2 py-0.5 text-[11px] hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
+                <button onClick={() => enumerate(c.id)} className="ml-auto rounded-md border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
                   Enumerate STRIDE
                 </button>
               )}
               {canEdit && (
-                <button onClick={() => removeComponent(c.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-xs" title="Remove component and its threats">✕</button>
+                <button onClick={() => removeComponent(c.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm" title="Remove component and its threats">✕</button>
               )}
             </div>
           ))}
-          {detail.components.length === 0 && <p className="text-xs text-gray-500">No components yet.</p>}
+          {detail.components.length === 0 && <p className="text-sm text-gray-500">No components yet.</p>}
         </div>
         {canEdit && <AddComponent modelId={detail.id} library={library} onAdded={onChange} onErr={onErr} />}
       </div>
 
       <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
         <div className="flex items-center justify-between">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Threats ({detail.threats.length})</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Threats ({detail.threats.length})</div>
           {canEdit && (
-            <button onClick={suggest} disabled={suggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-[11px] font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to suggest additional threats (you confirm each)">
+            <button onClick={suggest} disabled={suggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to suggest additional threats (you confirm each)">
               {suggesting ? "Thinking…" : "AI suggest"}
             </button>
           )}
         </div>
         {suggestions && suggestions.length > 0 && (
           <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-50/50 p-2 dark:bg-amber-950/20">
-            <div className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
+            <div className="mb-1 text-xs font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
             <ul className="space-y-1">
               {suggestions.map((s, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs">
+                <li key={i} className="flex items-start gap-2 text-sm">
                   <span className="min-w-0 flex-1"><span className="font-medium">{s.title}</span> <span className="text-gray-400">· {s.category}</span>{s.description && <span className="block text-gray-500 dark:text-gray-400">{s.description}</span>}</span>
-                  <button onClick={() => confirm(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-accent-700">Add</button>
+                  <button onClick={() => confirm(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-accent-700">Add</button>
                 </li>
               ))}
             </ul>
           </div>
         )}
         {detail.threats.length === 0 ? (
-          <p className="mt-1 text-xs text-gray-500">No threats yet. Add a component with a tech, then enumerate STRIDE over it.</p>
+          <p className="mt-1 text-sm text-gray-500">No threats yet. Add a component with a tech, then enumerate STRIDE over it.</p>
         ) : (
           <div className="mt-2 space-y-3">
             {STRIDE.filter((s) => byCategory[s.key]?.length).map((s) => (
               <div key={s.key}>
-                <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{s.label}</div>
+                <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">{s.label}</div>
                 <ul className="mt-1 space-y-1">
                   {byCategory[s.key].map((t) => {
                     const links = detail.links[t.id] ?? [];
@@ -359,20 +360,20 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
                         <div className="flex items-center gap-2">
                           <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_DOT[t.status] }} />
                           <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
-                          {t.source === "assisted" && <span className="shrink-0 rounded border border-amber-400/50 px-1 text-[10px] text-amber-600 dark:text-amber-400">assisted</span>}
+                          {t.source === "assisted" && <span className="shrink-0 rounded border border-amber-400/50 px-1 text-[11px] text-amber-600 dark:text-amber-400">assisted</span>}
                           {canEdit ? (
                             <select value={t.status} onChange={(e) => setStatus(t.id, e.target.value as ThreatStatus)} className={selectClass}>
                               {(Object.keys(STATUS_LABEL) as ThreatStatus[]).map((st) => <option key={st} value={st}>{STATUS_LABEL[st]}</option>)}
                             </select>
                           ) : (
-                            <span className="shrink-0 text-[11px] text-gray-500">{STATUS_LABEL[t.status]}</span>
+                            <span className="shrink-0 text-xs text-gray-500">{STATUS_LABEL[t.status]}</span>
                           )}
                           {canEdit && (
-                            <button onClick={() => removeThreat(t.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-xs" title="Remove threat">✕</button>
+                            <button onClick={() => removeThreat(t.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm" title="Remove threat">✕</button>
                           )}
                         </div>
-                        {t.description && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t.description}</p>}
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                        {t.description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t.description}</p>}
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-400">
                           {t.mitigation && <span>fix: <span className="font-mono text-gray-500 dark:text-gray-300">{t.mitigation}</span></span>}
                           {findings > 0 && <span>{findings} finding{findings === 1 ? "" : "s"} linked</span>}
                         </div>
@@ -399,12 +400,12 @@ function AddComponent({ modelId, library, onAdded, onErr }: { modelId: string; l
   };
   return (
     <div className="mt-2 flex flex-wrap gap-2">
-      <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Add a component…" className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800" />
+      <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Add a component…" className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800" />
       <select value={tech} onChange={(e) => setTech(e.target.value)} className={selectClass}>
         <option value="">tech…</option>
         {library.map((c) => <option key={c.tech} value={c.tech}>{c.title}</option>)}
       </select>
-      <button onClick={submit} disabled={!name.trim()} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50">Add</button>
+      <button onClick={submit} disabled={!name.trim()} className="rounded-md bg-accent-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50">Add</button>
     </div>
   );
 }

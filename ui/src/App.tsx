@@ -495,8 +495,8 @@ export function App() {
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-gray-200 bg-gray-50/90 px-4 py-3 backdrop-blur dark:border-gray-800 dark:bg-gray-950/90">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <Wordmark size={22} className="text-lg" />
-            <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+            <Wordmark size={26} className="text-xl" />
+            <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">
               console
             </span>
           </div>
@@ -506,7 +506,7 @@ export function App() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                className={`rounded-md px-3.5 py-2 text-base font-medium transition ${
                   activeTab === t.id
                     ? "bg-accent-100 text-accent-700 dark:bg-accent-500/15 dark:text-accent-200"
                     : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
@@ -519,12 +519,12 @@ export function App() {
 
           <div className="ml-auto flex items-center gap-3">
             {opsEnabled && targets.length > 0 && (
-              <label className="hidden items-center gap-1 text-xs text-gray-500 lg:flex">
+              <label className="hidden items-center gap-1.5 text-sm text-gray-500 lg:flex">
                 Target
                 <select
                   value={activeTarget}
                   onChange={(e) => setActiveTarget(e.target.value)}
-                  className="max-w-[200px] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  className="max-w-[200px] rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
                   title="Scope. All targets = portfolio Overview; pick one to drill into its Findings and Runs"
                 >
                   <option value={ALL_TARGETS}>All targets</option>

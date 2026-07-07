@@ -26,7 +26,7 @@ func TestModelComponentEnumerate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.AddComponent(m.ID, "component", "Web frontend", "web-app", "", "manual", t0)
+	c, err := s.AddComponent(m.ID, "component", "Web frontend", "web-app", "", "manual", -1, -1, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCrossModelScoping(t *testing.T) {
 	s := newStore(t)
 	mA, _ := s.CreateModel("", "A", "", "a", t0)
 	mB, _ := s.CreateModel("", "B", "", "a", t0)
-	compB, _ := s.AddComponent(mB.ID, "component", "DB", "database", "", "manual", t0)
+	compB, _ := s.AddComponent(mB.ID, "component", "DB", "database", "", "manual", -1, -1, t0)
 	th, err := s.AddThreat(mA.ID, "", "tampering", "T", "", "manual", "", "a", t0)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestModelCascadeAndValidation(t *testing.T) {
 		t.Error("empty model name must be rejected")
 	}
 	m, _ := s.CreateModel("", "M", "", "a", t0)
-	c, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", t0)
+	c, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", -1, -1, t0)
 	s.EnumerateComponent(c.ID, t0)
 	// Deleting the model cascades components and threats.
 	if err := s.DeleteModel(m.ID); err != nil {
@@ -174,7 +174,7 @@ func TestConcurrentEnumerateNoDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.AddComponent(m.ID, "component", "API", "api-service", "", "manual", t0)
+	c, err := s.AddComponent(m.ID, "component", "API", "api-service", "", "manual", -1, -1, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestComponentSourceProvenance(t *testing.T) {
 		{"", "manual"}, {"manual", "manual"}, {"detected", "detected"},
 		{"assisted", "assisted"}, {"llm", "manual"},
 	} {
-		c, err := s.AddComponent(m.ID, "component", "n-"+tc.give, "database", "", tc.give, t0)
+		c, err := s.AddComponent(m.ID, "component", "n-"+tc.give, "database", "", tc.give, -1, -1, t0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +234,7 @@ func TestComponentSourceProvenance(t *testing.T) {
 func TestDeleteComponentCascadesItsThreats(t *testing.T) {
 	s := newStore(t)
 	m, _ := s.CreateModel("", "M", "", "a", t0)
-	c, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", t0)
+	c, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", -1, -1, t0)
 	n, err := s.EnumerateComponent(c.ID, t0)
 	if err != nil || n == 0 {
 		t.Fatalf("enumerate: %d %v", n, err)
@@ -278,9 +278,9 @@ func TestFlowsAndPositions(t *testing.T) {
 	s := newStore(t)
 	m, _ := s.CreateModel("", "M", "", "a", t0)
 	mB, _ := s.CreateModel("", "B", "", "a", t0)
-	a, _ := s.AddComponent(m.ID, "component", "API", "api-service", "", "manual", t0)
-	b, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", t0)
-	foreign, _ := s.AddComponent(mB.ID, "component", "X", "", "", "manual", t0)
+	a, _ := s.AddComponent(m.ID, "component", "API", "api-service", "", "manual", -1, -1, t0)
+	b, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", -1, -1, t0)
+	foreign, _ := s.AddComponent(mB.ID, "component", "X", "", "", "manual", -1, -1, t0)
 
 	if _, err := s.AddFlow(m.ID, a.ID, foreign.ID, "x", t0); err == nil {
 		t.Error("cross-model flow accepted")
@@ -300,10 +300,10 @@ func TestFlowsAndPositions(t *testing.T) {
 	if a.X != -1 || a.Y != -1 {
 		t.Errorf("new component placed: %v,%v", a.X, a.Y)
 	}
-	if err := s.SetComponentPosition(m.ID, a.ID, 120.5, 999999, t0); err != nil {
+	if err := s.SetComponentGeometry(m.ID, a.ID, 120.5, 999999, -1, -1, t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetComponentPosition(mB.ID, a.ID, 1, 1, t0); err != ErrNotFound {
+	if err := s.SetComponentGeometry(mB.ID, a.ID, 1, 1, -1, -1, t0); err != ErrNotFound {
 		t.Errorf("cross-model position = %v, want ErrNotFound", err)
 	}
 	comps, _ := s.Components(m.ID)
@@ -319,5 +319,38 @@ func TestFlowsAndPositions(t *testing.T) {
 	}
 	if flows, _ := s.Flows(m.ID); len(flows) != 0 {
 		t.Errorf("flow survived its component: %+v (flow %s)", flows, fl.ID)
+	}
+}
+
+// TestComponentGeometry: canvas geometry (x/y/w/h) persists and clamps, and a
+// canvas-placed component keeps its initial position.
+func TestComponentGeometry(t *testing.T) {
+	s := newStore(t)
+	m, _ := s.CreateModel("", "M", "", "a", t0)
+	// Placed on creation.
+	c, err := s.AddComponent(m.ID, "boundary", "VPC", "", "", "manual", 40, 60, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.X != 40 || c.Y != 60 || c.W != -1 || c.H != -1 {
+		t.Errorf("placed component geometry wrong: %+v", c)
+	}
+	// Resize (boundary w/h).
+	if err := s.SetComponentGeometry(m.ID, c.ID, 40, 60, 320, 240, t0); err != nil {
+		t.Fatal(err)
+	}
+	// Clamp: negative < -1 → -1; huge → 100000.
+	if err := s.SetComponentGeometry(m.ID, c.ID, -50, 60, 1e9, 240, t0); err != nil {
+		t.Fatal(err)
+	}
+	comps, _ := s.Components(m.ID)
+	got := comps[0]
+	if got.X != -1 || got.W != 100000 || got.H != 240 {
+		t.Errorf("geometry not clamped/persisted: %+v", got)
+	}
+	// Cross-model geometry write is refused.
+	mB, _ := s.CreateModel("", "B", "", "a", t0)
+	if err := s.SetComponentGeometry(mB.ID, c.ID, 1, 1, 1, 1, t0); err != ErrNotFound {
+		t.Errorf("cross-model geometry = %v, want ErrNotFound", err)
 	}
 }

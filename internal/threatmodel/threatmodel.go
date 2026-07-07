@@ -60,9 +60,11 @@ type Component struct {
 	Tech    string `json:"tech,omitempty"`
 	Notes   string `json:"notes,omitempty"`
 	Source  string `json:"source"`
-	// Canvas position; -1/-1 = not placed (the canvas auto-lays it out).
+	// Canvas geometry; -1 means "unset" (the canvas picks a position/size).
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
 }
 
 // Flow is a directed data flow between two components of the same model.
@@ -182,7 +184,7 @@ func touchModel(q dbtx, id string, now time.Time) {
 // AddComponent inserts a node. source is manual (hand-added), detected (IaC
 // scan), or assisted (LLM-proposed, human-confirmed); anything else becomes
 // manual so provenance can't be spoofed into a stronger claim.
-func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, now time.Time) (Component, error) {
+func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, x, y float64, now time.Time) (Component, error) {
 	if _, err := s.GetModel(modelID); err != nil {
 		return Component{}, err
 	}
@@ -199,9 +201,10 @@ func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, no
 		source = "manual"
 	}
 	c := Component{ID: newID("tc"), ModelID: modelID, Kind: kind, Name: bound(name, nameMax),
-		Tech: strings.ToLower(strings.TrimSpace(tech)), Notes: bound(notes, textMax), Source: source, X: -1, Y: -1}
-	_, err := s.db.Exec(`INSERT INTO threat_components (id, model_id, kind, name, tech, notes, source) VALUES (?,?,?,?,?,?,?)`,
-		c.ID, c.ModelID, c.Kind, c.Name, c.Tech, c.Notes, c.Source)
+		Tech: strings.ToLower(strings.TrimSpace(tech)), Notes: bound(notes, textMax), Source: source,
+		X: clampCoord(x), Y: clampCoord(y), W: -1, H: -1}
+	_, err := s.db.Exec(`INSERT INTO threat_components (id, model_id, kind, name, tech, notes, source, pos_x, pos_y) VALUES (?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.ModelID, c.Kind, c.Name, c.Tech, c.Notes, c.Source, c.X, c.Y)
 	if err != nil {
 		return Component{}, fmt.Errorf("threatmodel: add component: %w", err)
 	}
@@ -210,7 +213,7 @@ func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, no
 }
 
 func (s *Store) Components(modelID string) ([]Component, error) {
-	rows, err := s.db.Query(`SELECT id, model_id, kind, name, tech, notes, source, pos_x, pos_y FROM threat_components WHERE model_id=? ORDER BY name`, modelID)
+	rows, err := s.db.Query(`SELECT id, model_id, kind, name, tech, notes, source, pos_x, pos_y, pos_w, pos_h FROM threat_components WHERE model_id=? ORDER BY name`, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("threatmodel: components: %w", err)
 	}
@@ -218,7 +221,7 @@ func (s *Store) Components(modelID string) ([]Component, error) {
 	out := []Component{}
 	for rows.Next() {
 		var c Component
-		if err := rows.Scan(&c.ID, &c.ModelID, &c.Kind, &c.Name, &c.Tech, &c.Notes, &c.Source, &c.X, &c.Y); err != nil {
+		if err := rows.Scan(&c.ID, &c.ModelID, &c.Kind, &c.Name, &c.Tech, &c.Notes, &c.Source, &c.X, &c.Y, &c.W, &c.H); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -249,20 +252,24 @@ func (s *Store) DeleteComponent(modelID, id string, now time.Time) error {
 	return tx.Commit()
 }
 
-// SetComponentPosition persists a node's canvas coordinates, scoped to the
-// model. Values clamp into [-1, 100000] — layout data, not free input.
-func (s *Store) SetComponentPosition(modelID, componentID string, x, y float64, now time.Time) error {
-	clamp := func(v float64) float64 {
-		if v < -1 || v != v { // NaN guards too
-			return -1
-		}
-		if v > 100000 {
-			return 100000
-		}
-		return v
+// clampCoord bounds a canvas coordinate/size to [-1, 100000] (NaN → -1). -1 is
+// the "unset" sentinel; the rest is layout data, not free input.
+func clampCoord(v float64) float64 {
+	if v < -1 || v != v { // NaN guards too
+		return -1
 	}
-	res, err := s.db.Exec(`UPDATE threat_components SET pos_x=?, pos_y=? WHERE id=? AND model_id=?`,
-		clamp(x), clamp(y), componentID, modelID)
+	if v > 100000 {
+		return 100000
+	}
+	return v
+}
+
+// SetComponentGeometry persists a node's canvas position and size, scoped to
+// the model. Any coordinate of -1 leaves that dimension at "unset" so the
+// canvas keeps choosing it (used for size on non-boundary nodes).
+func (s *Store) SetComponentGeometry(modelID, componentID string, x, y, w, h float64, now time.Time) error {
+	res, err := s.db.Exec(`UPDATE threat_components SET pos_x=?, pos_y=?, pos_w=?, pos_h=? WHERE id=? AND model_id=?`,
+		clampCoord(x), clampCoord(y), clampCoord(w), clampCoord(h), componentID, modelID)
 	if err != nil {
 		return err
 	}

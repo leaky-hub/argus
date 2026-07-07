@@ -3,6 +3,7 @@ import { FixedSizeList, ListChildComponentProps } from "react-window";
 import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { SidePane } from "../SidePane";
+import { CloudRemediationPanel } from "./CloudRemediationPanel";
 import { exportFindingsCSV, exportFindingsJSON } from "../export";
 import { useToast } from "../toast";
 import { DISPOSITION_CHIP, DISPOSITION_LABEL, VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
@@ -175,6 +176,7 @@ export function Findings({
   detail,
   origin,
   canExplain,
+  canRemediate,
   canSuppress,
   onSuppress,
   framework,
@@ -193,6 +195,7 @@ export function Findings({
     commit?: string;
   };
   canExplain?: boolean;
+  canRemediate?: boolean;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   // These filters are controlled by App so the Overview panels can deep-link
@@ -661,7 +664,7 @@ export function Findings({
       >
         {selected && (
           <div className="p-4">
-            <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} />
+            <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} runId={detail.id} canRemediate={canRemediate} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} />
           </div>
         )}
       </SidePane>
@@ -669,10 +672,12 @@ export function Findings({
   );
 }
 
-function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remediateState, onRemediate, validateState, onValidate, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
+function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainState, onExplain, remediateState, onRemediate, validateState, onValidate, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
   f: Finding;
   isNew: boolean;
   origin?: { targetId?: string; gitUrl?: string; commit?: string };
+  runId: string;
+  canRemediate?: boolean;
   canExplain?: boolean;
   explainState?: ExplainState;
   onExplain: () => void;
@@ -834,6 +839,12 @@ function Detail({ f, isNew, origin, canExplain, explainState, onExplain, remedia
             {remediateState && (remediateState.loading ? <p className="text-xs text-gray-500">Generating fix…</p> : remediateState.error ? (<div className="space-y-1"><p className="text-xs text-red-600 dark:text-red-400">{remediateState.error}</p><button onClick={onRemediate} className="text-xs text-gray-500 hover:underline">retry</button></div>) : remediateState.data ? (<RemediationPanel r={remediateState.data} category={f.category} location={f.location.file ? `${f.location.file}:${f.location.startLine ?? ""}` : locationLabel(f.location)} source={f.location.snippet && f.location.snippet.lines.length > 0 ? { lines: f.location.snippet.lines, startLine: f.location.snippet.startLine, flaggedStart: f.location.startLine ?? f.location.snippet.startLine, flaggedEnd: f.location.endLine ?? f.location.startLine ?? f.location.snippet.startLine } : undefined} onRegenerate={onRemediate} />) : null)}
             <MitigationPanel finding={f} />
             {f.remediation && <p className="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-gray-300"><span className="font-semibold text-gray-500">Scanner note: </span>{f.remediation}</p>}
+          </Section>
+        )}
+
+        {f.category === "CLOUD" && (
+          <Section title="Approved remediation">
+            <CloudRemediationPanel finding={f.id} runId={runId} targetId={origin?.targetId} canApply={!!canRemediate} />
           </Section>
         )}
 

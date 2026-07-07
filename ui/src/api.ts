@@ -352,6 +352,25 @@ export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "inf
 // --- New TypeScript types (exact JSON contract from the Go server) ---
 
 export interface UserInfo { id: string; username: string; role: string; createdAt: string; }
+// A curated cloud remediation applicable to a finding. Commands are argv
+// arrays (never a shell string), resolved server-side from the catalog.
+export interface CloudRemediation {
+  id: string;
+  title: string;
+  description: string;
+  dryRun: string[][];
+  apply: string[][];
+  reversible: boolean;
+  reversalNote?: string;
+  permissions: string[];
+  region?: string;
+}
+export interface CloudRemediateResult {
+  results: { command: string[]; output: string; error?: string }[];
+  applied: boolean;
+  reScanHint: string;
+}
+
 export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; githubRepo?: string; ssoEnabled?: boolean; }
 
 // SSO (OIDC) admin configuration. The client secret is never here — the UI
@@ -553,6 +572,11 @@ export const opsApi = {
 
   postureSummary: (targetId: string, runId: string): Promise<{ summary: string; model: string }> =>
     send<{ summary: string; model: string }>("POST", "api/cloud/posture-summary", { targetId, runId }),
+
+  cloudRemediations: (req: { targetId?: string; runId: string; findingId: string }): Promise<{ remediations: CloudRemediation[]; enabled: boolean }> =>
+    send<{ remediations: CloudRemediation[]; enabled: boolean }>("POST", "api/cloud/remediations", req),
+  cloudRemediate: (req: { targetId?: string; runId: string; findingId: string; remediationId: string; mode: "dryrun" | "apply"; profile: string }): Promise<CloudRemediateResult> =>
+    send<CloudRemediateResult>("POST", "api/cloud/remediate", req),
 
   deleteTarget: (id: string): Promise<void> =>
     send<void>("DELETE", `api/targets/${encodeURIComponent(id)}`),

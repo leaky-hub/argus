@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +71,8 @@ func (s *Server) handleTickets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTickets(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	tickets, err := s.tickets.List(ticket.ListFilter{
-		Status: q.Get("status"), TargetID: q.Get("target"), Assignee: q.Get("assignee"),
+		Status: q.Get("status"), TargetID: q.Get("target"),
+		Assignee: q.Get("assignee"), Priority: q.Get("priority"),
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list tickets")
@@ -502,6 +504,48 @@ func (s *Server) writeTicketErr(w http.ResponseWriter, err error) {
 		return
 	}
 	writeErr(w, http.StatusBadRequest, err.Error())
+}
+
+// handleWorkSummary: GET the ticket and threat status rollup for the Overview
+// widget — counts only, no content, viewer-readable like the ticket list.
+func (s *Server) handleWorkSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	out := map[string]map[string]int{"tickets": {}, "threats": {}}
+	if s.tickets != nil {
+		if c, err := s.tickets.StatusCounts(); err == nil {
+			out["tickets"] = c
+		}
+	}
+	if s.threats != nil {
+		if c, err := s.threats.ThreatStatusCounts(); err == nil {
+			out["threats"] = c
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleUserNames: GET just the usernames (no roles, no hashes, no ids) so an
+// operator can pick an assignee. Deliberately weaker than admin-only
+// /api/users: the roster is already visible to operators through ticket
+// assignees and created-by fields; roles and credentials stay admin-only.
+func (s *Server) handleUserNames(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	names := []string{}
+	if s.users != nil {
+		if list, err := s.users.List(); err == nil {
+			for _, u := range list {
+				names = append(names, u.Username)
+			}
+		}
+	}
+	sort.Strings(names)
+	writeJSON(w, http.StatusOK, map[string][]string{"names": names})
 }
 
 // addWorkItemsToReport fills the exported report's ticket and threat-model

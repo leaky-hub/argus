@@ -230,6 +230,7 @@ type ListFilter struct {
 	Status   string
 	TargetID string
 	Assignee string
+	Priority string
 }
 
 // List returns tickets newest-updated first, applying any filter fields.
@@ -248,6 +249,10 @@ func (s *Store) List(f ListFilter) ([]Ticket, error) {
 	if f.Assignee != "" {
 		where = append(where, "assignee = ?")
 		args = append(args, f.Assignee)
+	}
+	if f.Priority != "" {
+		where = append(where, "priority = ?")
+		args = append(args, f.Priority)
 	}
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
@@ -305,6 +310,26 @@ func (s *Store) Links(ticketID string) ([]Link, error) {
 			return nil, err
 		}
 		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// StatusCounts returns how many tickets are in each status, for the Overview
+// work widget.
+func (s *Store) StatusCounts() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM tickets GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("ticket: counts: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
 	}
 	return out, rows.Err()
 }

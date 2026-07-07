@@ -580,13 +580,18 @@ export const opsApi = {
     send<{ updated: number }>("POST", "api/dispositions/bulk", req),
 
   // --- Ticketing ---
-  tickets: (filter?: { status?: string; assignee?: string }): Promise<{ tickets: TicketView[] }> => {
+  tickets: (filter?: { status?: string; assignee?: string; priority?: string }): Promise<{ tickets: TicketView[] }> => {
     const q = new URLSearchParams();
     if (filter?.status) q.set("status", filter.status);
     if (filter?.assignee) q.set("assignee", filter.assignee);
+    if (filter?.priority) q.set("priority", filter.priority);
     const qs = q.toString();
     return send<{ tickets: TicketView[] }>("GET", `api/tickets${qs ? `?${qs}` : ""}`);
   },
+  workSummary: (): Promise<{ tickets: Record<string, number>; threats: Record<string, number> }> =>
+    send<{ tickets: Record<string, number>; threats: Record<string, number> }>("GET", "api/work-summary"),
+  userNames: (): Promise<{ names: string[] }> =>
+    send<{ names: string[] }>("GET", "api/users/names"),
   ticket: (id: string): Promise<TicketDetail> =>
     send<TicketDetail>("GET", `api/tickets/${encodeURIComponent(id)}`),
   createTicket: (req: { title: string; description?: string; priority?: string; assignee?: string; targetId?: string; findingIds?: string[] }): Promise<Ticket> =>

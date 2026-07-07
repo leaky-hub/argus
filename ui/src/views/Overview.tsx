@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -10,16 +11,55 @@ import {
   Bar,
   Cell,
 } from "recharts";
-import { SummaryResponse } from "../api";
+import { SummaryResponse, opsApi } from "../api";
 import { Panel, StatCard, SeverityDonut, GateBadge, EmptyState, CategoryBreakdown } from "../components";
 import { OWASP_COLORS, SEV_COLOR, DISPOSITION_LABEL, fmtTime } from "../theme";
 import { CompliancePanel } from "./CompliancePanel";
 
-export function Overview({ summary, onSelectFramework, onSelectSeverity, onSelectStatus }: {
+// WorkInFlight is the tickets-and-threats rollup tying the two work pillars
+// back to the portfolio: how much triage output is actually being worked.
+// Self-fetching so Overview's summary contract stays untouched; renders
+// nothing until the counts arrive (and nothing at all on error).
+function WorkInFlight({ onGoTo }: { onGoTo?: (tab: "tickets" | "threats") => void }) {
+  const [counts, setCounts] = useState<{ tickets: Record<string, number>; threats: Record<string, number> } | null>(null);
+  useEffect(() => {
+    let live = true;
+    opsApi.workSummary().then((c) => live && setCounts(c)).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!counts) return null;
+  const t = counts.tickets, th = counts.threats;
+  const openTickets = (t["open"] ?? 0) + (t["in-progress"] ?? 0) + (t["blocked"] ?? 0);
+  const openThreats = th["open"] ?? 0;
+  if (openTickets === 0 && openThreats === 0 && (t["done"] ?? 0) === 0 && Object.keys(th).length === 0) return null;
+  const cell = (n: number, label: string, sub: string, tab: "tickets" | "threats") => (
+    <button
+      onClick={onGoTo ? () => onGoTo(tab) : undefined}
+      disabled={!onGoTo}
+      className={`flex min-w-[120px] flex-col items-start rounded-lg bg-gray-50 px-3 py-2 text-left dark:bg-gray-800/60 ${onGoTo ? "cursor-pointer hover:brightness-95" : "cursor-default"}`}
+      title={onGoTo ? `Open the ${tab} tab` : undefined}
+    >
+      <span className="text-lg font-bold tabular-nums">{n}</span>
+      <span className="text-xs font-medium">{label}</span>
+      <span className="text-[11px] text-gray-400">{sub}</span>
+    </button>
+  );
+  return (
+    <Panel title="Work in flight">
+      <div className="flex flex-wrap gap-2">
+        {cell(openTickets, "open tickets", `${t["blocked"] ?? 0} blocked · ${t["done"] ?? 0} done`, "tickets")}
+        {cell(openThreats, "open threats", `${th["mitigated"] ?? 0} mitigated · ${th["accepted"] ?? 0} accepted`, "threats")}
+      </div>
+    </Panel>
+  );
+}
+
+export function Overview({ summary, onSelectFramework, onSelectSeverity, onSelectStatus, onGoTo }: {
   summary: SummaryResponse;
   onSelectFramework?: (id: string) => void;
   onSelectSeverity?: (sev: string) => void;
   onSelectStatus?: (status: string) => void;
+  onGoTo?: (tab: "tickets" | "threats") => void;
 }) {
   if (summary.runCount === 0) {
     return (
@@ -109,6 +149,8 @@ export function Overview({ summary, onSelectFramework, onSelectSeverity, onSelec
           </p>
         </Panel>
       )}
+
+      <WorkInFlight onGoTo={onGoTo} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Severity distribution">

@@ -4,22 +4,54 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config holds the scan configuration.
 type Config struct {
-	Scanners     []string     `yaml:"scanners"`         // subset to run; empty = all
-	Profile      string       `yaml:"profile"`          // fast|standard|max; "" = default (standard)
-	SemgrepRules []string     `yaml:"semgrep_rulesets"` // explicit semgrep pack override; empty = profile default
-	FailSeverity string       `yaml:"fail_severity"`    // critical|high|medium|low|info|none
-	IgnorePaths  []string     `yaml:"ignore_paths"`     // glob patterns to skip
-	IgnoreRules  []string     `yaml:"ignore_rules"`     // rule IDs to suppress
-	Format       string       `yaml:"format"`           // sarif|markdown|json
-	TimeoutSec   int          `yaml:"timeout"`          // per-scanner timeout, seconds
-	Triage       TriageConfig `yaml:"triage"`           // AI triage configuration
-	Cloud        CloudConfig  `yaml:"cloud"`            // cloud posture scan configuration
+	Scanners     []string        `yaml:"scanners"`         // subset to run; empty = all
+	Profile      string          `yaml:"profile"`          // fast|standard|max; "" = default (standard)
+	SemgrepRules []string        `yaml:"semgrep_rulesets"` // explicit semgrep pack override; empty = profile default
+	FailSeverity string          `yaml:"fail_severity"`    // critical|high|medium|low|info|none
+	IgnorePaths  []string        `yaml:"ignore_paths"`     // glob patterns to skip
+	IgnoreRules  []string        `yaml:"ignore_rules"`     // rule IDs to suppress
+	Format       string          `yaml:"format"`           // sarif|markdown|json
+	TimeoutSec   int             `yaml:"timeout"`          // per-scanner timeout, seconds
+	Triage       TriageConfig    `yaml:"triage"`           // AI triage configuration
+	Cloud        CloudConfig     `yaml:"cloud"`            // cloud posture scan configuration
+	Ticketing    TicketingConfig `yaml:"ticketing"`        // external issue-tracker sync (off unless configured)
+}
+
+// TicketingConfig gates external issue-tracker sync. Absent (the default)
+// means fully off: no button, no network call, nothing to leak. The token is
+// REFERENCED by env-var name and read at call time — never stored in config,
+// tickets, audit records, or logs.
+type TicketingConfig struct {
+	GitHub GitHubConfig `yaml:"github"`
+}
+
+// GitHubConfig configures create-or-link of GitHub issues from tickets.
+type GitHubConfig struct {
+	Repo     string `yaml:"repo"`      // "owner/name"; empty = sync disabled
+	TokenEnv string `yaml:"token_env"` // env var holding the token; default GITHUB_TOKEN
+}
+
+// githubRepoPattern is the closed grammar for a repo reference.
+var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+// GitHubEnabled reports whether GitHub sync is configured, after validation.
+func (c Config) GitHubEnabled() bool {
+	return c.Ticketing.GitHub.Repo != "" && githubRepoPattern.MatchString(c.Ticketing.GitHub.Repo)
+}
+
+// GitHubTokenEnv returns the env var name holding the token (never the value).
+func (c Config) GitHubTokenEnv() string {
+	if v := c.Ticketing.GitHub.TokenEnv; v != "" {
+		return v
+	}
+	return "GITHUB_TOKEN"
 }
 
 // CloudConfig holds cloud posture scan settings (schema 2.1.0). Credentials

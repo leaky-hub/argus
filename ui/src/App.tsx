@@ -574,6 +574,7 @@ export function App() {
             onSelectFramework={openFramework}
             onSelectSeverity={(sev) => drillTo("severity", sev)}
             onSelectStatus={(st) => drillTo("status", st)}
+            onGoTo={(t) => setTab(t)}
           />
         )}
         {activeTab === "findings" &&

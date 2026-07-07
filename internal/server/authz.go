@@ -63,6 +63,7 @@ var authzTable = []authzRule{
 	{http.MethodPost, "/api/dispositions/bulk", auth.RoleOperator, false}, // bulk apply/clear across a selection
 	{http.MethodDelete, "/api/dispositions/", auth.RoleOperator, false},   // clear to open
 
+	{http.MethodGet, "/api/work-summary", auth.RoleViewer, true},  // ticket/threat status counts (no content)
 	{http.MethodGet, "/api/tickets", auth.RoleViewer, true},       // list tickets
 	{http.MethodPost, "/api/tickets", auth.RoleOperator, false},   // create a ticket
 	{http.MethodGet, "/api/tickets/", auth.RoleViewer, true},      // detail + links + comments
@@ -77,6 +78,7 @@ var authzTable = []authzRule{
 	{http.MethodPost, "/api/threat-models/", auth.RoleOperator, false}, // add component/threat, enumerate, link, set status
 	{http.MethodDelete, "/api/threat-models/", auth.RoleAdmin, false},  // delete a model (admin)
 
+	{http.MethodGet, "/api/users/names", auth.RoleOperator, false}, // usernames only, for assignee pickers
 	{http.MethodGet, "/api/users", auth.RoleAdmin, false},
 	{http.MethodPost, "/api/users", auth.RoleAdmin, false},
 	{http.MethodPatch, "/api/users/", auth.RoleAdmin, false},

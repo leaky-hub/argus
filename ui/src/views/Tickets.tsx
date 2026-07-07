@@ -55,6 +55,9 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
   const [tickets, setTickets] = useState<TicketView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [names, setNames] = useState<string[]>([]);
   const [localItem, setLocalItem] = useState<string | null>(null);
   const selectedId = openItem !== undefined ? openItem || null : localItem;
   const setSelectedId = (id: string | null) => {
@@ -67,12 +70,16 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
   const toast = useToast();
   const confirm = useConfirm();
 
+  useEffect(() => {
+    opsApi.userNames().then((r) => setNames(r.names)).catch(() => {});
+  }, []);
+
   const load = useCallback(() => {
     opsApi
-      .tickets(statusFilter === "all" ? undefined : { status: statusFilter })
-      .then((r) => setTickets(r.tickets))
+      .tickets({ status: statusFilter === "all" ? undefined : statusFilter, assignee: assigneeFilter === "all" || assigneeFilter === "unassigned" ? undefined : assigneeFilter, priority: priorityFilter === "all" ? undefined : priorityFilter })
+      .then((r) => setTickets(assigneeFilter === "unassigned" ? r.tickets.filter(t => !t.assignee) : r.tickets))
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
-  }, [statusFilter]);
+  }, [statusFilter, assigneeFilter, priorityFilter]);
 
   useEffect(() => {
     load();
@@ -175,6 +182,19 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
                   <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                 ))}
               </select>
+              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={selectClass}>
+                <option value="all">all assignees</option>
+                <option value="unassigned">unassigned</option>
+                {names.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className={selectClass}>
+                <option value="all">all priorities</option>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
               {canEdit && (
                 <button onClick={() => setCreating(true)} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700">
                   New ticket
@@ -191,27 +211,39 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
                 setSelectedId(id);
                 refresh();
               }}
+              names={names}
             />
           )}
           {tickets.length === 0 && !creating ? (
             <EmptyState title="No tickets yet" hint={canEdit ? "Create one here, or from a selection in the Findings view, to start tracking work." : "An operator can open a ticket to start tracking work on findings."} />
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {tickets.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setSelectedId(t.id)}
-                  className={`flex w-full items-center gap-3 px-1 py-2 text-left ${selected?.id === t.id ? "bg-accent-100 dark:bg-accent-500/10" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}
-                >
-                  <span className="w-16 shrink-0"><PriorityTag priority={t.priority} /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{t.title}</span>
-                    <span className="font-mono text-[11px] text-gray-400">{t.id} · {t.linkCount} finding{t.linkCount === 1 ? "" : "s"}</span>
-                  </span>
-                  {t.rollup.max && <SeverityBadge severity={t.rollup.max as Severity} />}
-                  <StatusChip status={t.status} />
-                </button>
-              ))}
+              {tickets.map((t) => {
+                const daysOpen = Math.floor((Date.now() - Date.parse(t.createdAt)) / 86400000);
+                const ageLabel = daysOpen === 0 ? "today" : `${daysOpen}d`;
+                const isOverdue = t.dueDate && t.status !== "done" && new Date(t.dueDate) < new Date(new Date().toISOString().slice(0, 10));
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedId(t.id)}
+                    className={`flex w-full items-center gap-3 px-1 py-2 text-left ${selected?.id === t.id ? "bg-accent-100 dark:bg-accent-500/10" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}
+                  >
+                    <span className="w-16 shrink-0"><PriorityTag priority={t.priority} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{t.title}</span>
+                      <span className="font-mono text-[11px] text-gray-400">{t.id} · {t.linkCount} finding{t.linkCount === 1 ? "" : "s"}</span>
+                    </span>
+                    {t.rollup.max && <SeverityBadge severity={t.rollup.max as Severity} />}
+                    <StatusChip status={t.status} />
+                    {t.status !== "done" && (
+                      <>
+                        <span className="text-[11px] text-gray-400">open {ageLabel}</span>
+                        {isOverdue && <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">overdue</span>}
+                      </>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </Panel>
@@ -245,6 +277,7 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
               onComment={addComment}
               onCloseFixed={closeFixed}
               onDelete={remove}
+              names={names}
             />
           </div>
         )}
@@ -253,10 +286,11 @@ export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
   );
 }
 
-function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function CreateForm({ onClose, onCreated, names }: { onClose: () => void; onCreated: (id: string) => void; names: string[] }) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<TicketPriority>("medium");
   const [description, setDescription] = useState("");
+  const [assignee, setAssignee] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -264,7 +298,7 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: (i
     if (!title.trim()) return;
     setBusy(true);
     try {
-      const t = await opsApi.createTicket({ title, priority, description });
+      const t = await opsApi.createTicket({ title, priority, description, assignee: assignee || undefined });
       onCreated(t.id);
     } catch (e) {
       toast({ kind: "error", message: e instanceof ApiError ? e.message : String(e) });
@@ -296,6 +330,16 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: (i
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
+        <input
+          list="assignee-names"
+          value={assignee}
+          onChange={(e) => setAssignee(e.target.value)}
+          placeholder="Assignee (optional)"
+          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+        />
+        <datalist id="assignee-names">
+          {names.map((n) => <option key={n} value={n} />)}
+        </datalist>
         <span className="ml-auto flex gap-2">
           <button onClick={onClose} className="rounded-md border border-gray-300 px-2.5 py-1 text-xs dark:border-gray-700">Cancel</button>
           <button onClick={submit} disabled={busy || !title.trim()} className="rounded-md bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50">
@@ -315,6 +359,7 @@ function Detail({
   onComment,
   onCloseFixed,
   onDelete,
+  names,
 }: {
   detail: TicketDetail;
   canEdit: boolean;
@@ -323,6 +368,7 @@ function Detail({
   onComment: (body: string) => void;
   onCloseFixed: () => void;
   onDelete: () => void;
+  names: string[];
 }) {
   const [comment, setComment] = useState("");
   return (
@@ -342,11 +388,32 @@ function Detail({
             <select value={detail.priority} onChange={(e) => onPatch({ priority: e.target.value as TicketPriority })} className={selectClass}>
               {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
+            <input
+              list="assignee-names-detail"
+              key={detail.id + (detail.assignee ?? "")}
+              defaultValue={detail.assignee ?? ""}
+              onBlur={(e) => { if (e.target.value !== (detail.assignee ?? "")) onPatch({ assignee: e.target.value }); }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              placeholder="Assignee"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+            />
+            <datalist id="assignee-names-detail">
+              {names.map((n) => <option key={n} value={n} />)}
+            </datalist>
+            <input
+              type="date"
+              key={detail.id + (detail.dueDate ?? "") + "-due"}
+              defaultValue={detail.dueDate ?? ""}
+              onBlur={(e) => { if (e.target.value !== (detail.dueDate ?? "")) onPatch({ dueDate: e.target.value }); }}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+            />
           </>
         ) : (
           <>
             <StatusChip status={detail.status} />
             <PriorityTag priority={detail.priority} />
+            {detail.assignee && <span className="text-xs text-gray-500">assigned to {detail.assignee}</span>}
+            {detail.dueDate && <span className="text-xs text-gray-500">due {detail.dueDate}</span>}
           </>
         )}
         {detail.rollup.max && (
@@ -422,3 +489,4 @@ function Detail({
     </Panel>
   );
 }
+

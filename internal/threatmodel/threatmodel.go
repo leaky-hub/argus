@@ -354,6 +354,26 @@ func threatsOf(q dbtx, modelID string) ([]Threat, error) {
 	return out, rows.Err()
 }
 
+// ThreatStatusCounts returns how many threats are in each status across every
+// model, for the Overview work widget.
+func (s *Store) ThreatStatusCounts() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM threats GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("threatmodel: counts: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, rows.Err()
+}
+
 // SetThreatStatus updates a threat's human status (open/mitigated/accepted/
 // transferred). Scoped to modelID so a caller can only move threats of the
 // model it addressed (and the audit trail records the right model).

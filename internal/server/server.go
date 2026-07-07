@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
 	mux.HandleFunc("/api/users", s.handleUsers)                          // GET list, POST create (admin)
+	mux.HandleFunc("/api/users/names", s.handleUserNames)                // GET usernames only (operator, for assignee pickers)
 	mux.HandleFunc("/api/users/", s.handleUserByID)                      // PATCH, DELETE (admin)
 	mux.HandleFunc("/api/targets", s.handleTargets)                      // GET (viewer), POST (admin)
 	mux.HandleFunc("/api/targets/", s.handleTargetByID)                  // DELETE (admin)
@@ -133,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)        // DELETE (operator): clear back to open
 	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
 	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/work-summary", s.handleWorkSummary)             // GET ticket/threat status counts (viewer)
 	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths
 	mux.HandleFunc("/api/threat-models", s.handleThreatModels)           // GET list (viewer), POST create (operator)
 	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)       // GET/DELETE + subaction POSTs

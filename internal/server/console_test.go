@@ -224,6 +224,8 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/scans", 401, 403, pass, pass},
 		{"POST", "/api/explain", 401, 403, pass, pass},
 
+		{"GET", "/api/users/names", 401, 403, pass, pass}, // usernames only: operator
+		{"GET", "/api/work-summary", 401, pass, pass, pass},
 		{"GET", "/api/users", 401, 403, 403, pass},
 		{"POST", "/api/users", 401, 403, 403, pass},
 		{"PATCH", "/api/users/u-000000", 401, 403, 403, pass},

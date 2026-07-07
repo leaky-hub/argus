@@ -19,8 +19,8 @@ and are overridable per repo via `semgrep_rulesets:`.
 | Profile | semgrep packs | Intended use | Relative cost |
 |---|---|---|---|
 | `fast` | `p/ci` | tight PR gates, low noise | fastest |
-| `standard` | `p/security-audit`, `p/owasp-top-ten`, `p/python`, `p/javascript`, `p/typescript`, `p/golang`, `p/java`, `p/csharp`, `p/ruby`, `p/php`, `p/kotlin`, `p/rust`, `p/scala` | default: broad multi-language audit | ~1 pack-set, moderate |
-| `max` | `p/security-audit`, `p/owasp-top-ten`, `p/python`, `p/javascript`, `p/typescript`, `p/golang`, `p/java`, `p/csharp`, `p/ruby`, `p/php`, `p/kotlin`, `p/rust`, `p/scala`, `p/default`, `p/secrets`, `p/gosec`, `p/nodejsscan`, `p/react`, `p/command-injection`, `p/sql-injection`, `p/xss`, `p/jwt`, `p/insecure-transport`, `p/bandit`, `p/findsecbugs`, `p/security-code-scan`, `p/mobsfscan`, `p/phpcs-security-audit` | deep audit; recall over noise (triage handles FPs) | highest (adds p/default) |
+| `standard` | `p/security-audit`, `p/owasp-top-ten`, `p/python`, `p/javascript`, `p/typescript`, `p/golang`, `p/java`, `p/csharp`, `p/ruby`, `p/php`, `p/kotlin`, `p/rust`, `p/scala`, `argus/curated` | default: broad multi-language audit | ~1 pack-set, moderate |
+| `max` | `p/security-audit`, `p/owasp-top-ten`, `p/python`, `p/javascript`, `p/typescript`, `p/golang`, `p/java`, `p/csharp`, `p/ruby`, `p/php`, `p/kotlin`, `p/rust`, `p/scala`, `argus/curated`, `p/default`, `p/secrets`, `p/gosec`, `p/nodejsscan`, `p/react`, `p/command-injection`, `p/sql-injection`, `p/xss`, `p/jwt`, `p/insecure-transport`, `p/bandit`, `p/findsecbugs`, `p/security-code-scan`, `p/mobsfscan`, `p/phpcs-security-audit` | deep audit; recall over noise (triage handles FPs) | highest (adds p/default) |
 
 ## Language × weakness coverage
 
@@ -29,34 +29,36 @@ and are overridable per repo via `semgrep_rulesets:`.
 | Language | SQL Injection | Command Injection | Code Injection | XSS | Deserialization | Weak Crypto |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Python | ◐ | ✅ | · | · | · | ✅ |
-| JavaScript | · | ✅ | ✅ | ✅ | · | · |
+| JavaScript | ✅ | ✅ | ✅ | ✅ | · | · |
 | TypeScript | · | ✅ | · | · | · | ◐ |
-| Go | ✅ | · | · | · | · | ✅ |
+| Go | ✅ | ✅ | · | · | · | ✅ |
 | Java | ✅ | ◐ | · | · | ✅ | · |
 | C# | ✅ | ◐ | · | · | · | · |
 | Ruby | ✅ | · | ✅ | ✅ | ✅ | · |
 | PHP | ✅ | ✅ | ✅ | ✅ | · | · |
-| Kotlin | · | ◐ | · | · | · | ✅ |
+| Kotlin | ✅ | ◐ | · | · | · | ✅ |
 | Rust | · | · | · | · | · | · |
 | Scala | ✅ | · | · | · | · | · |
 | C | · | · | · | · | · | · |
+| Swift | ✅ | ✅ | · | · | · | ✅ |
 
 ## Canaries (regression guard)
 
 Each is asserted detected under `standard` by `TestPolyglotCoverage`:
 
-- **Python**: OS command injection (CWE-78); Weak hash (MD5) (CWE-327)
-- **JavaScript**: OS command injection (CWE-78); Cross-site scripting (CWE-79); Code injection (eval) (CWE-95)
+- **Python**: OS command injection (CWE-78); Weak hash (MD5) (CWE-327); Path traversal (unsanitized join; argus/curated) (CWE-22)
+- **JavaScript**: OS command injection (CWE-78); Cross-site scripting (CWE-79); Code injection (eval) (CWE-95); SQL injection (tainted query string; argus/curated) (CWE-89)
 - **TypeScript**: OS command injection (CWE-78)
-- **Go**: SQL injection (CWE-89); Weak hash (MD5) (CWE-328)
+- **Go**: SQL injection (CWE-89); Weak hash (MD5) (CWE-328); OS command injection (shell string; argus/curated) (CWE-78)
 - **Java**: SQL injection (CWE-89); Insecure deserialization (CWE-502)
 - **C#**: SQL injection (CWE-89)
 - **Ruby**: SQL injection (CWE-89); Cross-site scripting (CWE-79); Code injection (CWE-94); Insecure deserialization (CWE-502)
 - **PHP**: OS command injection (CWE-78); Cross-site scripting (CWE-79); SQL injection (CWE-89); Code injection (CWE-94)
-- **Kotlin**: Weak hash (MD5) (CWE-328)
+- **Kotlin**: Weak hash (MD5) (CWE-328); SQL injection (concatenated statement; argus/curated) (CWE-89)
 - **Rust**: Reliance on untrusted input in a security decision (CWE-807); Use of inherently dangerous function (unsafe) (CWE-242)
 - **Scala**: SQL injection (tainted interpolation) (CWE-89)
 - **C**: Use of dangerous function (gets) (CWE-676)
+- **Swift**: SQL injection (interpolated statement; argus/curated) (CWE-89); OS command injection (shell string; argus/curated) (CWE-78); Weak hash (MD5; argus/curated) (CWE-328); TLS validation disabled (argus/curated) (CWE-295); Hardcoded credential (argus/curated) (CWE-798)
 
 ## Known gaps (honest accounting)
 
@@ -66,22 +68,32 @@ None among the labeled classes: every weakness class shown is caught by at least
 
 - **semgrep (SAST)**: the breadth engine. `standard` runs a security-audit +
   OWASP-Top-Ten base plus a per-language pack for Python, JS, TS, Go, Java, C#,
-  Ruby, PHP, Kotlin, **Rust** (`p/rust`), and **Scala** (`p/scala`). `max` adds
-  `p/default`, `p/secrets`, `p/gosec`, and framework/category packs, which is
-  what lifts Kotlin command injection, Python string-format SQLi, and TS
-  weak-crypto into coverage (see ◐ cells).
-- **New languages (cloud-posture session), honest accounting.** Five were
-  evaluated against the earn-your-slot bar (a pack lands only with a fixture
-  plant it detects). **Rust** and **Scala** landed with dedicated packs
-  (`p/rust`: untrusted-input CWE-807, unsafe-usage CWE-242; `p/scala`:
-  tainted-sql-string CWE-89). **C** landed too, but through
+  Ruby, PHP, Kotlin, **Rust** (`p/rust`), and **Scala** (`p/scala`), plus the
+  **argus/curated** local ruleset (below). `max` adds `p/default`, `p/secrets`,
+  `p/gosec`, and framework/category packs, which is what lifts Kotlin command
+  injection, Python string-format SQLi, and TS weak-crypto into coverage
+  (see ◐ cells).
+- **argus/curated (local rules, detection-depth session).** The platform's own
+  vetted rules (`internal/scanner/rules/curated.yaml`, embedded in the binary,
+  never fetched) close gaps every registry pack provably missed: Python path
+  traversal (CWE-22), Go shell command injection (CWE-78), JavaScript SQLi
+  through a query string (CWE-89), Kotlin concatenated-statement SQLi (CWE-89)
+  and predictable PRNG (CWE-330), PHP extract() (CWE-621) and rand() tokens
+  (CWE-330), and all five Swift plants (SQLi, shell cmdi, MD5, disabled TLS
+  validation, hardcoded credential). Every rule holds the same earn-your-slot
+  bar as a pack, per rule, via TestProfileRecall, and each class has a
+  safe-code PLANT-FP counterpart that must stay unflagged.
+- **New languages, honest accounting.** **Rust** and **Scala** landed with
+  dedicated packs (`p/rust`: untrusted-input CWE-807, unsafe-usage CWE-242;
+  `p/scala`: tainted-sql-string CWE-89). **C** landed through
   `p/security-audit`'s own C rules (`insecure-use-gets-fn`, CWE-676); a
   dedicated `p/c` added nothing over it on the plants, so it was NOT added.
-  **Swift** and **Elixir** did NOT land: `p/swift` and `p/elixir` (thin
-  registry packs) caught none of their fixture plants even with `p/default`;
-  their fixtures remain as `PLANT-GAP` documentation and `.swift`/`.ex` stay
-  "unsupported source" in skip accounting. Nothing is claimed that a scan
-  did not prove.
+  **Swift** landed via argus/curated after `p/swift` caught none of its
+  plants. **Elixir** did NOT land and cannot on the OSS engine: parsing
+  Elixir is a Pro-only plugin (every elixir rule errors with MissingPlugin),
+  so neither registry packs nor local rules can cover it; its fixture stays
+  `PLANT-GAP` documentation and `.ex`/`.exs` stay "unsupported source" in
+  skip accounting. Nothing is claimed that a scan did not prove.
 - **gitleaks (SECRET)**: default ruleset (100+ credential patterns) is
   sufficient; secret material is redacted before it ever reaches a report or an
   LLM. No per-language tuning needed: secrets are language-agnostic.
@@ -137,8 +149,8 @@ every profile. Counts below are from the live scan that generated this file.
 
 | Profile | Findings pre-correlate | Post-correlate | Duplicates collapsed | Findings per plant (post) | Safe-code false flags |
 |---|---:|---:|---:|---:|---:|
-| `standard` | 36 | 33 | 3 | 0.8 | 0/7 |
-| `max` | 90 | 62 | 28 | 1.6 | 1/7 |
+| `standard` | 48 | 45 | 3 | 0.9 | 0/15 |
+| `max` | 102 | 74 | 28 | 1.4 | 1/15 |
 
 **Safe-code false flags** is the precision metric (locked decision 2): the
 number of labeled `PLANT-FP` safe-code plants (parameterized SQL, constant

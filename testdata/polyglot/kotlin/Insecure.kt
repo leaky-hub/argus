@@ -8,6 +8,6 @@ fun weakEcbCipher(): Cipher {
 }
 
 fun token(): String {
-    // PLANT-GAP: predictable PRNG for a security token (CWE-330) — caught by no profile
+    // PLANT(kt-weak-random, min-profile=standard, CWE-330): predictable PRNG for a security token (caught by argus/curated)
     return Random().nextInt().toString()
 }

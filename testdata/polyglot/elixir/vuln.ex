@@ -1,11 +1,14 @@
 # Deliberately vulnerable appsec fixture. Every issue is planted. DO NOT fix.
 # Never compiled; exists only to be scanned by semgrep.
 #
-# Elixir DID NOT LAND this session: p/elixir (a thin registry pack) plus
-# p/default caught NONE of the plants below. Per the earn-your-slot bar the
-# language is not claimed as supported — .ex/.exs stay "unsupported source"
-# in skip accounting, and every plant here is an honest PLANT-GAP. Documented
-# in docs/coverage.md and the PR, not silently dropped.
+# Elixir DID NOT LAND, and cannot with the OSS engine: the registry packs
+# (p/elixir, p/default) caught none of the plants below, and semgrep's
+# open-source engine has no Elixir parser at all (parsing .ex is a Pro-only
+# plugin; every elixir rule errors with MissingPlugin), so curated local
+# rules cannot cover it either. Per the earn-your-slot bar the language is
+# not claimed as supported. .ex/.exs stay "unsupported source" in skip
+# accounting, and every plant here is an honest PLANT-GAP. Documented in
+# docs/coverage.md, not silently dropped.
 
 defmodule Vuln do
   import Ecto.Query

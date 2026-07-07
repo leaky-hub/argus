@@ -12,7 +12,7 @@ fun osCommandInjection(userInput: String) {
 }
 
 fun sqlInjection(userInput: String) {
-    // PLANT-GAP: SQL injection via Statement.executeQuery with concatenated user input (CWE-89) — caught by no profile
+    // PLANT(kt-sqli, min-profile=standard, CWE-89): SQL injection via Statement.executeQuery with concatenated user input (caught by argus/curated)
     val url = "jdbc:h2:mem:test"
     val conn = DriverManager.getConnection(url, "sa", "")
     val stmt = conn.createStatement()

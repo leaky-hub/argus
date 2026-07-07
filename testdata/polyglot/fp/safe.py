@@ -4,9 +4,10 @@
 # a profile flags it, that is a measured false positive (reported per-profile
 # in docs/coverage.md), never a hidden one. Precision is measured, not asserted.
 
-import subprocess
-import sqlite3
 import hashlib
+import os
+import sqlite3
+import subprocess
 
 
 def safe_sql(conn: sqlite3.Connection, username: str):
@@ -27,3 +28,10 @@ def safe_hash(data: bytes):
     # PLANT-FP(py-safe-hash, CWE-328): SHA-256 for integrity is a strong hash,
     # not a weak-crypto finding.
     return hashlib.sha256(data).hexdigest()
+
+
+def safe_read(filename: str):
+    # PLANT-FP(py-safe-path, CWE-22): the joined value is reduced to its base
+    # name first, so it cannot climb out of the base directory.
+    with open(os.path.join("/var/data", os.path.basename(filename))) as fh:
+        return fh.read()

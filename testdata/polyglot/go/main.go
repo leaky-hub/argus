@@ -19,7 +19,7 @@ func main() {
 	query := fmt.Sprintf("SELECT * FROM users WHERE name = '%s'", userInput)
 	_, _ = db.Query(query)
 
-	// PLANT-GAP: OS command injection via a shell with concatenated input (CWE-78) — caught by no profile
+	// PLANT(go-shell-cmdi, min-profile=standard, CWE-78): OS command injection via a shell with concatenated input (caught by argus/curated)
 	cmd := exec.Command("bash", "-c", "echo "+userInput)
 	_ = cmd.Run()
 

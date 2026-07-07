@@ -46,7 +46,7 @@ func GenerateNoiseSection(stats []NoiseStats) string {
 	b.WriteString("number of labeled `PLANT-FP` safe-code plants (parameterized SQL, constant\n")
 	b.WriteString("shell args, strong hashes, vendor example keys in tests) a profile wrongly\n")
 	b.WriteString("flagged for the class they resemble. It is MEASURED, not asserted, and not\n")
-	b.WriteString("suppressed — a deterministic rule never drops a finding for looking like an\n")
+	b.WriteString("suppressed: a deterministic rule never drops a finding for looking like an\n")
 	b.WriteString("FP; triage (the LLM oracle) and `--exclude-fp` are the only removal paths.\n\n")
 	return b.String()
 }

@@ -122,6 +122,7 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 	case sub == "components" && r.Method == http.MethodPost:
 		var req struct {
 			Kind, Name, Tech, Notes, Source, ComponentID string
+			X, Y                                         *float64
 			Remove                                       bool
 		}
 		if err := decodeBody(w, r, &req, 1<<20); err != nil {
@@ -138,13 +139,29 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
+		// An existing component id (without remove) is an edit: rename / re-kind
+		// / re-tech from the canvas or list.
+		if req.ComponentID != "" {
+			c, err := s.threats.UpdateComponent(id, req.ComponentID, req.Kind, req.Name, req.Tech, req.Notes, now)
+			if err != nil {
+				s.writeThreatErr(w, err)
+				return
+			}
+			s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "update-component"})
+			writeJSON(w, http.StatusOK, c)
+			return
+		}
 		// API callers add by hand or confirm an LLM proposal; "detected" is
 		// reserved for the server's own IaC scan.
 		source := "manual"
 		if req.Source == "assisted" {
 			source = "assisted"
 		}
-		c, err := s.threats.AddComponent(id, req.Kind, req.Name, req.Tech, req.Notes, source, now)
+		x, y := -1.0, -1.0
+		if req.X != nil && req.Y != nil {
+			x, y = *req.X, *req.Y
+		}
+		c, err := s.threats.AddComponent(id, req.Kind, req.Name, req.Tech, req.Notes, source, x, y, now)
 		if err != nil {
 			s.writeThreatErr(w, err)
 			return
@@ -201,6 +218,7 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 			Positions []struct {
 				ComponentID string
 				X, Y        float64
+				W, H        *float64
 			}
 		}
 		if err := decodeBody(w, r, &req, 1<<20); err != nil {
@@ -212,7 +230,14 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		}
 		saved := 0
 		for _, p := range req.Positions {
-			if err := s.threats.SetComponentPosition(id, p.ComponentID, p.X, p.Y, now); err == nil {
+			w2, h2 := -1.0, -1.0
+			if p.W != nil {
+				w2 = *p.W
+			}
+			if p.H != nil {
+				h2 = *p.H
+			}
+			if err := s.threats.SetComponentGeometry(id, p.ComponentID, p.X, p.Y, w2, h2, now); err == nil {
 				saved++
 			}
 		}
@@ -325,7 +350,7 @@ func (s *Server) threatModelFromTarget(w http.ResponseWriter, r *http.Request, a
 	}
 	threatCount := 0
 	for _, c := range comps {
-		comp, err := s.threats.AddComponent(m.ID, "component", c.Name, c.Tech, "from "+c.Source, "detected", now)
+		comp, err := s.threats.AddComponent(m.ID, "component", c.Name, c.Tech, "from "+c.Source, "detected", -1, -1, now)
 		if err != nil {
 			continue
 		}

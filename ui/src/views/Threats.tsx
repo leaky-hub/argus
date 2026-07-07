@@ -152,8 +152,17 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
   };
 
   const [view, setView] = useState<"list" | "canvas">("list");
-  const savePositions = async (positions: { componentId: string; x: number; y: number }[]) => {
+  const savePositions = async (positions: { componentId: string; x: number; y: number; w?: number; h?: number }[]) => {
     try { await opsApi.saveThreatPositions(detail.id, positions); } catch (e) { onErr(e); }
+  };
+  const addCanvasComponent = async (kind: string, x: number, y: number) => {
+    try { await opsApi.addThreatComponent(detail.id, { name: "New " + kind, kind, x, y }); onChange(); } catch (e) { onErr(e); }
+  };
+  const updateCanvasComponent = async (id: string, req: { name: string; tech?: string; kind?: string }) => {
+    try { await opsApi.updateThreatComponent(detail.id, id, req); onChange(); } catch (e) { onErr(e); }
+  };
+  const deleteCanvasComponent = async (id: string) => {
+    try { await opsApi.removeThreatComponent(detail.id, id); onChange(); } catch (e) { onErr(e); }
   };
   const addFlow = async (fromId: string, toId: string, label: string) => {
     try { await opsApi.addThreatFlow(detail.id, { fromId, toId, label: label || undefined }); onChange(); } catch (e) { onErr(e); }
@@ -248,12 +257,16 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
           <ThreatCanvas
             detail={detail}
             canEdit={canEdit}
+            library={library}
             onSavePositions={savePositions}
+            onAddComponent={addCanvasComponent}
+            onUpdateComponent={updateCanvasComponent}
+            onDeleteComponent={deleteCanvasComponent}
             onAddFlow={addFlow}
             onRemoveFlow={removeFlow}
           />
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            Drag components to arrange them; positions are saved per model. Dashed amber boxes are trust boundaries. The red badge counts a component's threats.
+            Add nodes from the toolbar and click the canvas to place them; click a node to rename, re-tech, or delete it; drag to move. Drag a selected trust boundary's corner to resize it. The red badge counts a component's threats.
           </p>
         </div>
       )}

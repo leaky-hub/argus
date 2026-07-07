@@ -248,7 +248,7 @@ export interface ThreatModel {
   createdBy?: string;
   updatedAt: string;
 }
-export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; x: number; y: number; }
+export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; x: number; y: number; w: number; h: number; }
 export interface Threat {
   id: string;
   modelId: string;
@@ -708,10 +708,12 @@ export const opsApi = {
     send<ThreatModel>("POST", "api/threat-models", req),
   deleteThreatModel: (id: string): Promise<void> =>
     send<void>("DELETE", `api/threat-models/${encodeURIComponent(id)}`),
-  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string; notes?: string; source?: string }): Promise<ThreatComponent> =>
+  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string; notes?: string; source?: string; x?: number; y?: number }): Promise<ThreatComponent> =>
     send<ThreatComponent>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, req),
   removeThreatComponent: (modelId: string, componentId: string): Promise<{ ok: boolean }> =>
     send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, { remove: true, componentId }),
+  updateThreatComponent: (modelId: string, componentId: string, req: { name: string; tech?: string; kind?: string; notes?: string }): Promise<ThreatComponent> =>
+    send<ThreatComponent>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, { componentId, ...req }),
   removeThreat: (modelId: string, threatId: string): Promise<{ ok: boolean }> =>
     send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, { remove: true, threatId }),
   suggestComponents: (modelId: string): Promise<{ suggestions: ComponentSuggestion[]; model: string }> =>
@@ -726,7 +728,7 @@ export const opsApi = {
     send<{ modelId: string; components: number; threats: number }>("POST", "api/threat-models/from-target", { targetId, name }),
   suggestThreats: (modelId: string): Promise<{ suggestions: ThreatSuggestion[]; model: string }> =>
     send<{ suggestions: ThreatSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest`, {}),
-  saveThreatPositions: (modelId: string, positions: { componentId: string; x: number; y: number }[]): Promise<{ saved: number }> =>
+  saveThreatPositions: (modelId: string, positions: { componentId: string; x: number; y: number; w?: number; h?: number }[]): Promise<{ saved: number }> =>
     send<{ saved: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/positions`, { positions }),
   addThreatFlow: (modelId: string, req: { fromId: string; toId: string; label?: string }): Promise<ThreatFlow> =>
     send<ThreatFlow>("POST", `api/threat-models/${encodeURIComponent(modelId)}/flows`, req),

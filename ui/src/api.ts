@@ -593,7 +593,7 @@ export const opsApi = {
   targets: (): Promise<TargetsResponse> => 
     send<TargetsResponse>("GET", "api/targets"),
   
-  createTarget: (t: { name: string; path?: string; url?: string; branch?: string; provider?: string; profileName?: string; regions?: string[]; scanners?: string[]; profile?: string }): Promise<Target> =>
+  createTarget: (t: { name: string; path?: string; url?: string; branch?: string; provider?: string; profileName?: string; account?: string; regions?: string[]; scanners?: string[]; profile?: string }): Promise<Target> =>
     send<Target>("POST", "api/targets", t),
 
   cloudProfiles: (): Promise<CloudProfilesResponse> =>

@@ -301,9 +301,22 @@ triage:                 # AI triage (Phase 2) — off unless enabled here or via
   max_findings: 200     # triage the N most severe findings; 0 = all
   exclude_fp: false     # opt-in: drop LLM-marked false positives from report + gate
   allow_secret_cloud: false  # opt-in: allow SECRET findings to non-local providers
+auth:                   # console single sign-on (OIDC) — off unless configured; password login always works
+  oidc:
+    issuer: https://accounts.google.com   # Google Workspace, Microsoft Entra, Okta, Auth0…
+    client_id: <public client id>
+    client_secret_env: ARGUS_OIDC_SECRET  # referenced, read at flow time — never stored
+    redirect_url: http://127.0.0.1:8080/api/auth/oidc/callback
+    allowed_domains: [example.com]        # only these email domains auto-provision (empty = none)
+    default_role: viewer                  # role for a just-in-time user; admins promote from there
+    group_claim: groups                   # optional: IdP claim carrying group names
+    role_map: { argus-admins: admin }     # optional: group → console role
 ```
 
-Suppressed findings are counted on stderr — suppression is never silent.
+Suppressed findings are counted on stderr — suppression is never silent. SSO
+is additive: configuring it adds a "Sign in with SSO" button; password login
+and `argus user add` keep working. The design is in
+[docs/roadmap-platform.md](docs/roadmap-platform.md).
 
 ## GitHub Action
 

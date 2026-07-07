@@ -1,17 +1,28 @@
-# appsec (working name: **Argus**) — one page
+# Argus, in one page
 
 **The whole codebase's security in one binary: broad detection, local-first AI
 triage, and a console the whole team can read.**
 
+## Where this comes from
+
+Every serious way to run application security comes with a bill or a catch: pay
+per seat, or ship your source to a vendor's cloud so their model can read it.
+Fine if you're a funded security team. A wall if you're a student, a solo
+founder, or a three-person IT shop. Those are the people who get breached and
+can least afford the tooling, and they're the ones told that good security is a
+procurement problem. Argus is the argument that it doesn't have to be one: a real
+appsec program, free at the core, that never leaves your machine. The rest of
+this page is how it earns that.
+
 ## The problem
 
-Security teams don't lack scanners — they drown in them. A typical org runs a
+Security teams don't lack scanners; they drown in them. A typical org runs a
 separate SAST tool, secret scanner, and dependency scanner, each with its own
 config, output format, severity scale, and dashboard. The results don't
-correlate, every tool floods the same reviewer with false positives, and the
-one artifact leadership actually wants — "are we getting better or worse?" —
+correlate, every tool floods the same reviewer with false positives, and the one
+artifact leadership actually wants, an honest "are we getting better or worse?",
 doesn't exist. Meanwhile the AI-native entrants solve the noise problem by
-shipping your source code to their cloud, which is a non-starter for exactly the
+shipping your source code to their cloud, a non-starter for exactly the
 regulated, security-conscious buyers who need it most.
 
 ## The wedge
@@ -25,12 +36,12 @@ binary, drops into any CI image and any laptop.
 
 ## Why we win (the four differentiators)
 
-1. **Breadth, proven not claimed.** SAST across nine languages out of the box,
+1. **Breadth, proven not claimed.** SAST across eleven languages out of the box,
    plus secrets and SCA, under curated `fast|standard|max` profiles. A labeled
    polyglot fixture set and a CI test assert the coverage; the matrix is
    generated from a live scan (`docs/coverage.md`), so the breadth claim is
    auditable, not marketing.
-2. **Local-first AI triage — the privacy story.** The false-positive problem is
+2. **Local-first AI triage, the privacy story.** The false-positive problem is
    real, and the answer is an LLM verdict + rationale on every finding. Ours
    defaults to a **local Ollama model**: nothing leaves the machine, secrets
    never reach a cloud, and the whole thing works air-gapped. Anthropic is an
@@ -46,7 +57,7 @@ binary, drops into any CI image and any laptop.
 
 ## The demo (10 minutes, all true)
 
-Scan a nine-language vulnerable repo → breadth surfaces 30+ findings → local AI
+Scan a multi-language vulnerable repo → breadth surfaces 30+ findings → local AI
 triage confirms the real ones and **kills the false positives with a written
 rationale**, on-device → `argus comply` reframes the same scan as an
 auditor-shaped gap report (**findings become audit evidence**) → open the
@@ -68,7 +79,7 @@ expand to the platform the CISO signs for.
 
 Phases 1–5 shipped: the scan pipeline, local AI triage + risk scoring,
 multi-language coverage + the console, IaC misconfiguration scanning, and now
-compliance mapping — **findings become audit evidence**: every finding lands
+compliance mapping. **Findings become audit evidence**: every finding lands
 on the ASVS / PCI DSS / CIS controls it violates, and `argus comply` emits
 the per-framework gap report. Roadmap: DAST, threat modeling, IAST, and the
 commercial platform layer.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  opsApi, ThreatModel, ThreatModelDetail, Threat, ThreatStatus, StrideCategory, LibraryComponent, ThreatSuggestion, ApiError,
+  opsApi, ThreatModel, ThreatModelDetail, Threat, ThreatStatus, StrideCategory, LibraryComponent, ThreatSuggestion, ApiError, ComponentSuggestion,
 } from "../api";
 import { Panel, Loading, EmptyState } from "../components";
 import { useToast, useConfirm } from "../toast";
@@ -167,22 +167,89 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
     } catch (e) { onErr(e); }
   };
 
+  const [compSuggestions, setCompSuggestions] = useState<ComponentSuggestion[] | null>(null);
+  const [compSuggesting, setCompSuggesting] = useState(false);
+  const suggestComponents = async () => {
+    setCompSuggesting(true);
+    try {
+      const r = await opsApi.suggestComponents(detail.id);
+      setCompSuggestions(r.suggestions);
+      if (r.suggestions.length === 0) onErr("The model suggested no new components.");
+    } catch (e) { onErr(e); } finally { setCompSuggesting(false); }
+  };
+  const confirmComponent = async (s: ComponentSuggestion) => {
+    try {
+      await opsApi.addThreatComponent(detail.id, { name: s.name, tech: s.tech ?? "", kind: s.kind, notes: s.rationale ?? "", source: "assisted" });
+      setCompSuggestions((prev) => prev?.filter((x) => x !== s) ?? null);
+      onChange();
+    } catch (e) { onErr(e); }
+  };
+
+  const confirmDlg = useConfirm();
+  const removeComponent = async (componentId: string) => {
+    const ok = await confirmDlg({ title: "Remove this component?", message: "Its enumerated threats are removed with it.", confirmLabel: "Remove", danger: true });
+    if (!ok) return;
+    try {
+      await opsApi.removeThreatComponent(detail.id, componentId);
+      onChange();
+    } catch (e) { onErr(e); }
+  };
+
+  const removeThreat = async (threatId: string) => {
+    const ok = await confirmDlg({ title: "Remove this threat?", message: "Links to findings are removed with it.", confirmLabel: "Remove", danger: true });
+    if (!ok) return;
+    try {
+      await opsApi.removeThreat(detail.id, threatId);
+      onChange();
+    } catch (e) { onErr(e); }
+  };
+
   return (
     <Panel title={detail.id} right={canDelete ? <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button> : undefined}>
       <h3 className="text-base font-semibold">{detail.name}</h3>
       {detail.description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{detail.description}</p>}
 
       <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Components ({detail.components.length})</div>
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Components ({detail.components.length})</div>
+          {canEdit && (
+            <button onClick={suggestComponents} disabled={compSuggesting} className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-0.5 text-[11px] font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/30" title="Ask the local LLM to propose components from the repo layout (you confirm each)">
+              {compSuggesting ? "Thinking…" : "AI suggest"}
+            </button>
+          )}
+        </div>
+        {compSuggestions && compSuggestions.length > 0 && (
+          <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-50/50 p-2 dark:bg-amber-950/20">
+            <div className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">Suggested — advisory, confirm to keep</div>
+            <ul className="space-y-1">
+              {compSuggestions.map((s, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs">
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{s.name}</span>
+                    {s.tech && <span className="ml-1 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800">{s.tech}</span>}
+                    {s.kind && s.kind !== "component" && <span className="ml-1 text-gray-400">· {s.kind}</span>}
+                    {s.rationale && <span className="block text-gray-500 dark:text-gray-400">{s.rationale}</span>}
+                  </span>
+                  <button onClick={() => confirmComponent(s)} className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-accent-700">Add</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-2 space-y-1">
           {detail.components.map((c) => (
             <div key={c.id} className="flex items-center gap-2 text-sm">
               <span className="font-medium">{c.name}</span>
               {c.tech && <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800">{c.tech}</span>}
+              {c.source === "assisted" && <span className="shrink-0 rounded border border-amber-400/50 px-1 text-[10px] text-amber-600 dark:text-amber-400">assisted</span>}
+              {c.source === "detected" && <span className="shrink-0 rounded border border-gray-400/50 px-1 text-[10px] text-gray-500 dark:border-gray-600/50 dark:text-gray-400">detected</span>}
               {canEdit && c.tech && (
                 <button onClick={() => enumerate(c.id)} className="ml-auto rounded-md border border-gray-300 px-2 py-0.5 text-[11px] hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
                   Enumerate STRIDE
                 </button>
+              )}
+              {canEdit && (
+                <button onClick={() => removeComponent(c.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-xs" title="Remove component and its threats">✕</button>
               )}
             </div>
           ))}
@@ -236,6 +303,9 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
                             </select>
                           ) : (
                             <span className="shrink-0 text-[11px] text-gray-500">{STATUS_LABEL[t.status]}</span>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => removeThreat(t.id)} className="shrink-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-xs" title="Remove threat">✕</button>
                           )}
                         </div>
                         {t.description && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t.description}</p>}

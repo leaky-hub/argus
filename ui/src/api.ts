@@ -248,7 +248,7 @@ export interface ThreatModel {
   createdBy?: string;
   updatedAt: string;
 }
-export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; }
+export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; }
 export interface Threat {
   id: string;
   modelId: string;
@@ -257,7 +257,7 @@ export interface Threat {
   title: string;
   description?: string;
   status: ThreatStatus;
-  source: "curated" | "assisted";
+  source: "curated" | "assisted" | "manual";
   mitigation?: string;
   createdAt: string;
 }
@@ -613,8 +613,14 @@ export const opsApi = {
     send<ThreatModel>("POST", "api/threat-models", req),
   deleteThreatModel: (id: string): Promise<void> =>
     send<void>("DELETE", `api/threat-models/${encodeURIComponent(id)}`),
-  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string }): Promise<ThreatComponent> =>
+  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string; notes?: string; source?: string }): Promise<ThreatComponent> =>
     send<ThreatComponent>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, req),
+  removeThreatComponent: (modelId: string, componentId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, { remove: true, componentId }),
+  removeThreat: (modelId: string, threatId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, { remove: true, threatId }),
+  suggestComponents: (modelId: string): Promise<{ suggestions: ComponentSuggestion[]; model: string }> =>
+    send<{ suggestions: ComponentSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest-components`, {}),
   enumerateComponent: (modelId: string, componentId: string): Promise<{ added: number }> =>
     send<{ added: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/enumerate`, { componentId }),
   setThreatStatus: (modelId: string, threatId: string, status: ThreatStatus): Promise<void> =>
@@ -629,3 +635,4 @@ export const opsApi = {
     send<Threat>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, req),
 };
 export interface ThreatSuggestion { category: StrideCategory; title: string; description?: string; component?: string; }
+export interface ComponentSuggestion { name: string; tech?: string; kind: string; rationale?: string; }

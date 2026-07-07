@@ -188,6 +188,8 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/remediate", 401, 403, pass, pass},
 		{"POST", "/api/validate", 401, 403, pass, pass},
 		{"POST", "/api/cloud/posture-summary", 401, 403, pass, pass},
+		{"POST", "/api/cloud/remediations", 401, 403, pass, pass},   // list fixes: operator
+		{"POST", "/api/cloud/remediate", 401, 403, 403, pass},       // execute: admin
 		{"POST", "/api/dispositions", 401, 403, pass, pass},
 		{"POST", "/api/dispositions/bulk", 401, 403, pass, pass},
 		{"DELETE", "/api/dispositions/deadbeef", 401, 403, pass, pass},

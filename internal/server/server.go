@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/leaky-hub/appsec/internal/audit"
+	"github.com/leaky-hub/appsec/internal/cloudremediate"
 	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/disposition"
 	"github.com/leaky-hub/appsec/internal/jobs"
@@ -74,6 +75,10 @@ type Server struct {
 	// githubAPIBase overrides the GitHub API endpoint IN TESTS ONLY; empty
 	// means https://api.github.com.
 	githubAPIBase string
+
+	// remediateExec overrides the cloud-remediation command executor IN TESTS
+	// ONLY; nil means the production child-process executor.
+	remediateExec cloudremediate.Executor
 
 	// OIDC (SSO) is built lazily on first use from the effective config so
 	// server start never blocks on, or fails because of, IdP reachability;
@@ -159,6 +164,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)   // POST (operator): apply/clear across a selection
 	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)        // DELETE (operator): clear back to open
 	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
+	mux.HandleFunc("/api/cloud/remediations", s.handleCloudRemediations) // POST (operator): curated fixes for a cloud finding (no execution)
+	mux.HandleFunc("/api/cloud/remediate", s.handleCloudRemediate)       // POST (admin, gated): dry-run or apply a curated fix
 	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
 	mux.HandleFunc("/api/work-summary", s.handleWorkSummary)             // GET ticket/threat status counts (viewer)
 	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths

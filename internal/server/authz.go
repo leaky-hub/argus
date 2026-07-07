@@ -61,6 +61,8 @@ var authzTable = []authzRule{
 	{http.MethodPost, "/api/remediate", auth.RoleOperator, false},
 	{http.MethodPost, "/api/validate", auth.RoleOperator, false},
 	{http.MethodPost, "/api/cloud/posture-summary", auth.RoleOperator, false},
+	{http.MethodPost, "/api/cloud/remediations", auth.RoleOperator, false},   // list curated fixes (no execution)
+	{http.MethodPost, "/api/cloud/remediate", auth.RoleAdmin, false},         // execute a curated fix (admin, config-gated)
 	{http.MethodPost, "/api/dispositions", auth.RoleOperator, false},      // set finding workflow status
 	{http.MethodPost, "/api/dispositions/bulk", auth.RoleOperator, false}, // bulk apply/clear across a selection
 	{http.MethodDelete, "/api/dispositions/", auth.RoleOperator, false},   // clear to open

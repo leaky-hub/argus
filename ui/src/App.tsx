@@ -588,6 +588,7 @@ export function App() {
               detail={latestDetail}
               origin={concreteTarget ? { targetId: concreteTarget } : undefined}
               canExplain={canExplain}
+              canRemediate={role === "admin"}
               canSuppress={role === "admin" && !!concreteTarget}
               onSuppress={handleSuppress}
               framework={findingsFramework}
@@ -614,6 +615,7 @@ export function App() {
               onBack={() => setSelectedRun(null)}
               onSelectFramework={openFramework}
               canExplain={canExplain}
+              canRemediate={role === "admin"}
               canSuppress={role === "admin" && !!concreteTarget}
               onSuppress={handleSuppress}
               framework={findingsFramework}

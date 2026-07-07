@@ -15,6 +15,7 @@ export function RunDetailView({
   onBack,
   onSelectFramework,
   canExplain,
+  canRemediate,
   canSuppress,
   onSuppress,
   framework,
@@ -31,6 +32,7 @@ export function RunDetailView({
   onBack: () => void;
   onSelectFramework?: (id: string) => void;
   canExplain?: boolean;
+  canRemediate?: boolean;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   framework: string;
@@ -85,6 +87,7 @@ export function RunDetailView({
         detail={detail}
         origin={origin}
         canExplain={canExplain}
+        canRemediate={canRemediate}
         canSuppress={canSuppress}
         onSuppress={onSuppress}
         framework={framework}

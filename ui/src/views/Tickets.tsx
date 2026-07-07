@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { opsApi, TicketView, TicketDetail, TicketStatus, TicketPriority, Severity, ApiError } from "../api";
 import { Panel, SeverityBadge, EmptyState } from "../components";
+import { SidePane } from "../SidePane";
 import { Loading } from "../components";
 import { useToast, useConfirm } from "../toast";
 import { fmtTime } from "../theme";
@@ -65,9 +66,9 @@ export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
     load();
   }, [load, reloadKey]);
 
-  // Keep a selection; default to the first ticket.
+  // No first-row default: the detail pane stays closed until a ticket is opened.
   const selected = useMemo(
-    () => tickets?.find((t) => t.id === selectedId) ?? tickets?.[0] ?? null,
+    () => tickets?.find((t) => t.id === selectedId) ?? null,
     [tickets, selectedId],
   );
 
@@ -146,8 +147,8 @@ export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
   if (tickets === null) return <Loading what="tickets" />;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      <div className="lg:col-span-3">
+    <div>
+      <div>
         <Panel
           title={`Tickets (${tickets.length})`}
           right={
@@ -200,24 +201,22 @@ export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
         </Panel>
       </div>
 
-      <div className="min-w-0 lg:col-span-2">
-        {selected && detail ? (
-          <Detail
-            key={detail.id}
-            detail={detail}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            onPatch={patch}
-            onComment={addComment}
-            onCloseFixed={closeFixed}
-            onDelete={remove}
-          />
-        ) : (
-          <Panel title="Ticket">
-            <p className="py-10 text-center text-sm text-gray-500">Select a ticket to see its findings and timeline.</p>
-          </Panel>
+      <SidePane open={!!selected} onClose={() => setSelectedId(null)} title={null}>
+        {selected && detail && (
+          <div className="p-3">
+            <Detail
+              key={detail.id}
+              detail={detail}
+              canEdit={canEdit}
+              canDelete={canDelete}
+              onPatch={patch}
+              onComment={addComment}
+              onCloseFixed={closeFixed}
+              onDelete={remove}
+            />
+          </div>
         )}
-      </div>
+      </SidePane>
     </div>
   );
 }

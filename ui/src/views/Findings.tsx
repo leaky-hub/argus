@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FixedSizeList, ListChildComponentProps } from "react-window";
 import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
+import { SidePane } from "../SidePane";
+import { exportFindingsCSV, exportFindingsJSON } from "../export";
 import { useToast } from "../toast";
 import { DISPOSITION_CHIP, DISPOSITION_LABEL, VERDICT_CHIP, VERDICT_LABEL, riskColor } from "../theme";
 
@@ -346,7 +348,8 @@ export function Findings({
       .sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0) || SEV_RANK[b.severity] - SEV_RANK[a.severity]);
   }, [detail.findings, q, sev, cat, tool, verdict, minRisk, framework, status, dispositions]);
 
-  const selected = filtered.find((f) => f.id === selectedId) ?? filtered[0] ?? null;
+  // No first-row fallback: the detail pane is closed until a row is opened.
+  const selected = filtered.find((f) => f.id === selectedId) ?? null;
 
   const allSelected = filtered.length > 0 && filtered.every((f) => selectedIds.has(f.id));
   const toggleSelectAll = () =>
@@ -447,11 +450,10 @@ export function Findings({
   return (
     <div className="space-y-4">
     {detail.coverage && <CoverageStrip cov={detail.coverage} />}
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      {/* Filter rail + list. min-w-0 so a wide code block in either column
-          scrolls inside its own overflow-x-auto instead of expanding the grid
-          track and bleeding into the neighbour. */}
-      <div className="min-w-0 lg:col-span-3">
+    <div>
+      {/* Full-width list; the detail opens in a right-anchored SidePane (below)
+          so the list stays visible and keyboard-navigable while it's open. */}
+      <div className="min-w-0">
         <Panel
           title={`Findings (${filtered.length}/${detail.findings.length})`}
           right={
@@ -508,15 +510,20 @@ export function Findings({
                 ✕ Clear filters ({activeCount})
               </button>
             )}
-            <a
-              href={api.exportUrl(detail.id, "html", origin?.targetId)}
-              target="_blank"
-              rel="noopener"
-              className="ml-auto inline-flex items-center gap-1 self-center rounded-md border border-accent-200 bg-accent-50 px-2 py-1 text-xs font-medium text-accent-700 hover:bg-accent-100 dark:border-accent-800 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:bg-accent-500/20"
-              title="Open a professional report for this run (print to PDF from the browser)"
-            >
-              ↗ Export report
-            </a>
+            <span className="ml-auto flex items-center gap-1 self-center text-xs">
+              <span className="text-gray-400">Export {filtered.length}</span>
+              <button onClick={() => exportFindingsCSV(filtered)} className="rounded-md border border-gray-300 px-1.5 py-1 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800" title="Export the filtered findings as CSV">CSV</button>
+              <button onClick={() => exportFindingsJSON(filtered)} className="rounded-md border border-gray-300 px-1.5 py-1 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800" title="Export the filtered findings as JSON">JSON</button>
+              <a
+                href={api.exportUrl(detail.id, "html", origin?.targetId)}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1 rounded-md border border-accent-200 bg-accent-50 px-2 py-1 font-medium text-accent-700 hover:bg-accent-100 dark:border-accent-800 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:bg-accent-500/20"
+                title="Open a professional report for this run (print to PDF from the browser)"
+              >
+                ↗ Report
+              </a>
+            </span>
           </div>
 
           {/* Bulk action bar: one locked write across the selection. */}
@@ -540,6 +547,10 @@ export function Findings({
               <button onClick={createTicketFromSelection} className="rounded bg-accent-600 px-1.5 py-0.5 font-semibold text-white hover:bg-accent-700">
                 Create ticket
               </button>
+              <span className="mx-1 h-4 w-px bg-gray-300 dark:bg-gray-600" />
+              <span className="text-gray-500">export</span>
+              <button onClick={() => exportFindingsCSV(filtered.filter((f) => selectedIds.has(f.id)), "argus-selection")} className="rounded bg-gray-200 px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300">CSV</button>
+              <button onClick={() => exportFindingsJSON(filtered.filter((f) => selectedIds.has(f.id)), "argus-selection")} className="rounded bg-gray-200 px-1.5 py-0.5 font-semibold text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300">JSON</button>
               <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                 Deselect
               </button>
@@ -610,11 +621,28 @@ export function Findings({
         </Panel>
       </div>
 
-      {/* Detail pane */}
-      <div className="min-w-0 lg:col-span-2">
-        {selected ? <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} /> : null}
-      </div>
     </div>
+
+      {/* Detail: a Datadog-style right-anchored pane. Opens on row click or
+          keyboard nav; the list stays live underneath. */}
+      <SidePane
+        open={!!selected}
+        onClose={() => setSelectedId(null)}
+        title={null}
+        actions={selected ? (
+          <span className="flex items-center gap-1 text-[11px]">
+            <span className="text-gray-400">Export</span>
+            <button onClick={() => exportFindingsCSV([selected])} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">CSV</button>
+            <button onClick={() => exportFindingsJSON([selected])} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">JSON</button>
+          </span>
+        ) : undefined}
+      >
+        {selected && (
+          <div className="p-4">
+            <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} />
+          </div>
+        )}
+      </SidePane>
     </div>
   );
 }

@@ -35,7 +35,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install imaging libraries (for social cards)
-        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
+        # The imaging libs all live in Ubuntu's own repos. Drop the third-party
+        # apt sources preinstalled on the runner (packages.microsoft.com and
+        # friends) before updating: when one of them serves a broken or expired
+        # signature, `apt-get update` fails the whole step and blocks the docs
+        # deploy for reasons that have nothing to do with our docs.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*microsoft*.list /etc/apt/sources.list.d/*azure*.list || true
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
 
       - name: Install Material for MkDocs
         run: pip install "mkdocs-material[imaging]>=9.5"

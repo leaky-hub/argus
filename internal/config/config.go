@@ -35,38 +35,49 @@ type AuthConfig struct {
 // Microsoft Entra ID, Okta, Auth0, …). The client secret is REFERENCED by
 // env-var name and read at flow time — never stored in config, sessions, or
 // logs, the same discipline as the GitHub token.
+// OIDCConfig carries both yaml (appsec.yml) and json (the console-managed
+// .appsec/oidc.json store) tags so the same shape serves the static file and
+// the UI-editable store.
 type OIDCConfig struct {
-	Issuer          string   `yaml:"issuer"`            // provider issuer URL; empty = SSO disabled
-	ClientID        string   `yaml:"client_id"`         // public client id
-	ClientSecretEnv string   `yaml:"client_secret_env"` // env var holding the secret; default ARGUS_OIDC_SECRET
-	RedirectURL     string   `yaml:"redirect_url"`      // absolute callback URL
-	AllowedDomains  []string `yaml:"allowed_domains"`   // JIT guard: only these email domains auto-provision; empty = deny JIT
-	DefaultRole     string   `yaml:"default_role"`      // role for a JIT-created user; default viewer
-	GroupClaim      string   `yaml:"group_claim"`       // optional claim carrying IdP groups
-	RoleMap         map[string]string `yaml:"role_map"` // optional: IdP group -> console role
+	Issuer          string            `yaml:"issuer" json:"issuer"`                     // provider issuer URL; empty = SSO disabled
+	ClientID        string            `yaml:"client_id" json:"clientId"`                // public client id
+	ClientSecretEnv string            `yaml:"client_secret_env" json:"clientSecretEnv"` // env var holding the secret; default ARGUS_OIDC_SECRET
+	RedirectURL     string            `yaml:"redirect_url" json:"redirectUrl"`          // absolute callback URL
+	AllowedDomains  []string          `yaml:"allowed_domains" json:"allowedDomains"`    // JIT guard: only these email domains auto-provision; empty = deny JIT
+	DefaultRole     string            `yaml:"default_role" json:"defaultRole"`          // role for a JIT-created user; default viewer
+	GroupClaim      string            `yaml:"group_claim" json:"groupClaim"`            // optional claim carrying IdP groups
+	RoleMap         map[string]string `yaml:"role_map" json:"roleMap"`                  // optional: IdP group -> console role
 }
 
-// OIDCEnabled reports whether SSO is configured (issuer, client id, redirect).
-func (c Config) OIDCEnabled() bool {
-	o := c.Auth.OIDC
+// Enabled reports whether SSO is configured (issuer, client id, redirect).
+func (o OIDCConfig) Enabled() bool {
 	return o.Issuer != "" && o.ClientID != "" && o.RedirectURL != ""
 }
 
-// OIDCSecretEnv returns the env var name holding the client secret.
-func (c Config) OIDCSecretEnv() string {
-	if v := c.Auth.OIDC.ClientSecretEnv; v != "" {
-		return v
+// SecretEnv returns the env var name holding the client secret.
+func (o OIDCConfig) SecretEnv() string {
+	if o.ClientSecretEnv != "" {
+		return o.ClientSecretEnv
 	}
 	return "ARGUS_OIDC_SECRET"
 }
 
-// OIDCDefaultRole returns the JIT default role, defaulting to viewer.
-func (c Config) OIDCDefaultRole() string {
-	if v := c.Auth.OIDC.DefaultRole; v != "" {
-		return v
+// EffectiveDefaultRole returns the JIT default role, defaulting to viewer.
+func (o OIDCConfig) EffectiveDefaultRole() string {
+	if o.DefaultRole != "" {
+		return o.DefaultRole
 	}
 	return "viewer"
 }
+
+// OIDCEnabled reports whether SSO is configured (issuer, client id, redirect).
+func (c Config) OIDCEnabled() bool { return c.Auth.OIDC.Enabled() }
+
+// OIDCSecretEnv returns the env var name holding the client secret.
+func (c Config) OIDCSecretEnv() string { return c.Auth.OIDC.SecretEnv() }
+
+// OIDCDefaultRole returns the JIT default role, defaulting to viewer.
+func (c Config) OIDCDefaultRole() string { return c.Auth.OIDC.EffectiveDefaultRole() }
 
 // TicketingConfig gates external issue-tracker sync. Absent (the default)
 // means fully off: no button, no network call, nothing to leak. The token is

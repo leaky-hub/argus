@@ -75,14 +75,15 @@ type Server struct {
 	// means https://api.github.com.
 	githubAPIBase string
 
-	// OIDC (SSO) is built lazily on first use from the served repo's config so
+	// OIDC (SSO) is built lazily on first use from the effective config so
 	// server start never blocks on, or fails because of, IdP reachability;
-	// password login always survives an SSO misconfiguration. The field is an
-	// interface so tests can inject a fake authenticator; production always
-	// holds an *auth.OIDCProvider.
-	oidcOnce     sync.Once
+	// password login always survives an SSO misconfiguration. A mutex (not a
+	// sync.Once) guards it so an admin config change can invalidate and rebuild
+	// the provider live. The field is an interface so tests can inject a fake.
+	oidcMu       sync.Mutex
 	oidcProvider oidcAuthenticator
 	oidcErr      error
+	oidcBuilt    bool // a build was attempted (guards "built but disabled")
 }
 
 // oidcAuthenticator is the slice of the OIDC provider the handlers use, made an
@@ -164,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/threat-models", s.handleThreatModels)           // GET list (viewer), POST create (operator)
 	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)       // GET/DELETE + subaction POSTs
 	mux.HandleFunc("/api/threat-library", s.handleThreatLibrary)         // GET (viewer): component types for the picker
+	mux.HandleFunc("/api/admin/oidc", s.handleAdminOIDC)                  // GET/PUT SSO config (admin)
 	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))

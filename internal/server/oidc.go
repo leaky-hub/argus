@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/leaky-hub/appsec/internal/audit"
-	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/server/auth"
 )
 
@@ -15,40 +14,51 @@ import (
 // header the mutation routes use. A successful callback mints the same session
 // a password login does; SSO only changes how the session is born.
 
-// oidc returns the lazily-built provider for the served repo's config, or nil
-// when SSO is not configured. Built once; a discovery failure is cached and
-// never blocks password login. Tests may inject s.oidcProvider directly.
+// oidc returns the lazily-built provider for the effective config (the console
+// store, else appsec.yml), or nil when SSO is not configured. A discovery
+// failure is cached and never blocks password login. An admin config change
+// calls invalidateOIDC to force a rebuild. Tests may inject s.oidcProvider.
 func (s *Server) oidc() (oidcAuthenticator, error) {
+	s.oidcMu.Lock()
+	defer s.oidcMu.Unlock()
 	if s.oidcProvider != nil { // test injection or already built
 		return s.oidcProvider, s.oidcErr
 	}
-	s.oidcOnce.Do(func() {
-		cfg, err := repoConfig(s.dir)
-		if err != nil {
-			cfg = config.Default()
-		}
-		if !cfg.OIDCEnabled() {
-			return
-		}
-		secret := os.Getenv(cfg.OIDCSecretEnv())
-		o := cfg.Auth.OIDC
-		p, err := auth.NewOIDCProvider(context.Background(), auth.OIDCParams{
-			Issuer:         o.Issuer,
-			ClientID:       o.ClientID,
-			ClientSecret:   secret,
-			RedirectURL:    o.RedirectURL,
-			AllowedDomains: o.AllowedDomains,
-			DefaultRole:    auth.Role(cfg.OIDCDefaultRole()),
-			GroupClaim:     o.GroupClaim,
-			RoleMap:        o.RoleMap,
-		})
-		if err != nil {
-			s.oidcErr = err
-			return
-		}
-		s.oidcProvider = p
+	if s.oidcBuilt {
+		return nil, s.oidcErr // already tried: disabled or failed
+	}
+	s.oidcBuilt = true
+	o, source := s.effectiveOIDC()
+	if source == "none" || !o.Enabled() {
+		return nil, nil
+	}
+	secret := os.Getenv(o.SecretEnv())
+	p, err := auth.NewOIDCProvider(context.Background(), auth.OIDCParams{
+		Issuer:         o.Issuer,
+		ClientID:       o.ClientID,
+		ClientSecret:   secret,
+		RedirectURL:    o.RedirectURL,
+		AllowedDomains: o.AllowedDomains,
+		DefaultRole:    auth.Role(o.EffectiveDefaultRole()),
+		GroupClaim:     o.GroupClaim,
+		RoleMap:        o.RoleMap,
 	})
-	return s.oidcProvider, s.oidcErr
+	if err != nil {
+		s.oidcErr = err
+		return nil, err
+	}
+	s.oidcProvider = p
+	return p, nil
+}
+
+// invalidateOIDC drops the cached provider so the next login rebuilds it from
+// the current config. Called after an admin config change.
+func (s *Server) invalidateOIDC() {
+	s.oidcMu.Lock()
+	s.oidcProvider = nil
+	s.oidcErr = nil
+	s.oidcBuilt = false
+	s.oidcMu.Unlock()
 }
 
 // ssoEnabled reports whether the login page should offer the SSO button. It is
@@ -58,11 +68,8 @@ func (s *Server) ssoEnabled() bool {
 	if s.users == nil {
 		return false
 	}
-	cfg, err := repoConfig(s.dir)
-	if err != nil {
-		return false
-	}
-	return cfg.OIDCEnabled()
+	o, _ := s.effectiveOIDC()
+	return o.Enabled()
 }
 
 // handleOIDCStart redirects the browser to the identity provider.

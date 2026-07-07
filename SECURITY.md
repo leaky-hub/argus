@@ -24,7 +24,7 @@ branch yet. Pin a commit if you need stability.
 
 Argus is local-first and processes hostile input (scanned code, tool output,
 LLM responses, cloud metadata). The design invariants below are enforced by
-tests — a change that breaks one should fail CI, and a report that one does
+tests: a change that breaks one should fail CI, and a report that one does
 not hold is a vulnerability:
 
 - **Credentials are referenced, never collected.** Cloud scanning takes a

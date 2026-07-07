@@ -1,0 +1,9 @@
+# Support Argus. The core stays free and local-first no matter what (see the
+# README's "Why Argus exists"); sponsorship funds the time to keep it that way
+# and to widen coverage. GitHub Sponsors is the primary channel.
+github: [leaky-hub]
+
+# Add other channels here if you set them up, e.g.:
+# open_collective: argus
+# ko_fi: yourname
+# custom: ["https://example.com/donate"]

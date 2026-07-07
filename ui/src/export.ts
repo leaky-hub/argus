@@ -29,11 +29,12 @@ const COLUMNS: { header: string; get: (f: Finding) => string }[] = [
 ];
 
 // csvCell quotes a value when it contains a comma, quote, or newline (RFC 4180),
-// doubling embedded quotes. A leading =/+/-/@ is prefixed to defuse spreadsheet
-// formula injection from hostile finding text.
+// doubling embedded quotes. A leading =/+/-/@ — or tab/CR, which Excel also
+// treats as a formula lead-in — is prefixed to defuse spreadsheet formula
+// injection from hostile finding text.
 function csvCell(value: string): string {
   let v = value ?? "";
-  if (/^[=+\-@]/.test(v)) v = "'" + v;
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
   if (/[",\n\r]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
   return v;
 }

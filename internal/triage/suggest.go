@@ -139,6 +139,14 @@ func parseSuggest(raw string) ([]SuggestedThreat, error) {
 	if err != nil {
 		return nil, fmt.Errorf("threat suggestion failed: unparseable model output")
 	}
+	// A missing/null threats field means the model ignored the output format
+	// (or a nested fallback object decoded by accident — e.g. wrong-typed
+	// fields make the outer object unparseable and firstJSONObject lands on an
+	// inner one). Report that honestly; only a present-but-empty list is a
+	// legitimate "nothing to suggest".
+	if v.Threats == nil {
+		return nil, fmt.Errorf("threat suggestion failed: model output has no threats list")
+	}
 	out := make([]SuggestedThreat, 0, len(v.Threats))
 	for _, t := range v.Threats {
 		cat := strings.ToLower(strings.TrimSpace(t.Category))

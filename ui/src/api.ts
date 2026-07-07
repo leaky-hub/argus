@@ -371,6 +371,35 @@ export interface CloudRemediateResult {
   reScanHint: string;
 }
 
+// Console-managed integration + scanning settings. Secrets are never here —
+// only env-var names, plus a read-only flag on whether each var is set.
+export interface TriageSettings {
+  enabled: boolean;
+  provider: string; // ollama | anthropic
+  model: string;
+  endpoint: string;
+  maxFindings: number;
+  excludeFp: boolean;
+}
+export interface SettingsView {
+  githubRepo: string;
+  githubTokenEnv: string;
+  githubTokenSet: boolean;
+  triage: TriageSettings;
+  anthropicKeySet: boolean;
+  scanProfile: string;
+  failSeverity: string;
+  remediationEnabled: boolean;
+}
+export interface SettingsInput {
+  githubRepo?: string;
+  githubTokenEnv?: string;
+  triage?: TriageSettings;
+  scanProfile?: string;
+  failSeverity?: string;
+  remediationEnabled?: boolean;
+}
+
 export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; githubRepo?: string; ssoEnabled?: boolean; }
 
 // SSO (OIDC) admin configuration. The client secret is never here — the UI
@@ -600,6 +629,11 @@ export const opsApi = {
   
   audit: (n = 200): Promise<AuditResponse> =>
     send<AuditResponse>(`GET`, `api/audit?n=${n}`),
+
+  getSettings: (): Promise<SettingsView> =>
+    send<SettingsView>("GET", "api/admin/settings"),
+  saveSettings: (req: SettingsInput): Promise<SettingsView> =>
+    send<SettingsView>("PUT", "api/admin/settings", req),
 
   getOIDCConfig: (): Promise<OIDCConfigView> =>
     send<OIDCConfigView>("GET", "api/admin/oidc"),

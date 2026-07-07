@@ -4,6 +4,7 @@ import { Panel, Loading, ErrorNote, EmptyState } from "../components";
 import { useConfirm } from "../toast";
 import { fmtTime } from "../theme";
 import { SSOConfigPanel } from "./SSOConfigPanel";
+import { ConsoleSettingsPanel } from "./ConsoleSettingsPanel";
 
 export function Admin({ selfUsername }: { selfUsername: string }) {
   const confirm = useConfirm();
@@ -154,6 +155,9 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
       {/* Section 2: Single sign-on (authentication config) */}
       <SSOConfigPanel />
+
+      {/* Section 2b: integrations & scanning config */}
+      <ConsoleSettingsPanel />
 
       {/* Section 3: Targets */}
       <Panel title="Targets">

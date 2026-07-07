@@ -13,6 +13,7 @@ import (
 // status, link it to a finding, then admin delete.
 func TestThreatModelLifecycle(t *testing.T) {
 	f := newConsole(t, nil)
+	_, sastID, _ := seedRun(t, f.dir)
 	admin := f.mustLogin("alice")
 	oper := f.mustLogin("oscar")
 	viewer := f.mustLogin("vera")
@@ -73,8 +74,12 @@ func TestThreatModelLifecycle(t *testing.T) {
 	if rec := f.do("POST", "/api/threat-models/"+m.ID+"/threat-status", `{"threatId":"`+th.ID+`","status":"mitigated"}`, oper); rec.Code != 200 {
 		t.Errorf("status: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := f.do("POST", "/api/threat-models/"+m.ID+"/links", `{"threatId":"`+th.ID+`","kind":"finding","ref":"fp-abc","targetId":""}`, oper); rec.Code != 200 {
+	if rec := f.do("POST", "/api/threat-models/"+m.ID+"/links", `{"threatId":"`+th.ID+`","kind":"finding","ref":"`+sastID+`","targetId":""}`, oper); rec.Code != 200 {
 		t.Errorf("link: %d %s", rec.Code, rec.Body.String())
+	}
+	// A finding link must reference a real finding in the target's latest run.
+	if rec := f.do("POST", "/api/threat-models/"+m.ID+"/links", `{"threatId":"`+th.ID+`","kind":"finding","ref":"fp-bogus","targetId":""}`, oper); rec.Code != 400 {
+		t.Errorf("garbage finding link = %d, want 400", rec.Code)
 	}
 
 	// Viewer cannot mutate; only admin deletes.

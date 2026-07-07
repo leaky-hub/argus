@@ -111,6 +111,20 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorFrom(r)
 	now := time.Now()
+	// Validate every requested link BEFORE creating the ticket: links feed the
+	// close-fixed bridge, and a failed link must not leave a half-made ticket.
+	sevCache := map[string]map[string]string{}
+	var linkIDs []string
+	for _, fid := range req.FindingIDs {
+		if strings.TrimSpace(fid) == "" {
+			continue
+		}
+		if msg := s.validateFindingLink(req.TargetID, fid, sevCache); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		linkIDs = append(linkIDs, fid)
+	}
 	t, err := s.tickets.Create(ticket.CreateInput{
 		Title: req.Title, Description: req.Description, Priority: req.Priority,
 		Assignee: req.Assignee, TargetID: req.TargetID, DueDate: req.DueDate,
@@ -119,10 +133,7 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	for _, fid := range req.FindingIDs {
-		if strings.TrimSpace(fid) == "" {
-			continue
-		}
+	for _, fid := range linkIDs {
 		if err := s.tickets.Link(t.ID, fid, req.TargetID); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -264,6 +275,12 @@ func (s *Server) ticketLink(w http.ResponseWriter, r *http.Request, id string) {
 	if req.Remove {
 		err = s.tickets.Unlink(id, req.FindingID, req.TargetID)
 	} else {
+		// Attaching requires a real finding; detaching never does (cleanup of a
+		// stale link must always work).
+		if msg := s.validateFindingLink(req.TargetID, req.FindingID, nil); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
 		err = s.tickets.Link(id, req.FindingID, req.TargetID)
 	}
 	if err != nil {
@@ -314,23 +331,43 @@ func (s *Server) ticketCloseFixed(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	links, _ := s.tickets.Links(id)
-	fixed := 0
+	fixed, skipped, kept := 0, 0, 0
+	sevCache := map[string]map[string]string{}
 	for _, l := range links {
 		store, ok := s.dispositionStoreForTarget(l.TargetID)
-		if !ok {
+		// A link the API would not accept today (unknown target, or a finding
+		// no longer in the latest run) is skipped: a "fixed" disposition for a
+		// fingerprint the runs don't show would only mislead a later reader.
+		if !ok || !s.findingInLatestRun(l.TargetID, l.FindingID, sevCache) {
+			skipped++
+			continue
+		}
+		// Never overwrite a gate-suppressing human judgment: accepted-risk and
+		// false-positive carry a justification this close must not destroy.
+		if cur, ok := store.Get(l.FindingID); ok && disposition.GateSuppressed(cur.Status) {
+			kept++
 			continue
 		}
 		if _, err := store.Set(l.FindingID, disposition.StatusFixed, "resolved via ticket "+id, actor, now); err == nil {
 			fixed++
+		} else {
+			skipped++
 		}
 	}
-	s.tickets.AddComment(id, "event", actor, "closed as done — "+itoa(fixed)+" finding(s) marked fixed", now)
-	s.audit(audit.EventTicketUpdate, actor, map[string]string{"ticket": id, "status": "done", "fixed": itoa(fixed)})
+	msg := "closed as done — " + itoa(fixed) + " finding(s) marked fixed"
+	if skipped > 0 {
+		msg += ", " + itoa(skipped) + " skipped (not in the latest run)"
+	}
+	if kept > 0 {
+		msg += ", " + itoa(kept) + " kept an existing accepted-risk/false-positive disposition"
+	}
+	s.tickets.AddComment(id, "event", actor, msg, now)
+	s.audit(audit.EventTicketUpdate, actor, map[string]string{"ticket": id, "status": "done", "fixed": itoa(fixed), "skipped": itoa(skipped), "kept": itoa(kept)})
 	// Also record the disposition writes under their own event for the audit view.
 	if fixed > 0 {
 		s.audit(audit.EventFindingDispose, actor, map[string]string{"ticket": id, "count": itoa(fixed), "status": disposition.StatusFixed, "bulk": "true"})
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"markedFixed": fixed})
+	writeJSON(w, http.StatusOK, map[string]int{"markedFixed": fixed, "skipped": skipped, "kept": kept})
 }
 
 // rollup computes a ticket's severity rollup from its links' current severities.
@@ -368,6 +405,35 @@ func storeSevCache(c map[string]map[string]string, target string, m map[string]s
 	if c != nil {
 		c[target] = m
 	}
+}
+
+// findingInLatestRun reports whether findingID appears in targetID's latest
+// run, memoizing per-target severity maps in sevCache (may be nil) exactly
+// like rollup does.
+func (s *Server) findingInLatestRun(targetID, findingID string, sevCache map[string]map[string]string) bool {
+	sevMap, ok := lookupSevCache(sevCache, targetID)
+	if !ok {
+		sevMap = s.latestSeverities(targetID)
+		storeSevCache(sevCache, targetID, sevMap)
+	}
+	return sevMap[findingID] != ""
+}
+
+// validateFindingLink decides whether a finding may be attached (to a ticket or
+// a threat): the target must resolve and the fingerprint must be in its latest
+// run, because links feed the close-fixed disposition bridge. Returns a
+// user-facing message, or "" when the link is acceptable.
+func (s *Server) validateFindingLink(targetID, findingID string, sevCache map[string]map[string]string) string {
+	if strings.TrimSpace(findingID) == "" {
+		return "findingId is required"
+	}
+	if _, ok := s.resolveRunStore(targetID); !ok {
+		return "unknown target " + strconv.Quote(targetID)
+	}
+	if !s.findingInLatestRun(targetID, findingID, sevCache) {
+		return "finding is not in the target's latest run"
+	}
+	return ""
 }
 
 // latestSeverities maps fingerprint → severity for a target's latest run (nil if

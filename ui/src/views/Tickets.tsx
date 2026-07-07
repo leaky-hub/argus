@@ -111,13 +111,17 @@ export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
     if (!selected) return;
     const ok = await confirm({
       title: "Close and mark findings fixed?",
-      message: "This marks the ticket done and sets every linked finding's disposition to “fixed”, which clears them from the gate until a re-scan confirms.",
+      message:
+        "Marks the ticket done and sets each linked finding's disposition to “fixed”. The gate still counts a fixed finding until a re-scan confirms it's gone. Findings already accepted or marked false-positive keep that disposition.",
       confirmLabel: "Close as done",
     });
     if (!ok) return;
     try {
       const r = await opsApi.ticketCloseFixed(selected.id);
-      toast({ kind: "success", message: `Closed. ${r.markedFixed} finding(s) marked fixed.` });
+      let message = `Closed. ${r.markedFixed} finding(s) marked fixed`;
+      if (r.skipped > 0) message += `, ${r.skipped} skipped (not in the latest run)`;
+      if (r.kept > 0) message += `, ${r.kept} kept an existing disposition`;
+      toast({ kind: "success", message: message + "." });
       refresh();
     } catch (e) {
       toast({ kind: "error", message: e instanceof ApiError ? e.message : String(e) });

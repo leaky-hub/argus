@@ -186,6 +186,14 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		if req.Remove {
 			err = s.threats.UnlinkThreat(req.ThreatID, req.Kind, req.Ref, req.TargetID)
 		} else {
+			// A finding link must reference a real finding, same rule as ticket
+			// links; control/mitigation refs are curated ids, checked on render.
+			if req.Kind == "finding" {
+				if msg := s.validateFindingLink(req.TargetID, req.Ref, nil); msg != "" {
+					writeErr(w, http.StatusBadRequest, msg)
+					return
+				}
+			}
 			err = s.threats.LinkThreat(req.ThreatID, req.Kind, req.Ref, req.TargetID)
 		}
 		if err != nil {

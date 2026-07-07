@@ -599,8 +599,8 @@ export const opsApi = {
     send<TicketComment>("POST", `api/tickets/${encodeURIComponent(id)}/comments`, { body }),
   ticketLink: (id: string, findingId: string, targetId?: string, remove?: boolean): Promise<{ links: TicketLink[] }> =>
     send<{ links: TicketLink[] }>("POST", `api/tickets/${encodeURIComponent(id)}/links`, { findingId, targetId, remove }),
-  ticketCloseFixed: (id: string): Promise<{ markedFixed: number }> =>
-    send<{ markedFixed: number }>("POST", `api/tickets/${encodeURIComponent(id)}/close-fixed`, {}),
+  ticketCloseFixed: (id: string): Promise<{ markedFixed: number; skipped: number; kept: number }> =>
+    send<{ markedFixed: number; skipped: number; kept: number }>("POST", `api/tickets/${encodeURIComponent(id)}/close-fixed`, {}),
 
   // --- Threat modeling ---
   threatLibrary: (): Promise<{ components: LibraryComponent[] }> =>

@@ -44,11 +44,54 @@ func TestResolveSemgrepRulesets_EmptyFallsBackToDefault(t *testing.T) {
 	}
 }
 
-func TestResolveSemgrepRulesets_OverrideWins(t *testing.T) {
+func TestResolveSemgrepRulesets_OverrideReplaces(t *testing.T) {
 	override := []string{"p/custom", "p/other"}
 	got := ResolveSemgrepRulesets(ProfileMax, override)
 	if len(got) != 2 || got[0] != "p/custom" || got[1] != "p/other" {
-		t.Errorf("override should be used verbatim, got %v", got)
+		t.Errorf("a bare override should replace the profile packs, got %v", got)
+	}
+}
+
+func TestResolveSemgrepRulesets_AdditiveMarker(t *testing.T) {
+	std := ResolveSemgrepRulesets(ProfileStandard, nil)
+	got := ResolveSemgrepRulesets(ProfileStandard, []string{"+", "./rules/custom.yml"})
+	// Additive: all standard packs, then the custom entry, deduped.
+	if len(got) != len(std)+1 {
+		t.Fatalf("additive should be profile packs + 1 custom, got %d (std=%d): %v", len(got), len(std), got)
+	}
+	if got[0] != std[0] {
+		t.Errorf("additive should lead with the profile packs, got %v", got)
+	}
+	if got[len(got)-1] != "./rules/custom.yml" {
+		t.Errorf("additive should append the custom entry last, got %v", got)
+	}
+	// The curated sentinel (a standard pack) must survive additive merging.
+	found := false
+	for _, p := range got {
+		if p == CuratedRuleset {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("additive merge dropped the argus/curated sentinel")
+	}
+}
+
+func TestResolveSemgrepRulesets_AdditiveDedupes(t *testing.T) {
+	// A custom entry that repeats a profile pack collapses to one.
+	got := ResolveSemgrepRulesets(ProfileStandard, []string{"+", "p/python"})
+	std := ResolveSemgrepRulesets(ProfileStandard, nil)
+	if len(got) != len(std) {
+		t.Errorf("additive of a pack already in the profile should not grow the list: got %d want %d", len(got), len(std))
+	}
+}
+
+func TestResolveSemgrepRulesets_BareMarkerIsProfile(t *testing.T) {
+	// A lone "+" (additive, nothing to add) resolves to the profile packs.
+	got := ResolveSemgrepRulesets(ProfileStandard, []string{"+"})
+	std := ResolveSemgrepRulesets(ProfileStandard, nil)
+	if strings.Join(got, ",") != strings.Join(std, ",") {
+		t.Errorf("bare additive marker should equal the profile packs:\n got %v\nwant %v", got, std)
 	}
 }
 

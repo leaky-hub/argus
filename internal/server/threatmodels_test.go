@@ -351,8 +351,8 @@ func TestCanvasComponentEditing(t *testing.T) {
 		t.Fatalf("create placed: %d %s", rec.Code, rec.Body.String())
 	}
 	var c struct {
-		ID      string
-		X, Y    float64
+		ID   string
+		X, Y float64
 	}
 	json.Unmarshal(rec.Body.Bytes(), &c)
 	if c.X != 120 || c.Y != 80 {
@@ -364,7 +364,10 @@ func TestCanvasComponentEditing(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
 	}
-	var up struct{ Name, Kind, Tech string; X, Y float64 }
+	var up struct {
+		Name, Kind, Tech string
+		X, Y             float64
+	}
 	json.Unmarshal(rec.Body.Bytes(), &up)
 	if up.Name != "Gateway" || up.Kind != "boundary" || up.Tech != "web-app" || up.X != 120 {
 		t.Errorf("update wrong (geometry must survive): %+v", up)
@@ -376,7 +379,9 @@ func TestCanvasComponentEditing(t *testing.T) {
 		t.Fatalf("positions: %d %s", rec.Code, rec.Body.String())
 	}
 	det := f.do("GET", "/api/threat-models/"+m.ID, "", oper)
-	var d struct{ Components []struct{ X, Y, W, H float64 } }
+	var d struct {
+		Components []struct{ X, Y, W, H float64 }
+	}
 	json.Unmarshal(det.Body.Bytes(), &d)
 	if len(d.Components) != 1 || d.Components[0].W != 340 || d.Components[0].H != 260 || d.Components[0].X != 200 {
 		t.Errorf("geometry not persisted: %+v", d.Components)

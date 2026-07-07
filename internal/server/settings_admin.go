@@ -9,6 +9,7 @@ import (
 	"github.com/leaky-hub/argus/internal/audit"
 	"github.com/leaky-hub/argus/internal/config"
 	"github.com/leaky-hub/argus/internal/model"
+	"github.com/leaky-hub/argus/internal/scanner"
 )
 
 // Admin console-settings endpoint (admin-only, audited). GET returns the
@@ -32,6 +33,11 @@ type SettingsView struct {
 	ScanProfile  string `json:"scanProfile"`
 	FailSeverity string `json:"failSeverity"`
 
+	// Custom semgrep rulesets (packs, argus/curated, or local rule paths) and
+	// whether they add to (true) or replace (false) the profile packs.
+	SemgrepRulesets         []string `json:"semgrepRulesets"`
+	SemgrepRulesetsAdditive bool     `json:"semgrepRulesetsAdditive"`
+
 	// Whether curated cloud remediation is enabled.
 	RemediationEnabled bool `json:"remediationEnabled"`
 }
@@ -49,6 +55,11 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getAdminSettings(w http.ResponseWriter, _ *http.Request) {
 	cfg := s.effectiveConfig(s.dir)
+	// Custom rulesets are reported from the console store (the raw entry list
+	// plus the additive flag), not from the effective config, so the panel
+	// round-trips exactly what the admin set rather than the "+"-marked form.
+	cs, _ := loadConsoleSettings(s.dir)
+	additive := cs.SemgrepRulesetsAdditive == nil || *cs.SemgrepRulesetsAdditive
 	writeJSON(w, http.StatusOK, SettingsView{
 		GitHubRepo:     cfg.Ticketing.GitHub.Repo,
 		GitHubTokenEnv: cfg.GitHubTokenEnv(),
@@ -61,23 +72,31 @@ func (s *Server) getAdminSettings(w http.ResponseWriter, _ *http.Request) {
 			MaxFindings: cfg.Triage.MaxFindings,
 			ExcludeFP:   cfg.Triage.ExcludeFP,
 		},
-		AnthropicKeySet:    os.Getenv("ANTHROPIC_API_KEY") != "",
-		ScanProfile:        cfg.Profile,
-		FailSeverity:       cfg.FailSeverity,
-		RemediationEnabled: cfg.Remediation.Enabled,
+		AnthropicKeySet:         os.Getenv("ANTHROPIC_API_KEY") != "",
+		ScanProfile:             cfg.Profile,
+		FailSeverity:            cfg.FailSeverity,
+		SemgrepRulesets:         cs.SemgrepRulesets,
+		SemgrepRulesetsAdditive: additive,
+		RemediationEnabled:      cfg.Remediation.Enabled,
 	})
 }
 
 // SettingsRequest is the admin PUT body. Any section left nil is not managed by
 // the console (falls back to appsec.yml). No secret values — only env names.
 type SettingsRequest struct {
-	GitHubRepo         *string         `json:"githubRepo"`
-	GitHubTokenEnv     *string         `json:"githubTokenEnv"`
-	Triage             *TriageSettings `json:"triage"`
-	ScanProfile        *string         `json:"scanProfile"`
-	FailSeverity       *string         `json:"failSeverity"`
-	RemediationEnabled *bool           `json:"remediationEnabled"`
+	GitHubRepo              *string         `json:"githubRepo"`
+	GitHubTokenEnv          *string         `json:"githubTokenEnv"`
+	Triage                  *TriageSettings `json:"triage"`
+	ScanProfile             *string         `json:"scanProfile"`
+	FailSeverity            *string         `json:"failSeverity"`
+	SemgrepRulesets         *[]string       `json:"semgrepRulesets"`
+	SemgrepRulesetsAdditive *bool           `json:"semgrepRulesetsAdditive"`
+	RemediationEnabled      *bool           `json:"remediationEnabled"`
 }
+
+// maxCustomRulesets bounds the ruleset list so a single admin edit cannot
+// queue an unbounded number of semgrep --validate subprocesses.
+const maxCustomRulesets = 50
 
 var validProfiles = map[string]bool{"": true, "fast": true, "standard": true, "max": true}
 var validProviders = map[string]bool{"": true, "ollama": true, "anthropic": true}
@@ -141,6 +160,28 @@ func (s *Server) putAdminSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		cs.FailSeverity = fs
 	}
+	if req.SemgrepRulesetsAdditive != nil {
+		cs.SemgrepRulesetsAdditive = req.SemgrepRulesetsAdditive
+	}
+	if req.SemgrepRulesets != nil {
+		cleaned := cleanRulesetList(*req.SemgrepRulesets)
+		if len(cleaned) > maxCustomRulesets {
+			writeErr(w, http.StatusBadRequest, "too many custom rulesets")
+			return
+		}
+		// Reject a list that references a missing or malformed rule BEFORE it is
+		// persisted, so a bad rule surfaces as a clear error here rather than
+		// silently degrading every future scan. Registry packs resolve at scan
+		// time and are not network-checked here.
+		if len(cleaned) > 0 {
+			statuses := scanner.ValidateRulesets(r.Context(), cleaned, s.dir)
+			if bad := scanner.FirstInvalid(statuses); bad != nil {
+				writeErr(w, http.StatusBadRequest, bad.Message)
+				return
+			}
+		}
+		cs.SemgrepRulesets = cleaned
+	}
 	if req.RemediationEnabled != nil {
 		cs.RemediationEnabled = req.RemediationEnabled
 	}
@@ -157,4 +198,53 @@ func githubRepoOK(repo string) bool {
 	c := config.Config{}
 	c.Ticketing.GitHub.Repo = repo
 	return c.GitHubEnabled()
+}
+
+// cleanRulesetList trims entries, drops blanks and the additive marker (the
+// additive flag carries that intent), and preserves order. The marker is
+// stripped so a stray "+" in the textarea can never be stored as a rule.
+func cleanRulesetList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, e := range in {
+		e = strings.TrimSpace(e)
+		if e == "" || e == scanner.AdditiveMarker {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// RulesetsValidateRequest asks to validate a candidate ruleset list without
+// saving it: the "check my rules" button.
+type RulesetsValidateRequest struct {
+	SemgrepRulesets []string `json:"semgrepRulesets"`
+}
+
+// handleValidateRulesets runs the ruleset validator over a candidate list and
+// returns per-entry results. Admin-only (registered behind the admin mux),
+// read-only (nothing is saved), and bounded by maxCustomRulesets so it cannot
+// be used to spawn unbounded semgrep processes.
+func (s *Server) handleValidateRulesets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req RulesetsValidateRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	cleaned := cleanRulesetList(req.SemgrepRulesets)
+	if len(cleaned) > maxCustomRulesets {
+		writeErr(w, http.StatusBadRequest, "too many custom rulesets")
+		return
+	}
+	statuses := scanner.ValidateRulesets(r.Context(), cleaned, s.dir)
+	if statuses == nil {
+		statuses = []scanner.RulesetStatus{}
+	}
+	s.audit(audit.EventConfigChange, actorFrom(r), map[string]string{"area": "settings", "action": "validate-rulesets"})
+	writeJSON(w, http.StatusOK, map[string]any{"results": statuses})
 }

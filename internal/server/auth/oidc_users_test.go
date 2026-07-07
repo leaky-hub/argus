@@ -63,11 +63,11 @@ func TestOIDCMatchesOnSubjectNotEmail(t *testing.T) {
 
 func TestUsernameFromEmail(t *testing.T) {
 	cases := map[string]string{
-		"alice@example.com":     "alice",
-		"a.b-c_d@x.io":          "a.b-c_d",
-		"WEIRD+tag@x.io":        "WEIRDtag", // '+' dropped
-		"..leading@x.io":        "leading",
-		"用户@example.com":        "", // no ASCII → generated (checked below)
+		"alice@example.com": "alice",
+		"a.b-c_d@x.io":      "a.b-c_d",
+		"WEIRD+tag@x.io":    "WEIRDtag", // '+' dropped
+		"..leading@x.io":    "leading",
+		"用户@example.com":    "", // no ASCII → generated (checked below)
 	}
 	for email, want := range cases {
 		got := usernameFromEmail(email)

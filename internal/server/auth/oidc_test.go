@@ -22,7 +22,7 @@ func TestEmailDomainAllowed(t *testing.T) {
 	allowed := normalizeDomains([]string{"Example.com", "@corp.io ", ""})
 	cases := map[string]bool{
 		"alice@example.com": true,
-		"BOB@EXAMPLE.COM":   true,  // domain compared case-insensitively
+		"BOB@EXAMPLE.COM":   true, // domain compared case-insensitively
 		"x@corp.io":         true,
 		"y@evil.com":        false,
 		"no-at-sign":        false,
@@ -129,10 +129,10 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		w.Header().Set("Content-Type", "application/json")
 		iss := f.server.URL
 		json.NewEncoder(w).Encode(map[string]any{
-			"issuer":                 iss,
-			"authorization_endpoint": iss + "/auth",
-			"token_endpoint":         iss + "/token",
-			"jwks_uri":               iss + "/jwks",
+			"issuer":                                iss,
+			"authorization_endpoint":                iss + "/auth",
+			"token_endpoint":                        iss + "/token",
+			"jwks_uri":                              iss + "/jwks",
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
 	})
@@ -272,4 +272,3 @@ func TestOIDCExchangeRejects(t *testing.T) {
 		t.Error("unknown state must be rejected")
 	}
 }
-

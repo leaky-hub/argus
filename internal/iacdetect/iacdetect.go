@@ -268,8 +268,8 @@ var (
 	// JSON has a quote before the colon, which the old `Type:` form missed —
 	// CloudFormation JSON was silently undetectable.
 	cfnTypeRe = regexp.MustCompile(`Type["']?\s*:\s*["']?(AWS::[A-Za-z0-9:]+)`)
-	k8sKindRe    = regexp.MustCompile(`(?m)^\s*kind:\s*["']?([A-Za-z]+)`)
-	imageRe      = regexp.MustCompile(`(?m)^\s*image:\s*["']?([^\s"']+)`)
+	k8sKindRe = regexp.MustCompile(`(?m)^\s*kind:\s*["']?([A-Za-z]+)`)
+	imageRe   = regexp.MustCompile(`(?m)^\s*image:\s*["']?([^\s"']+)`)
 )
 
 // skipDirs are never walked (vendored code, VCS, the server's own workspace).

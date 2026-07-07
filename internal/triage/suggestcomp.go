@@ -43,10 +43,10 @@ var compValidKind = map[string]bool{
 
 // SuggestComponentsInput is the deterministic context handed to the model.
 type SuggestComponentsInput struct {
-	AppName    string
-	Outline    []string // bounded repo outline lines ("dir: src/api", "file: go.mod")
-	Detected   []string // what the deterministic IaC scan already found
-	Existing   []string // component names already in the model
+	AppName  string
+	Outline  []string // bounded repo outline lines ("dir: src/api", "file: go.mod")
+	Detected []string // what the deterministic IaC scan already found
+	Existing []string // component names already in the model
 }
 
 // SuggestedComponent is one validated candidate (not persisted).

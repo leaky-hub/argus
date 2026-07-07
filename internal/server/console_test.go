@@ -188,8 +188,8 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/remediate", 401, 403, pass, pass},
 		{"POST", "/api/validate", 401, 403, pass, pass},
 		{"POST", "/api/cloud/posture-summary", 401, 403, pass, pass},
-		{"POST", "/api/cloud/remediations", 401, 403, pass, pass},   // list fixes: operator
-		{"POST", "/api/cloud/remediate", 401, 403, 403, pass},       // execute: admin
+		{"POST", "/api/cloud/remediations", 401, 403, pass, pass}, // list fixes: operator
+		{"POST", "/api/cloud/remediate", 401, 403, 403, pass},     // execute: admin
 		{"POST", "/api/dispositions", 401, 403, pass, pass},
 		{"POST", "/api/dispositions/bulk", 401, 403, pass, pass},
 		{"DELETE", "/api/dispositions/deadbeef", 401, 403, pass, pass},
@@ -203,7 +203,7 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/tickets/tk-1/links", 401, 403, pass, pass},
 		{"POST", "/api/tickets/tk-1/close-fixed", 401, 403, pass, pass}, // writes dispositions (operator, like /api/dispositions)
 		{"POST", "/api/tickets/tk-1/github", 401, 403, pass, pass},      // external sync (config-gated in the handler)
-		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass},           // delete is admin-only
+		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass},            // delete is admin-only
 
 		{"GET", "/api/threat-library", 401, pass, pass, pass},
 		{"GET", "/api/threat-models", 401, pass, pass, pass},
@@ -215,11 +215,11 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/threat-models/tm-1/threats", 401, 403, pass, pass},
 		{"POST", "/api/threat-models/tm-1/threat-status", 401, 403, pass, pass},
 		{"POST", "/api/threat-models/tm-1/links", 401, 403, pass, pass},
-		{"POST", "/api/threat-models/tm-1/positions", 401, 403, pass, pass}, // canvas layout
-		{"POST", "/api/threat-models/tm-1/flows", 401, 403, pass, pass},     // data flows
+		{"POST", "/api/threat-models/tm-1/positions", 401, 403, pass, pass},          // canvas layout
+		{"POST", "/api/threat-models/tm-1/flows", 401, 403, pass, pass},              // data flows
 		{"POST", "/api/threat-models/tm-1/suggest", 401, 403, pass, pass},            // LLM seam (operator, like explain)
 		{"POST", "/api/threat-models/tm-1/suggest-components", 401, 403, pass, pass}, // LLM seam
-		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass},       // delete is admin-only
+		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass},                   // delete is admin-only
 
 		{"GET", "/api/targets", 401, pass, pass, pass},
 		{"POST", "/api/targets", 401, 403, 403, pass},
@@ -242,6 +242,7 @@ func TestAuthzMatrix(t *testing.T) {
 		{"PUT", "/api/admin/oidc", 401, 403, 403, pass},
 		{"GET", "/api/admin/settings", 401, 403, 403, pass},
 		{"PUT", "/api/admin/settings", 401, 403, 403, pass},
+		{"POST", "/api/admin/settings/validate-rulesets", 401, 403, 403, pass}, // check custom rules: admin
 		{"GET", "/api/audit", 401, 403, 403, pass},
 
 		// Unlisted routes fail closed: mutating verbs need admin.

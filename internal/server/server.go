@@ -147,34 +147,35 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/oidc/start", s.handleOIDCStart)       // GET: begin SSO (pre-auth)
 	mux.HandleFunc("/api/auth/oidc/callback", s.handleOIDCCallback) // GET: complete SSO (pre-auth)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
-	mux.HandleFunc("/api/users", s.handleUsers)                          // GET list, POST create (admin)
-	mux.HandleFunc("/api/users/names", s.handleUserNames)                // GET usernames only (operator, for assignee pickers)
-	mux.HandleFunc("/api/users/", s.handleUserByID)                      // PATCH, DELETE (admin)
-	mux.HandleFunc("/api/targets", s.handleTargets)                      // GET (viewer), POST (admin)
-	mux.HandleFunc("/api/targets/", s.handleTargetByID)                  // DELETE (admin)
-	mux.HandleFunc("/api/cloud/profiles", s.handleCloudProfiles)         // GET (admin): discovered profile names
-	mux.HandleFunc("/api/scans", s.handleScans)                          // GET (viewer), POST (operator)
-	mux.HandleFunc("/api/scans/", s.handleScanByID)                      // GET /api/scans/{jobId}
-	mux.HandleFunc("/api/frameworks", s.handleFrameworks)                // GET (viewer)
-	mux.HandleFunc("/api/explain", s.handleExplain)                      // POST (operator)
-	mux.HandleFunc("/api/remediate", s.handleRemediate)                  // POST (operator): on-demand assisted remediation, never persisted
-	mux.HandleFunc("/api/validate", s.handleValidate)                    // POST (operator): on-demand severity validation + CVSS
-	mux.HandleFunc("/api/mitigations", s.handleMitigations)              // GET (viewer): curated secure-coding guidance by CWE
-	mux.HandleFunc("/api/dispositions", s.handleDispositions)            // POST (operator): set a finding's workflow status
-	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)   // POST (operator): apply/clear across a selection
-	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)        // DELETE (operator): clear back to open
-	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
-	mux.HandleFunc("/api/cloud/remediations", s.handleCloudRemediations) // POST (operator): curated fixes for a cloud finding (no execution)
-	mux.HandleFunc("/api/cloud/remediate", s.handleCloudRemediate)       // POST (admin, gated): dry-run or apply a curated fix
-	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
-	mux.HandleFunc("/api/work-summary", s.handleWorkSummary)             // GET ticket/threat status counts (viewer)
-	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths
-	mux.HandleFunc("/api/threat-models", s.handleThreatModels)           // GET list (viewer), POST create (operator)
-	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)       // GET/DELETE + subaction POSTs
-	mux.HandleFunc("/api/threat-library", s.handleThreatLibrary)         // GET (viewer): component types for the picker
-	mux.HandleFunc("/api/admin/oidc", s.handleAdminOIDC)                  // GET/PUT SSO config (admin)
-	mux.HandleFunc("/api/admin/settings", s.handleAdminSettings)          // GET/PUT integrations + scanning config (admin)
-	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
+	mux.HandleFunc("/api/users", s.handleUsers)                                       // GET list, POST create (admin)
+	mux.HandleFunc("/api/users/names", s.handleUserNames)                             // GET usernames only (operator, for assignee pickers)
+	mux.HandleFunc("/api/users/", s.handleUserByID)                                   // PATCH, DELETE (admin)
+	mux.HandleFunc("/api/targets", s.handleTargets)                                   // GET (viewer), POST (admin)
+	mux.HandleFunc("/api/targets/", s.handleTargetByID)                               // DELETE (admin)
+	mux.HandleFunc("/api/cloud/profiles", s.handleCloudProfiles)                      // GET (admin): discovered profile names
+	mux.HandleFunc("/api/scans", s.handleScans)                                       // GET (viewer), POST (operator)
+	mux.HandleFunc("/api/scans/", s.handleScanByID)                                   // GET /api/scans/{jobId}
+	mux.HandleFunc("/api/frameworks", s.handleFrameworks)                             // GET (viewer)
+	mux.HandleFunc("/api/explain", s.handleExplain)                                   // POST (operator)
+	mux.HandleFunc("/api/remediate", s.handleRemediate)                               // POST (operator): on-demand assisted remediation, never persisted
+	mux.HandleFunc("/api/validate", s.handleValidate)                                 // POST (operator): on-demand severity validation + CVSS
+	mux.HandleFunc("/api/mitigations", s.handleMitigations)                           // GET (viewer): curated secure-coding guidance by CWE
+	mux.HandleFunc("/api/dispositions", s.handleDispositions)                         // POST (operator): set a finding's workflow status
+	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)                // POST (operator): apply/clear across a selection
+	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)                     // DELETE (operator): clear back to open
+	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary)              // POST (operator): on-demand, never persisted
+	mux.HandleFunc("/api/cloud/remediations", s.handleCloudRemediations)              // POST (operator): curated fixes for a cloud finding (no execution)
+	mux.HandleFunc("/api/cloud/remediate", s.handleCloudRemediate)                    // POST (admin, gated): dry-run or apply a curated fix
+	mux.HandleFunc("/api/tickets", s.handleTickets)                                   // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/work-summary", s.handleWorkSummary)                          // GET ticket/threat status counts (viewer)
+	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                               // GET/PATCH/DELETE + /links, /comments subpaths
+	mux.HandleFunc("/api/threat-models", s.handleThreatModels)                        // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)                    // GET/DELETE + subaction POSTs
+	mux.HandleFunc("/api/threat-library", s.handleThreatLibrary)                      // GET (viewer): component types for the picker
+	mux.HandleFunc("/api/admin/oidc", s.handleAdminOIDC)                              // GET/PUT SSO config (admin)
+	mux.HandleFunc("/api/admin/settings", s.handleAdminSettings)                      // GET/PUT integrations + scanning config (admin)
+	mux.HandleFunc("/api/admin/settings/validate-rulesets", s.handleValidateRulesets) // POST: check custom rules without saving (admin)
+	mux.HandleFunc("/api/audit", s.handleAudit)                                       // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))
 }

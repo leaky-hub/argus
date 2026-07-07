@@ -61,11 +61,11 @@ var authzTable = []authzRule{
 	{http.MethodPost, "/api/remediate", auth.RoleOperator, false},
 	{http.MethodPost, "/api/validate", auth.RoleOperator, false},
 	{http.MethodPost, "/api/cloud/posture-summary", auth.RoleOperator, false},
-	{http.MethodPost, "/api/cloud/remediations", auth.RoleOperator, false},   // list curated fixes (no execution)
-	{http.MethodPost, "/api/cloud/remediate", auth.RoleAdmin, false},         // execute a curated fix (admin, config-gated)
-	{http.MethodPost, "/api/dispositions", auth.RoleOperator, false},      // set finding workflow status
-	{http.MethodPost, "/api/dispositions/bulk", auth.RoleOperator, false}, // bulk apply/clear across a selection
-	{http.MethodDelete, "/api/dispositions/", auth.RoleOperator, false},   // clear to open
+	{http.MethodPost, "/api/cloud/remediations", auth.RoleOperator, false}, // list curated fixes (no execution)
+	{http.MethodPost, "/api/cloud/remediate", auth.RoleAdmin, false},       // execute a curated fix (admin, config-gated)
+	{http.MethodPost, "/api/dispositions", auth.RoleOperator, false},       // set finding workflow status
+	{http.MethodPost, "/api/dispositions/bulk", auth.RoleOperator, false},  // bulk apply/clear across a selection
+	{http.MethodDelete, "/api/dispositions/", auth.RoleOperator, false},    // clear to open
 
 	{http.MethodGet, "/api/work-summary", auth.RoleViewer, true},  // ticket/threat status counts (no content)
 	{http.MethodGet, "/api/tickets", auth.RoleViewer, true},       // list tickets
@@ -92,6 +92,7 @@ var authzTable = []authzRule{
 	{http.MethodPut, "/api/admin/oidc", auth.RoleAdmin, false},
 	{http.MethodGet, "/api/admin/settings", auth.RoleAdmin, false},
 	{http.MethodPut, "/api/admin/settings", auth.RoleAdmin, false},
+	{http.MethodPost, "/api/admin/settings/validate-rulesets", auth.RoleAdmin, false},
 	{http.MethodGet, "/api/audit", auth.RoleAdmin, false},
 }
 

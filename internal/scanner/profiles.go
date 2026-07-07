@@ -128,25 +128,64 @@ func ValidProfile(name string) bool {
 	return ok
 }
 
+// AdditiveMarker is the leading token that flips an override list from REPLACE
+// to ADD: `semgrep_rulesets: ["+", ./rules/x.yml]` runs the profile packs AND
+// x.yml, where `["+"]` alone is just the profile. A bare override list with no
+// marker replaces the profile packs entirely (the original contract). The
+// console defaults to additive so a custom rule never silently drops the
+// curated breadth; the CLI keeps replace as its default for back-compat.
+const AdditiveMarker = "+"
+
 // ResolveSemgrepRulesets returns the semgrep pack list a scan should use.
 //
-// Precedence: an explicit override (from `semgrep_rulesets:` in config) always
-// wins and is used verbatim — a repo that curates its own list opts out of the
-// profile machinery entirely. Otherwise the named profile's curated list is
-// returned. An empty/unknown profile falls back to DefaultProfile rather than
-// erroring, so a scan never silently runs with zero rules.
+// Precedence: an explicit override (from `semgrep_rulesets:` in config) is
+// used instead of the profile packs, either REPLACING them or ADDING to them.
+// A leading "+" marker (AdditiveMarker) selects additive: the profile's packs
+// come first, then the override entries. Without the marker the override
+// replaces the profile packs entirely. An empty override (or a bare "+" with
+// no entries) yields the profile's packs. An empty/unknown profile falls back
+// to DefaultProfile rather than erroring, so a scan never runs with zero rules.
 //
 // The returned slice is de-duplicated (first occurrence wins) so profile
-// composition can freely repeat packs. It always contains at least one pack.
+// composition and additive merges can freely repeat packs. It always contains
+// at least one pack. Entries may be registry packs, the argus/curated
+// sentinel, or local rule file/dir paths; this function does not validate
+// them (see customrules.go); it only decides which list to run.
 func ResolveSemgrepRulesets(profile string, override []string) []string {
-	if len(override) > 0 {
-		return dedupePacks(override)
+	additive, entries := splitAdditive(override)
+	if len(entries) > 0 {
+		if additive {
+			return dedupePacks(append(append([]string{}, profilePacks(profile)...), entries...))
+		}
+		return dedupePacks(entries)
 	}
+	return dedupePacks(profilePacks(profile))
+}
+
+// splitAdditive reports whether an override list is additive (its first
+// non-empty token is the marker) and returns the entries with that marker
+// removed.
+func splitAdditive(override []string) (additive bool, entries []string) {
+	for i, e := range override {
+		if strings.TrimSpace(e) == "" {
+			continue
+		}
+		if strings.TrimSpace(e) == AdditiveMarker {
+			return true, override[i+1:]
+		}
+		return false, override
+	}
+	return false, nil
+}
+
+// profilePacks returns the curated pack list for a profile, falling back to the
+// default profile for an empty or unknown name.
+func profilePacks(profile string) []string {
 	packs, ok := semgrepProfiles[profile]
 	if !ok {
 		packs = semgrepProfiles[DefaultProfile]
 	}
-	return dedupePacks(packs)
+	return packs
 }
 
 // dedupePacks trims, drops empties, and removes duplicates while preserving

@@ -63,6 +63,7 @@ func Run(ctx context.Context, opts Options, progress Progress) (Result, error) {
 		return Result{}, fmt.Errorf("invalid profile: %w", err)
 	}
 	rulesets := scanner.ResolveSemgrepRulesets(cfg.Profile, cfg.SemgrepRules)
+	rulesets = validateCustomRulesets(ctx, rulesets, progress)
 
 	adapters, err := SelectAdapters(cfg, rulesets, progress)
 	if err != nil {
@@ -73,6 +74,47 @@ func Run(ctx context.Context, opts Options, progress Progress) (Result, error) {
 
 	findings := Enrich(ctx, cfg, opts.Target, rawFindings, progress)
 	return Result{Findings: findings}, nil
+}
+
+// validateCustomRulesets guards the one ruleset kind a user can get wrong: a
+// LOCAL rule file/dir. Registry packs pass through untouched. A local rule that
+// is missing or malformed is dropped from the list with a clear, specific
+// progress warning naming the file and semgrep's own reason, so a typo'd BYO
+// rule degrades to "that one rule skipped" rather than an opaque semgrep crash
+// that loses the whole SAST pass. If nothing needs validating (the common
+// case: packs only), the list is returned unchanged with no semgrep call.
+func validateCustomRulesets(ctx context.Context, rulesets []string, progress Progress) []string {
+	hasLocal := false
+	for _, r := range rulesets {
+		if k, err := scanner.ClassifyRuleset(r); err == nil && k == scanner.KindLocalPath {
+			hasLocal = true
+			break
+		}
+	}
+	if !hasLocal {
+		return rulesets
+	}
+	// baseDir "" resolves relative paths against the CWD, matching how semgrep
+	// itself resolves a --config path.
+	statuses := scanner.ValidateRulesets(ctx, rulesets, "")
+	bad := map[string]string{}
+	for _, s := range statuses {
+		if !s.OK {
+			bad[s.Entry] = s.Message
+		}
+	}
+	if len(bad) == 0 {
+		return rulesets
+	}
+	kept := make([]string, 0, len(rulesets))
+	for _, r := range rulesets {
+		if msg, isBad := bad[r]; isBad {
+			progress(fmt.Sprintf("  ! custom rule skipped: %s", msg))
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept
 }
 
 // Enrich runs the post-scan half of the pipeline on already-collected raw

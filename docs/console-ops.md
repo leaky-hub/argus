@@ -63,7 +63,7 @@ closes it. Tests referenced in §9 pin every row.
 | T10 | Audit log | Log forging / secret leakage | Audit lines are structured JSONL written server-side only (append-only file, 0600). User-controlled strings appear only as JSON string values. No password material, no tokens, no finding content. |
 | S1 | Remote git targets | SSRF via crafted URLs (internal hosts, cloud metadata IPs); `file://`/`ext::`/`ssh -oProxyCommand` transport tricks; argument injection via URL into git argv; disk exhaustion from huge repos | URLs are parsed with `net/url` at registration (admin-only, same gate as dir targets) and must be `https://` with a host and **no userinfo**: `ssh://`, `git://`, `file://`, and scp-style syntax are rejected outright. `git` runs with a **fixed argv** (`--` separator before the URL; the URL is never string-concatenated), `-c protocol.file.allow=never -c protocol.ext.allow=never` plus `GIT_ALLOW_PROTOCOL=https` (belt and braces), `--depth 1 --single-branch --no-tags`, a hard clone/refresh time budget, and a post-clone workspace size cap. Clones land ONLY in the server-owned `.appsec/workspace/<targetID>`. No credentials ever come from the browser: private repos authenticate via the host's ambient git credential helper over https, or are out of scope. Residual: an admin can still point the server at an internal https host; registration is an admin action and is audited, same trust as registering a directory. |
 | S2 | Scan scope (subpath/file) | Path traversal (`../`, absolute paths), symlink escape out of the target root, scoping into `.git/` or `.appsec/` bookkeeping | Scope is a **relative** path in the launch request, rejected at the API if absolute or containing `..` after `filepath.Clean`. It is joined server-side to the registered root and verified inside that root **after `EvalSymlinks`**, must exist, and must not enter `.git/` or `.appsec/`. Validated at enqueue AND re-validated at execution (the tree may change in between, always, for git targets, where the tree is refreshed per scan). The scanners receive the joined path exactly as the CLI's `[path]` argument works; no new argv shapes. |
-| S3 | Console-managed scan config | Config fields ARE code execution: rulesets reach scanner argv, triage endpoints are SSRF, `ignore_paths`/`ignore_rules` silently suppress findings, timeout/concurrency are resource abuse | The console edits a **structured, closed subset** stored on the registry entry (never written into the target repo): allowed scanners (known set), default profile (enum), per-scanner timeout (bounded 10–3600 s), triage on/off, and ignore rules/paths (admin-only; every change is an audit event carrying the pattern/rule text, because suppression is the finding-killing knob). Triage provider/model/endpoint/API keys and `semgrep_rulesets` are **never** console-editable; they come from the target repo's `appsec.yml` and the environment only. Precedence is fixed and table-tested: repo `appsec.yml` < registry overrides < per-launch options (§12.3). |
+| S3 | Console-managed scan config | Config fields ARE code execution: rulesets reach scanner argv, triage endpoints are SSRF, `ignore_paths`/`ignore_rules` silently suppress findings, timeout/concurrency are resource abuse | The console edits a **structured, closed subset** stored on the registry entry (never written into the target repo): allowed scanners (known set), default profile (enum), per-scanner timeout (bounded 10–3600 s), triage on/off, and ignore rules/paths (admin-only; every change is an audit event carrying the pattern/rule text, because suppression is the finding-killing knob). Triage provider/model/endpoint/API keys are **never** console-editable; they come from the target repo's `appsec.yml` and the environment only. **Custom `semgrep_rulesets` ARE admin-editable** (§12.9) but through a validator gate: an entry is a registry pack, the `argus/curated` sentinel, or a **local** rule file/dir; a remote URL is refused outright (rules that run are local and reviewable, never fetched); a local path is resolved and run through `semgrep --validate` before it is saved, so a missing or malformed rule is a clear 400 at save time, not a silently broken scan; the list is length-bounded and every change is audited. Custom rulesets default to **additive** (the profile packs plus your rules) so a custom list never silently drops the curated breadth; an explicit "replace" mode is available. Precedence is fixed and table-tested: repo `appsec.yml` < registry overrides < per-launch options (§12.3). |
 | S4 | Code snippets in run files | Secret material persisted into `runs/*.json` (the gitleaks payload scrub exists precisely to prevent this); unbounded snippet size; hostile file content | Snippets are captured server-side at scan time by `internal/snippet` (the same symlink-confined reader triage uses, extracted, not re-derived), bounded per finding (≤10 lines, ≤2 KB) and per run (≤1 MiB total). **SECRET-category findings get NO snippet, ever**: metadata only, the same rule triage applies to prompts. Files that look binary (NUL in window) or minified (extreme line length) are skipped. A snippet is hostile data like any finding text: rendered as escaped text only, never HTML. |
 | S5 | On-demand AI explain | Prompt injection from hostile code; token/compute abuse from the browser; secret material sent to a cloud provider | Reuses the triage boundary machinery verbatim: CSPRNG boundary markers, sanitized length-capped inputs, strict output validation, snippet confinement, and the SECRET-never-to-cloud gate (metadata-only prompt for secrets; cloud providers refused unless the repo config opted in). Operator+ role, single-flight per finding, in-memory LRU cache, hard `MaxTokens` cap. Explanations are ephemeral enrichment returned to the browser: **never written into run files or the audit log** (the audit line records that an explanation was requested, not its content). Provider/model/endpoint come from the target repo's `appsec.yml` only. |
 | S6 | Compliance-scoped scans | Pretending a framework filter is an audit ("we scanned for PCI") when mapping is enrichment over whatever the scanners found | Frameworks are a **closed enum from the embedded compliance data**. Selecting them (a) filters reporting emphasis in the run detail view and (b) narrows scanner selection through a hand-curated framework→scanner-relevance table (§12.5); it never changes mapping logic, and an empty intersection with the chosen scanners is a 400, not a silent no-op. The frameworks requested are recorded on the job and in the audit line; the run file shape is unchanged, and nothing anywhere claims "PCI-certified": a framework-scoped scan is the same scan with relevant scanners and a filtered lens. |
@@ -489,6 +489,58 @@ content. No configured/reachable provider → 503 with an honest message.
 | `target.update` | PATCH target (config/scanners/profile/name) | target ID, changed fields; ignore patterns verbatim |
 | `scan.explain` | explain requested (cache miss or hit) | target, run, finding ID, cached flag |
 | `scan.launch` / `scan.finish` | unchanged | + `scope`, `frameworks` on launch; + `commit` on finish for git targets |
+
+### 12.9 Custom semgrep rules (bring your own)
+
+`semgrep_rulesets:` in `appsec.yml` has always let a repo override the profile
+packs. This is now a first-class, console-manageable feature with a validator
+gate (threat S3).
+
+**What an entry can be.** Each ruleset entry is one of:
+
+- a semgrep **registry pack**, e.g. `p/python`, `p/owasp-top-ten`, `r/java...`;
+- the **`argus/curated`** sentinel (the platform's own embedded rules, §B);
+- a **local rule file or directory**, e.g. `./rules/custom.yml` or `rules/`.
+
+A remote URL (`https://…`, `file://…`) is refused. Rules that run must be local
+and reviewable; nothing is fetched at scan time. Local file entries must be
+`.yml`, `.yaml`, or `.json` (or a directory of them).
+
+**Add or replace.** By default a custom list is **additive**: the active
+profile's packs run first, then your entries (deduplicated), so bringing one
+rule never silently drops the curated multi-language breadth. In `appsec.yml`,
+additive mode is a leading `"+"` entry:
+
+```yaml
+# Additive: the standard profile packs PLUS a local rule file.
+semgrep_rulesets:
+  - "+"
+  - ./rules/no-eval.yml
+
+# Replace: run ONLY these, nothing from the profile (the original behavior).
+semgrep_rulesets:
+  - p/python
+  - ./rules/no-eval.yml
+```
+
+The console exposes the same choice as an "Add to the profile packs" checkbox
+(default on); unchecking it is replace mode.
+
+**Validation.** Local rules are run through `semgrep --validate` before use:
+
+- In the **console**, an admin sets rulesets in Admin → Integrations & scanning.
+  A "Validate rules" button reports each entry's status without saving, and a
+  save that references a missing or malformed rule is rejected with a clear
+  error (it never persists, so it can never silently break a scan). The list is
+  length-bounded and every change is audited.
+- In a **CLI/`appsec.yml`** scan, local rules are validated up front; a bad one
+  is dropped with a clear `! custom rule skipped: …` warning and the rest of
+  the scan proceeds (registry packs are resolved by semgrep at scan time and
+  are not pre-validated).
+
+Custom rulesets set in the console apply to scans of the served repo; per-target
+`appsec.yml` files still win for their own targets (the §12.3 layering is
+unchanged).
 
 ## 13. Cloud posture targets (schema 2.1.0)
 

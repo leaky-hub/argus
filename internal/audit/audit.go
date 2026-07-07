@@ -44,6 +44,7 @@ const (
 	EventTicketComment  = "ticket.comment"
 	EventThreatModel    = "threat.model"   // create/delete a model
 	EventThreatUpdate   = "threat.update"  // add/enumerate/status/link a threat or component
+	EventConfigChange   = "config.change"  // admin edited console configuration (e.g. SSO)
 )
 
 // Entry is one audit line.

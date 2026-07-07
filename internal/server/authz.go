@@ -86,6 +86,8 @@ var authzTable = []authzRule{
 	{http.MethodPatch, "/api/users/", auth.RoleAdmin, false},
 	{http.MethodDelete, "/api/users/", auth.RoleAdmin, false},
 
+	{http.MethodGet, "/api/admin/oidc", auth.RoleAdmin, false},
+	{http.MethodPut, "/api/admin/oidc", auth.RoleAdmin, false},
 	{http.MethodGet, "/api/audit", auth.RoleAdmin, false},
 }
 

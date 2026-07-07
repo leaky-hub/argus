@@ -51,7 +51,7 @@ Free and private aren't the compromise. They're the whole idea.
 
 - :material-magnify-scan: **Everything, one model**
 
-    SAST across eleven languages, secrets, dependencies (SCA), IaC
+    SAST across thirteen languages, secrets, dependencies (SCA), IaC
     misconfiguration, and cloud posture (AWS, Azure, GCP) all flow through the
     same banded severity, risk signals, and compliance mapping.
 
@@ -71,6 +71,19 @@ Free and private aren't the compromise. They're the whole idea.
     Risk posture and trend for leadership, a filterable explorer with per-finding
     triage rationale for engineers, tickets and STRIDE threat models over your
     architecture.
+
+- :material-wrench: **Fix it, not just find it**
+
+    Approved, reversible cloud remediation: from a posture finding, the console
+    applies a curated fix across AWS, Azure, and GCP, dry-run first and admin
+    approved. Every command comes from a vetted catalog, never authored by the
+    model.
+
+- :material-pencil-ruler: **Detection you can extend**
+
+    Bring your own semgrep rules, or describe a detection in plain language and
+    let the local model draft one. You validate it, test it against an example,
+    edit it freely, and save it. Nothing runs until you do.
 
 </div>
 

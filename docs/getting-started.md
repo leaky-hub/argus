@@ -90,6 +90,30 @@ your local cloud config; Argus passes only that name to prowler and never sees,
 stores, or logs a key. Azure (by subscription id) and GCP (by project id) work
 the same way, with auth supplied by the environment prowler inherits.
 
+From the console, an admin can also **apply a curated, reversible fix** for a
+posture finding, dry-run first, across all three providers. Every command comes
+from a vetted catalog and is grammar-checked against the finding; the model
+never authors a command that runs.
+
+## Extend the detection
+
+Argus ships curated detection, but you are not stuck with it.
+
+- **Bring your own semgrep rules.** Point `semgrep_rulesets:` in `appsec.yml` at
+  a registry pack or a local rule file or directory. A leading `"+"` entry adds
+  your rules to the profile packs; without it they replace them. In the console
+  an admin can edit the list and validate it, and a malformed rule is a clear
+  error before it ever reaches a scan.
+
+- **Let the local model draft one.** In the console, describe a detection in
+  plain language and a local LLM drafts a semgrep rule. You validate it, test it
+  against a pasted example (green if it matches, red if it does not), edit it
+  freely, and save it as a custom rule. A deterministic safety check rejects
+  catastrophic-backtracking and match-everything rules, and nothing is saved or
+  runs until you confirm.
+
+See [Console and pillars](console-ops.md) for the full rule-authoring workflow.
+
 ## Configuration
 
 Argus reads `appsec.yml` from the working directory (override with `--config`);

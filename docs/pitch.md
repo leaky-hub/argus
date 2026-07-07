@@ -36,11 +36,13 @@ binary, drops into any CI image and any laptop.
 
 ## Why we win (the four differentiators)
 
-1. **Breadth, proven not claimed.** SAST across eleven languages out of the box,
-   plus secrets and SCA, under curated `fast|standard|max` profiles. A labeled
-   polyglot fixture set and a CI test assert the coverage; the matrix is
+1. **Breadth, proven not claimed.** SAST across thirteen languages out of the
+   box, plus secrets and SCA, under curated `fast|standard|max` profiles. A
+   labeled polyglot fixture set and a CI test assert the coverage; the matrix is
    generated from a live scan (`docs/coverage.md`), so the breadth claim is
-   auditable, not marketing.
+   auditable, not marketing. When a registry pack misses something, a curated
+   local ruleset closes the gap, you can bring your own rules, and the local
+   model will even draft one for you.
 2. **Local-first AI triage, the privacy story.** The false-positive problem is
    real, and the answer is an LLM verdict + rationale on every finding. Ours
    defaults to a **local Ollama model**: nothing leaves the machine, secrets

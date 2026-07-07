@@ -1,21 +1,28 @@
 ---
 hide:
   - navigation
+  - toc
 ---
+
+<div class="argus-hero" markdown>
+
+![Argus](screenshots/logo.svg){ .argus-hero__logo }
 
 # Argus
 
-**The all-seeing watch over your code and the cloud it runs in.**
+<p class="argus-tagline">The all-seeing watch over your code and the cloud it runs in.</p>
+
+[Install :material-download:](install.md){ .md-button .md-button--primary }
+[Getting started :material-rocket-launch:](getting-started.md){ .md-button }
+[GitHub :fontawesome-brands-github:](https://github.com/leaky-hub/argus){ .md-button }
+
+</div>
 
 Argus runs open-source scanners against your repositories and your cloud
 accounts, merges everything into one deduplicated, risk-scored,
 compliance-mapped findings model, triages each finding with an LLM on your own
 machine, gates CI on severity, and serves a web console over your run history.
 All from a single Go binary.
-
-[Install :material-download:](install.md){ .md-button .md-button--primary }
-[Getting started :material-rocket-launch:](getting-started.md){ .md-button }
-[Source on GitHub :fontawesome-brands-github:](https://github.com/leaky-hub/argus){ .md-button }
 
 <p align="center"><img src="diagrams/pipeline.svg" alt="Argus pipeline: scanners and cloud feed one findings model, enriched deterministically, then gating CI, exporting reports, and feeding the console" style="max-width:100%"></p>
 

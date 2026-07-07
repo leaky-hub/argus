@@ -10,6 +10,9 @@ theme:
   name: material
   logo: screenshots/logo.svg
   favicon: screenshots/logo.svg
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -75,6 +78,15 @@ markdown_extensions:
 
 plugins:
   - search
+  # Branded social-card link previews. Needs the imaging libs (cairo/pango), so
+  # it only runs in CI (which installs them); local builds skip it.
+  - social:
+      enabled: !ENV [CI, false]
+      cards_layout_options:
+        background_color: "#3e43a2"
+
+extra_css:
+  - stylesheets/extra.css
 
 extra:
   social:

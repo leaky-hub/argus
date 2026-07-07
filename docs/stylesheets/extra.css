@@ -1,0 +1,105 @@
+/* Argus brand tuning for Material for MkDocs.
+   Colors are the app's own "iris indigo" accent ramp, so the docs and the
+   console read as one product. */
+
+:root {
+  --argus-500: #6470da;
+  --argus-600: #4b53c4;
+  --argus-700: #3e43a2;
+  --argus-grad: linear-gradient(135deg, #6b74e0, #3a3f9e);
+
+  --md-primary-fg-color: var(--argus-600);
+  --md-primary-fg-color--light: var(--argus-500);
+  --md-primary-fg-color--dark: var(--argus-700);
+  --md-accent-fg-color: var(--argus-500);
+  --md-typeset-a-color: var(--argus-600);
+}
+
+/* Dark scheme: tint the slate background toward indigo, matching the console. */
+[data-md-color-scheme="slate"] {
+  --md-hue: 235;
+  --md-primary-fg-color: var(--argus-600);
+  --md-accent-fg-color: #828be4;
+  --md-typeset-a-color: #a7adee;
+}
+
+/* ---- Home hero ---- */
+.argus-hero {
+  text-align: center;
+  padding: 2.2rem 0 0.6rem;
+}
+.argus-hero .argus-hero__logo {
+  width: 104px;
+  height: 104px;
+  filter: drop-shadow(0 8px 22px rgba(75, 83, 196, 0.38));
+}
+.md-typeset .argus-hero h1 {
+  font-weight: 800;
+  font-size: 3rem;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0.5rem 0 0.35rem;
+  background: var(--argus-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.argus-hero .argus-tagline {
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: var(--md-default-fg-color--light);
+  margin: 0 auto 1.2rem;
+  max-width: 40rem;
+}
+.argus-hero .md-button {
+  margin: 0.25rem 0.3rem;
+}
+
+/* ---- Feature cards ---- */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--md-accent-fg-color);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(75, 83, 196, 0.14);
+}
+.md-typeset .grid.cards > ul > li > hr {
+  margin: 0.7rem 0;
+}
+
+/* ---- Buttons ---- */
+.md-typeset .md-button--primary {
+  background: var(--argus-grad);
+  border-color: transparent;
+  box-shadow: 0 6px 18px rgba(75, 83, 196, 0.3);
+}
+.md-typeset .md-button {
+  border-radius: 10px;
+  border-width: 1.5px;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.md-typeset .md-button:hover {
+  transform: translateY(-1px);
+}
+
+/* ---- Header logo a touch larger ---- */
+.md-header__button.md-logo img {
+  height: 1.7rem;
+  width: 1.7rem;
+}
+
+/* ---- Section rules pick up the brand ---- */
+.md-typeset h2 {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  padding-bottom: 0.3rem;
+}
+
+/* ---- Inline code and the OS tabs read a little warmer ---- */
+.md-typeset .tabbed-labels > label {
+  font-weight: 600;
+}

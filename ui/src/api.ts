@@ -357,6 +357,7 @@ export interface UserInfo { id: string; username: string; role: string; createdA
 export interface CloudRemediation {
   id: string;
   title: string;
+  provider: string; // "aws" | "azure" | "gcp": selects the credential UI
   description: string;
   dryRun: string[][];
   apply: string[][];
@@ -604,7 +605,7 @@ export const opsApi = {
 
   cloudRemediations: (req: { targetId?: string; runId: string; findingId: string }): Promise<{ remediations: CloudRemediation[]; enabled: boolean }> =>
     send<{ remediations: CloudRemediation[]; enabled: boolean }>("POST", "api/cloud/remediations", req),
-  cloudRemediate: (req: { targetId?: string; runId: string; findingId: string; remediationId: string; mode: "dryrun" | "apply"; profile: string }): Promise<CloudRemediateResult> =>
+  cloudRemediate: (req: { targetId?: string; runId: string; findingId: string; remediationId: string; mode: "dryrun" | "apply"; profile?: string }): Promise<CloudRemediateResult> =>
     send<CloudRemediateResult>("POST", "api/cloud/remediate", req),
 
   deleteTarget: (id: string): Promise<void> =>

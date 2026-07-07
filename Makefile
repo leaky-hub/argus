@@ -1,4 +1,4 @@
-# appsec — build, UI, and coverage targets.
+# Argus build, UI, and coverage targets.
 #
 # `make build` produces the single self-contained binary. The committed UI
 # bundle (ui/dist) is embedded, so `go build` alone always works; `make ui`
@@ -10,8 +10,8 @@ PATH := $(NODE_BIN):$(PATH)
 
 .PHONY: build ui test coverage demo clean
 
-build: ## Build the appsec binary (embeds the committed UI bundle)
-	go build -o appsec ./cmd/appsec
+build: ## Build the argus binary (embeds the committed UI bundle)
+	go build -o argus ./cmd/argus
 
 ui: ## Rebuild the React console into ui/dist (requires Node 22)
 	cd ui && npm install --no-audit --no-fund && npm run build
@@ -26,4 +26,4 @@ demo: build ## Run the end-to-end investor demo
 	./demo/demo.sh
 
 clean:
-	rm -f appsec coverage.out
+	rm -f argus coverage.out

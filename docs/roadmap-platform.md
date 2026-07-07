@@ -91,9 +91,20 @@ auth:
 ## 2. Approved cloud remediation: SHIPPED
 
 > Shipped as designed below: a curated catalog (`internal/cloudremediate`), an
-> injectable profile-scoped runner, admin-only execution gated by
+> injectable credential-scoped runner, admin-only execution gated by
 > `remediation.enabled`, a per-finding panel with dry-run + apply, and an audit
 > trail. The LLM authors nothing that runs; a fix never marks a finding fixed.
+> The catalog now spans all three posture providers: AWS entries (S3 public
+> access, S3 encryption, S3 versioning, EBS default encryption, IMDSv2,
+> CloudTrail validation, EBS snapshot block-public-access, AMI make-private,
+> IAM password policy) run through a validated write profile; Azure entries
+> (storage blob public access, secure transfer, minimum TLS) and GCP entries
+> (bucket public-access prevention, uniform bucket-level access, versioning,
+> project OS Login) run through the operator's own az/gcloud login, scoped by
+> the grammar-validated ARM id / bucket / project already in the argv, exactly
+> like their read-side scans. Each CLI has its own binary allowlist and
+> forbidden-verb grammar in the runner, and a plan can only ever invoke its own
+> provider's CLI.
 
 
 **Why:** finding a public S3 bucket and handing back a script the user pastes

@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/leaky-hub/argus/internal/audit"
@@ -19,12 +20,15 @@ import (
 //     a cloud finding, with their exact commands, permissions, and
 //     reversibility — informational, no execution, no cloud call.
 //   POST /api/cloud/remediate     (admin, gated by config): dry-run or apply a
-//     chosen fix using a validated write profile. Every call is audited. A fix
-//     NEVER marks a finding fixed — only a re-scan clears it.
+//     chosen fix. Every call is audited. A fix NEVER marks a finding fixed;
+//     only a re-scan clears it.
 //
 // The command always comes from the catalog, built server-side from the
-// finding; the client only names the finding, the fix, the mode, and the write
-// profile (chosen from the discovered closed list).
+// finding; the client only names the finding, the fix, the mode, and, for AWS
+// plans, the write profile (chosen from the discovered closed list). Azure
+// and GCP plans run with the operator's own az/gcloud login, scoped by the
+// validated subscription/project in the command itself, so they take no
+// profile at all.
 
 // remediateExecutor is swapped in tests; nil means the production child-process
 // executor.
@@ -131,7 +135,7 @@ type RemediateRunRequest struct {
 	FindingID     string `json:"findingId"`
 	RemediationID string `json:"remediationId"`
 	Mode          string `json:"mode"`    // "dryrun" | "apply"
-	Profile       string `json:"profile"` // write profile from the discovered list
+	Profile       string `json:"profile"` // AWS write profile from the discovered list; empty for Azure/GCP
 }
 
 func (s *Server) handleCloudRemediate(w http.ResponseWriter, r *http.Request) {
@@ -149,8 +153,8 @@ func (s *Server) handleCloudRemediate(w http.ResponseWriter, r *http.Request) {
 	if err := decodeBody(w, r, &req, 8192); err != nil {
 		return
 	}
-	if req.RunID == "" || req.FindingID == "" || req.RemediationID == "" || req.Profile == "" {
-		writeErr(w, http.StatusBadRequest, "runId, findingId, remediationId, and profile are required")
+	if req.RunID == "" || req.FindingID == "" || req.RemediationID == "" {
+		writeErr(w, http.StatusBadRequest, "runId, findingId, and remediationId are required")
 		return
 	}
 	mode := cloudremediate.DryRun
@@ -182,12 +186,22 @@ func (s *Server) handleCloudRemediate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Credential preconditions, mirrored from the runner so a bad request is a
+	// clean 400 rather than a 502: AWS needs a profile, Azure/GCP refuse one.
+	if plan.Provider == "aws" && strings.TrimSpace(req.Profile) == "" {
+		writeErr(w, http.StatusBadRequest, "an AWS write profile is required")
+		return
+	}
+	if plan.Provider != "aws" && strings.TrimSpace(req.Profile) != "" {
+		writeErr(w, http.StatusBadRequest, plan.Provider+" remediation runs with your local CLI login; a write profile does not apply")
+		return
+	}
 
 	actor := actorFrom(r)
 	results, runErr := s.remediationRunner().Run(r.Context(), plan, mode, req.Profile)
 	s.audit(audit.EventCloudRemediate, actor, map[string]string{
 		"target": req.TargetID, "finding": req.FindingID, "remediation": rem.ID,
-		"mode": req.Mode, "ok": boolStr(runErr == nil),
+		"provider": plan.Provider, "mode": req.Mode, "ok": boolStr(runErr == nil),
 	})
 	if runErr != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": runErr.Error(), "results": results})
@@ -212,4 +226,3 @@ func remediationApplies(id string, f model.Finding) bool {
 	}
 	return false
 }
-

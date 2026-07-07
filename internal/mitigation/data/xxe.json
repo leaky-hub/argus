@@ -1,0 +1,40 @@
+{
+  "weakness": "xxe",
+  "title": "XML External Entity (XXE)",
+  "cwes": ["CWE-611", "CWE-776", "CWE-827"],
+  "principle": "Turn off DTDs and external entity resolution in every XML parser that touches untrusted input. External entities let an attacker read local files, reach internal services (SSRF), or exhaust resources. Most parsers are unsafe by default; disable doctypes explicitly, or use a hardened wrapper.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "defusedxml (drop-in for the stdlib parsers)",
+      "vulnerable": "import xml.etree.ElementTree as ET\ntree = ET.fromstring(untrusted)",
+      "secure": "from defusedxml.ElementTree import fromstring\ntree = fromstring(untrusted)",
+      "note": "defusedxml disables entities and billion-laughs expansion. For lxml, parse with etree.XMLParser(resolve_entities=False, no_network=True)."
+    },
+    {
+      "language": "java",
+      "library": "DocumentBuilderFactory / SAXParserFactory with DTDs disabled",
+      "vulnerable": "DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();\nDocument doc = f.newDocumentBuilder().parse(input);",
+      "secure": "DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();\nf.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true);\nf.setFeature(\"http://xml.org/sax/features/external-general-entities\", false);\nf.setFeature(\"http://xml.org/sax/features/external-parameter-entities\", false);\nDocument doc = f.newDocumentBuilder().parse(input);",
+      "note": "disallow-doctype-decl is the strongest single switch. Apply the same features to SAXParserFactory, XMLInputFactory (StAX: IS_SUPPORTING_EXTERNAL_ENTITIES=false), and Transformer."
+    },
+    {
+      "language": "php",
+      "library": "libxml with network access and entity substitution off",
+      "vulnerable": "$doc = new DOMDocument();\n$doc->loadXML($untrusted);",
+      "secure": "$doc = new DOMDocument();\n$doc->loadXML($untrusted, LIBXML_NONET);   // no network; do not pass LIBXML_NOENT",
+      "note": "LIBXML_NONET blocks external fetches; never enable LIBXML_NOENT (it substitutes entities). On PHP < 8.0 also call libxml_disable_entity_loader(true)."
+    },
+    {
+      "language": "go",
+      "library": "encoding/xml (does not resolve external entities)",
+      "vulnerable": "// A custom parser that follows <!ENTITY ... SYSTEM \"...\"> references",
+      "secure": "var v Doc\nerr := xml.Unmarshal(untrusted, &v)   // encoding/xml ignores external entities by default",
+      "note": "Go's encoding/xml does not expand external or remote entities, so it is safe by default. Only a custom decoder that sets Decoder.Entity or fetches SYSTEM ids reintroduces XXE."
+    }
+  ],
+  "references": [
+    {"title": "OWASP XXE Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-611: Improper Restriction of XML External Entity Reference", "url": "https://cwe.mitre.org/data/definitions/611.html"}
+  ]
+}

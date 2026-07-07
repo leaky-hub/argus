@@ -12,12 +12,24 @@ scoring, and compliance mapping.
       v
 [ core ]       normalize · correlate/dedup · AI triage · risk score · compliance map · severity gate
       v
-[ surfaces ]   CLI · GitHub Action · SARIF / Markdown / JSON · gap report (`bulwark comply`) · web console (`bulwark serve`)
+[ surfaces ]   CLI · GitHub Action · SARIF / Markdown / JSON · gap report (`argus comply`) · web console (`argus serve`)
 ```
 
 The scan pipeline itself lives in `internal/pipeline` and has exactly two
-callers: the `bulwark scan` CLI command (a thin flag-parsing wrapper) and the
+callers: the `argus scan` CLI command (a thin flag-parsing wrapper) and the
 console's serial job queue. Both run the same code path end to end.
+
+The console sits over that deterministic core plus two SQLite-backed work
+pillars (ticketing and threat modeling), and a set of invariants holds across
+all of it:
+
+![Argus architecture — console, deterministic core, work pillars, and invariants](diagrams/pillars.svg)
+
+The dashed line between the console and the layers below is deliberate: the
+core reads immutable run files and owns no app state, while the pillars own the
+only mutable, related app state in the product (`internal/store`, embedded
+SQLite via modernc). The gate's input — file-based dispositions — stays outside
+the database on purpose, so a work item can never quietly move a CI outcome.
 
 ## Package layout
 
@@ -43,7 +55,7 @@ console's serial job queue. Both run the same code path end to end.
 | `internal/jobs` | strictly serial scan queue, bounded pending, in-memory state | one scan at a time protects the runstore and the single-queue Ollama triage |
 | `internal/audit` | append-only `.appsec/audit.jsonl` (logins, CRUD, config changes, scan launch/finish/explain) | the durable provenance record — run files carry no launchedBy |
 
-## Data flow of `bulwark scan <target>`
+## Data flow of `argus scan <target>`
 
 1. Load `appsec.yml` (flags override file values).
 2. Build the adapter list; skip unavailable tools with a stderr NOTE (never a

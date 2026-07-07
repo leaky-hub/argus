@@ -3,6 +3,7 @@ package triage
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/leaky-hub/appsec/internal/model"
 )
@@ -40,6 +41,33 @@ func TestParseVerdictRejects(t *testing.T) {
 		if _, err := parseVerdict(raw); err == nil {
 			t.Errorf("parseVerdict(%.40q) should fail", raw)
 		}
+	}
+}
+
+// TestDecodeFirstObjectBoundedTime guards the JSON extractor against a
+// quadratic-scan DoS. A 1 MB response that stays grammatically valid until EOF
+// (a '{' at every step) used to pin a core for ~25s because a decoder restarted
+// at every brace. The candidate cap keeps it well under a second.
+func TestDecodeFirstObjectBoundedTime(t *testing.T) {
+	evil := strings.Repeat(`{"x":`, 1<<20/5) // ~1 MB of nested-open structure
+	done := make(chan struct{})
+	go func() {
+		_, _ = decodeFirstObject(evil)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("decodeFirstObject did not return within 2s on a 1 MB adversarial input")
+	}
+}
+
+// TestDecodeFirstObjectSkipsStrayBrace: a stray '{' in prose before the real
+// object must not prevent extraction (the bounded scan still tries later ones).
+func TestDecodeFirstObjectSkipsStrayBrace(t *testing.T) {
+	raw := `The result {is} as follows: {"verdict":"uncertain","rationale":"ok"}`
+	if _, err := parseVerdict(raw); err != nil {
+		t.Fatalf("stray brace before the object broke extraction: %v", err)
 	}
 }
 

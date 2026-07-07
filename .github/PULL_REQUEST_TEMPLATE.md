@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to Bulwark. See CONTRIBUTING.md for the ethos. -->
+<!-- Thanks for contributing to Argus. See CONTRIBUTING.md for the ethos. -->
 
 ### What & why
 

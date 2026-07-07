@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 540" font-family="'IBM Plex Sans','Segoe UI',system-ui,sans-serif" role="img" aria-label="Argus architecture: a console over a deterministic core and two SQLite-backed work pillars (ticketing and threat modeling), with security invariants that hold across all of it.">
+  <style>
+    .t{fill:#302e3b;font-size:14px;font-weight:600}
+    .h{fill:#302e3b;font-size:15px;font-weight:700}
+    .s{fill:#6a6777;font-size:11px}
+    .lbl{fill:#908ca0;font-size:11px;font-weight:700;letter-spacing:.08em}
+    .card{fill:#f4f3f8;stroke:#d7d4e0;stroke-width:1}
+    .core{fill:#efecfb;stroke:#6e56cf;stroke-width:1.3}
+    .pillar{fill:#e9f6f8;stroke:#0e91a5;stroke-width:1.3}
+    .store{fill:#f4f3f8;stroke:#b7b3c4;stroke-width:1;stroke-dasharray:5 4}
+    .rule{fill:#eef7f0;stroke:#16a34a;stroke-width:1.2}
+    .con{stroke:#c4c1d0;stroke-width:1.2;fill:none;stroke-dasharray:3 3}
+  </style>
+  <rect x="0" y="0" width="1080" height="540" rx="16" fill="#fbfafd"/>
+
+  <rect class="card" x="30" y="34" width="1020" height="64" rx="10"/>
+  <text class="h" x="52" y="62">Console</text>
+  <text class="s" x="52" y="82">React + Vite, embedded · binds 127.0.0.1 · strict CSP · viewer / operator / admin</text>
+  <text class="s" x="1030" y="70" text-anchor="end">Overview · Findings · Runs · Tickets · Threats · Operate · Admin</text>
+
+  <rect class="core" x="30" y="140" width="480" height="250" rx="12"/>
+  <text class="lbl" x="52" y="166" fill="#6e56cf">DETERMINISTIC CORE</text>
+  <rect class="card" x="52" y="182" width="200" height="44" rx="7"/><text class="t" x="66" y="202">scanner · cloudscan</text><text class="s" x="66" y="217">run the tools</text>
+  <rect class="card" x="266" y="182" width="222" height="44" rx="7"/><text class="t" x="280" y="202">model · correlate · risk</text><text class="s" x="280" y="217">one findings model</text>
+  <rect class="card" x="52" y="238" width="200" height="44" rx="7"/><text class="t" x="66" y="258">compliance · cvss</text><text class="s" x="66" y="273">curated, version-pinned</text>
+  <rect class="card" x="266" y="238" width="222" height="44" rx="7"/><text class="t" x="280" y="258">disposition · coverage</text><text class="s" x="280" y="273">file-based gate input</text>
+  <rect class="card" x="52" y="294" width="200" height="44" rx="7"/><text class="t" x="66" y="314">iacdetect</text><text class="s" x="66" y="329">TF·CFN·K8s·Bicep·Pulumi·Helm</text>
+  <rect class="card" x="266" y="294" width="222" height="44" rx="7"/><text class="t" x="280" y="314">triage · LLM seams</text><text class="s" x="280" y="329">advisory · nonce-fenced</text>
+  <text class="s" x="52" y="370">Reads immutable run files; writes SARIF / Markdown / JSON. No app state here.</text>
+
+  <rect class="pillar" x="540" y="140" width="510" height="250" rx="12"/>
+  <text class="lbl" x="562" y="166" fill="#0e91a5">WORK PILLARS · embedded SQLite (modernc)</text>
+  <rect class="card" x="562" y="182" width="228" height="92" rx="8"/>
+  <text class="t" x="578" y="204">Ticketing</text>
+  <text class="s" x="578" y="222">findings by fingerprint · timeline</text>
+  <text class="s" x="578" y="238">rollup · aging · assignee</text>
+  <text class="s" x="578" y="256">close-fixed bridge · GitHub sync</text>
+  <rect class="card" x="804" y="182" width="228" height="92" rx="8"/>
+  <text class="t" x="820" y="204">Threat modeling</text>
+  <text class="s" x="820" y="222">STRIDE library · IaC baseline</text>
+  <text class="s" x="820" y="238">assisted components · canvas</text>
+  <text class="s" x="820" y="256">links to findings / controls</text>
+  <rect class="store" x="562" y="290" width="470" height="44" rx="8"/>
+  <text class="t" x="578" y="310">store · migrations</text>
+  <text class="s" x="578" y="325">the one place mutable app state lives — never the gate's input</text>
+  <text class="s" x="562" y="370" fill="#0e91a5">Both pillars link to real findings; neither ever moves a severity or a gate outcome.</text>
+
+  <rect class="rule" x="30" y="424" width="1020" height="92" rx="10"/>
+  <text class="lbl" x="52" y="450" fill="#16a34a">INVARIANTS — hold everywhere</text>
+  <text class="s" x="52" y="472">The LLM is advisory and labeled; it never moves a severity, gate, compliance mapping, or threat status.</text>
+  <text class="s" x="52" y="490">Credentials are referenced, never collected. Finding and user text is hostile: escaped output, placeholder SQL, defused CSV.</text>
+  <text class="s" x="52" y="508">Authorization is one server-side table walked by a matrix test; every mutation is audited to an append-only log.</text>
+
+  <path class="con" d="M300 98 L300 140"/>
+  <path class="con" d="M760 98 L760 140"/>
+</svg>

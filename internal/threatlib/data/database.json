@@ -1,0 +1,52 @@
+{
+  "tech": "database",
+  "title": "Relational database",
+  "threats": [
+    {
+      "category": "spoofing",
+      "title": "Shared or weak database credentials",
+      "description": "A single, weak, or widely-known credential fronts the database, so any component (or a leaked secret) grants full access.",
+      "mitigation": "auth-session",
+      "controls": [
+        "ASVS:V2.10.4"
+      ]
+    },
+    {
+      "category": "tampering",
+      "title": "SQL injection reaches the query layer",
+      "description": "Application input concatenated into SQL lets an attacker read or alter arbitrary rows.",
+      "mitigation": "sqli",
+      "controls": [
+        "ASVS:V5.3.4",
+        "ASVS:V5.3.5"
+      ]
+    },
+    {
+      "category": "repudiation",
+      "title": "Data changes are not audited",
+      "description": "Row-level changes leave no trail, so a malicious or erroneous mutation can't be traced.",
+      "mitigation": "log-injection",
+      "controls": [
+        "ASVS:V7.1.1"
+      ]
+    },
+    {
+      "category": "info-disclosure",
+      "title": "Data at rest is unencrypted or backups are exposed",
+      "description": "Sensitive columns and backup snapshots sit in cleartext, so a disk or backup compromise reads them directly.",
+      "mitigation": "weak-crypto",
+      "controls": [
+        "ASVS:V6.1.1"
+      ]
+    },
+    {
+      "category": "elevation",
+      "title": "Over-privileged database account",
+      "description": "The application connects as a superuser, so an injection or app compromise inherits far more than least privilege.",
+      "mitigation": "broken-access-control",
+      "controls": [
+        "ASVS:V4.2.1"
+      ]
+    }
+  ]
+}

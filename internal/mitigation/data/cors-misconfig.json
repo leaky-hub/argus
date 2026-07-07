@@ -1,0 +1,40 @@
+{
+  "weakness": "cors-misconfig",
+  "title": "CORS Misconfiguration",
+  "cwes": ["CWE-942", "CWE-346"],
+  "principle": "Don't reflect the request Origin into Access-Control-Allow-Origin, and never pair a wildcard origin with credentials. Keep an explicit allowlist of trusted origins, echo the Origin header only when it's on that list, and set Allow-Credentials only for those. A reflected origin plus credentials lets any site read authenticated responses.",
+  "snippets": [
+    {
+      "language": "javascript",
+      "library": "the 'cors' package with an origin allowlist",
+      "vulnerable": "app.use(cors({ origin: true, credentials: true })); // reflects any origin",
+      "secure": "const allow = new Set(['https://app.example.com']);\napp.use(cors({ origin: (o, cb) => cb(null, !o || allow.has(o)), credentials: true }));",
+      "note": "origin:true reflects whatever Origin the caller sends — with credentials:true that's exploitable. Allowlist exact origins; never '*' with credentials."
+    },
+    {
+      "language": "python",
+      "library": "flask-cors / django-cors-headers with explicit origins",
+      "vulnerable": "CORS(app, supports_credentials=True, origins='*')",
+      "secure": "CORS(app, supports_credentials=True, origins=['https://app.example.com'])",
+      "note": "A wildcard with credentials is rejected by browsers but often 'fixed' by reflecting the Origin — which is the bug. List exact origins."
+    },
+    {
+      "language": "java",
+      "library": "Spring CORS config with allowed origins",
+      "vulnerable": "config.setAllowedOrigins(List.of(\"*\"));\nconfig.setAllowCredentials(true);",
+      "secure": "config.setAllowedOrigins(List.of(\"https://app.example.com\"));\nconfig.setAllowCredentials(true);",
+      "note": "Spring throws if you combine allowCredentials(true) with '*' — set explicit origins. Avoid allowedOriginPatterns('*') as a workaround."
+    },
+    {
+      "language": "go",
+      "library": "an explicit origin check before setting the header",
+      "vulnerable": "w.Header().Set(\"Access-Control-Allow-Origin\", r.Header.Get(\"Origin\"))",
+      "secure": "origin := r.Header.Get(\"Origin\")\nif allowed[origin] {\n    w.Header().Set(\"Access-Control-Allow-Origin\", origin)\n    w.Header().Set(\"Access-Control-Allow-Credentials\", \"true\")\n}",
+      "note": "Only echo the Origin when it's in your allowlist. Reflecting it unconditionally, especially with credentials, exposes authenticated data to any site."
+    }
+  ],
+  "references": [
+    {"title": "PortSwigger: CORS", "url": "https://portswigger.net/web-security/cors"},
+    {"title": "CWE-942: Permissive Cross-domain Policy with Untrusted Domains", "url": "https://cwe.mitre.org/data/definitions/942.html"}
+  ]
+}

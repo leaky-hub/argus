@@ -207,7 +207,7 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                         type="checkbox"
                         checked={scanners.has(s)}
                         onChange={() => toggleScanner(s)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                        className="rounded border-gray-300 text-accent-600 focus:ring-accent-500 dark:border-gray-700 dark:bg-gray-800"
                       />
                       <span>{s}</span>
                     </label>
@@ -231,7 +231,7 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                           type="checkbox"
                           checked={selectedFrameworks.has(f.id)}
                           onChange={() => toggleFramework(f.id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                          className="rounded border-gray-300 text-accent-600 focus:ring-accent-500 dark:border-gray-700 dark:bg-gray-800"
                         />
                         <span>{f.id}</span>
                       </label>
@@ -307,7 +307,7 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                 <button
                   onClick={handleLaunch}
                   disabled={!selectedTargetId || launching}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
                 >
                   {launching ? "Launching..." : "Launch Scan"}
                 </button>
@@ -434,7 +434,7 @@ function JobRow({
           {job.runId ? (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenRun(job.runId!, job.targetId, job.commit); }}
-              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              className="text-accent-600 hover:text-accent-700 dark:text-accent-400 dark:hover:text-accent-300"
             >
               view run →
             </button>

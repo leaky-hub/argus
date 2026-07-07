@@ -1,0 +1,40 @@
+{
+  "weakness": "path-traversal",
+  "title": "Path Traversal",
+  "cwes": ["CWE-22", "CWE-23", "CWE-36", "CWE-73"],
+  "principle": "Never join user input straight into a filesystem path. Resolve the combined path to its canonical absolute form and verify it still sits inside the intended base directory before opening it; reject anything that escapes with ../ or an absolute path. Better still, don't accept a path at all — map an opaque id to a known file.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "os.path.realpath + a base-directory containment check",
+      "vulnerable": "open(os.path.join(BASE, request.args['name']))",
+      "secure": "target = os.path.realpath(os.path.join(BASE, name))\nif not target.startswith(os.path.realpath(BASE) + os.sep):\n    abort(400)\nopen(target)",
+      "note": "realpath resolves .. and symlinks; the startswith check confines it to BASE. os.path.join alone does not stop ../ or an absolute name."
+    },
+    {
+      "language": "javascript",
+      "library": "path.resolve + a startsWith(base) guard",
+      "vulnerable": "fs.readFile(path.join(BASE, req.query.name));",
+      "secure": "const target = path.resolve(BASE, name);\nif (!target.startsWith(path.resolve(BASE) + path.sep)) throw new Error('invalid path');\nfs.readFile(target);",
+      "note": "path.resolve normalizes .. ; the prefix check keeps it under BASE. path.join by itself will happily produce ../../etc/passwd."
+    },
+    {
+      "language": "java",
+      "library": "Path.normalize + startsWith on the resolved base",
+      "vulnerable": "new File(BASE, request.getParameter(\"name\"));",
+      "secure": "Path base = Paths.get(BASE).toRealPath();\nPath target = base.resolve(name).normalize();\nif (!target.startsWith(base)) throw new SecurityException(\"invalid path\");\nFiles.readAllBytes(target);",
+      "note": "normalize() collapses ../ ; startsWith(base) confines it. Use toRealPath on the base to also resolve symlinks."
+    },
+    {
+      "language": "go",
+      "library": "filepath.Clean/Join + a prefix check",
+      "vulnerable": "os.ReadFile(filepath.Join(base, r.URL.Query().Get(\"name\")))",
+      "secure": "target := filepath.Join(base, name)          // Join cleans the result\nif target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {\n    return errors.New(\"invalid path\")\n}\nos.ReadFile(target)",
+      "note": "filepath.Join calls Clean, collapsing ../, but you still must confirm the result stays under base. Resolve symlinks with filepath.EvalSymlinks for stronger guarantees."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    {"title": "CWE-22: Path Traversal", "url": "https://cwe.mitre.org/data/definitions/22.html"}
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/leaky-hub/appsec/internal/compliance"
 	"github.com/leaky-hub/appsec/internal/config"
 	"github.com/leaky-hub/appsec/internal/coverage"
+	"github.com/leaky-hub/appsec/internal/disposition"
 	"github.com/leaky-hub/appsec/internal/model"
 	"github.com/leaky-hub/appsec/internal/pipeline"
 	"github.com/leaky-hub/appsec/internal/report"
@@ -27,9 +28,9 @@ import (
 var errGateFailed = errors.New("severity gate exceeded")
 
 func init() {
-	scanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, or json (default from config)")
+	scanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, json, or html (default from config)")
 	scanCmd.Flags().String("fail-severity", "", "Fail if findings meet or exceed this severity (critical|high|medium|low|info|none)")
-	scanCmd.Flags().StringP("config", "c", "", "Path to bulwark.yml (or appsec.yml) configuration file")
+	scanCmd.Flags().StringP("config", "c", "", "Path to argus.yml (or appsec.yml) configuration file")
 	scanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
 	scanCmd.Flags().String("scanners", "", "Comma-separated list of scanner names to run (e.g., semgrep,gitleaks)")
 	scanCmd.Flags().String("profile", "", "Scan profile: fast, standard, or max (default standard; config: profile)")
@@ -37,7 +38,8 @@ func init() {
 	scanCmd.Flags().Int("timeout", 0, "Per-scanner timeout in seconds")
 	scanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
-	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `bulwark comply`)")
+	scanCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
+	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `argus comply`)")
 }
 
 var scanCmd = &cobra.Command{
@@ -115,10 +117,60 @@ func runScan(cmd *cobra.Command, args []string) error {
 	printSummary(findings)
 
 	// The gate decision comes last, after the report is safely written.
-	if model.GateExceeded(findings, gate) {
+	// Findings a human dispositioned accepted-risk or false-positive (in the
+	// scanned tree's .appsec/dispositions.json, e.g. via the console) are
+	// excluded from the gate by default — accepted risk stops failing CI but
+	// stays in the report. --strict-gate gates on everything.
+	gated := findings
+	strict, _ := cmd.Flags().GetBool("strict-gate")
+	if !strict {
+		var suppressed int
+		gated, suppressed = excludeDispositioned(scanRoot(target), findings)
+		if suppressed > 0 {
+			fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) excluded from the gate by disposition (accepted-risk/false-positive); --strict-gate to include them\n", suppressed)
+		}
+	}
+	if model.GateExceeded(gated, gate) {
 		return errGateFailed
 	}
 	return nil
+}
+
+// scanRoot is the directory whose .appsec holds a scan's run/disposition
+// history: the target dir, or the file's directory for a single-file scan.
+func scanRoot(target string) string {
+	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+		return filepath.Dir(target)
+	}
+	return target
+}
+
+// excludeDispositioned returns the findings that still count toward the gate
+// (dropping accepted-risk / false-positive dispositions from root's store) and
+// the number suppressed. A missing store suppresses nothing.
+func excludeDispositioned(root string, findings []model.Finding) ([]model.Finding, int) {
+	return excludeDispositionedAt(filepath.Join(root, ".appsec"), findings)
+}
+
+// excludeDispositionedAt is the shared gate-suppression step, taking the
+// disposition directory directly so the code and cloud paths (whose stores sit
+// under different roots) apply identical semantics. A missing store suppresses
+// nothing.
+func excludeDispositionedAt(dispDir string, findings []model.Finding) ([]model.Finding, int) {
+	all, err := disposition.At(dispDir).All()
+	if err != nil || len(all) == 0 {
+		return findings, 0
+	}
+	kept := make([]model.Finding, 0, len(findings))
+	suppressed := 0
+	for _, f := range findings {
+		if rec, ok := all[f.ID]; ok && disposition.GateSuppressed(rec.Status) {
+			suppressed++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, suppressed
 }
 
 // loadConfig loads appsec.yml and applies flag overrides for flags the user
@@ -169,7 +221,7 @@ func loadConfig(cmd *cobra.Command) (config.Config, error) {
 }
 
 // saveRun writes the current findings as a timestamped run file under the
-// scanned repo's .appsec/runs directory, for the `bulwark serve` console. The
+// scanned repo's .appsec/runs directory, for the `argus serve` console. The
 // repo root is the scan target directory (or the file's directory).
 // Snippets (schema 1.4.0) are captured only on the save path: the stdout
 // report is unchanged, run files gain the code frames the console renders.
@@ -210,6 +262,8 @@ func writeReport(cmd *cobra.Command, format string, findings []model.Finding) er
 		err = report.WriteJSON(w, findings)
 	case "markdown", "":
 		err = report.WriteMarkdown(w, findings)
+	case "html":
+		err = report.WriteHTML(w, findings, report.HTMLMeta{GeneratedAt: time.Now().Format("2006-01-02 15:04 MST")})
 	default:
 		err = fmt.Errorf("unsupported format: %s", format)
 	}

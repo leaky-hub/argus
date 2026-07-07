@@ -1,0 +1,40 @@
+{
+  "tech": "object-store",
+  "title": "Object store (S3 / blob)",
+  "threats": [
+    {
+      "category": "spoofing",
+      "title": "Anonymous access via a public bucket or ACL",
+      "description": "A public-read policy or a permissive ACL lets anyone list or fetch objects without authenticating.",
+      "mitigation": "broken-access-control",
+      "controls": []
+    },
+    {
+      "category": "tampering",
+      "title": "Unrestricted upload or object overwrite",
+      "description": "Writable-by-untrusted or content-unvalidated uploads let an attacker plant or replace objects (including served content).",
+      "mitigation": "insecure-file-upload",
+      "controls": [
+        "ASVS:V12.3.1"
+      ]
+    },
+    {
+      "category": "info-disclosure",
+      "title": "Objects readable or unencrypted at rest",
+      "description": "Public-read exposure or missing server-side encryption leaks stored objects.",
+      "mitigation": "weak-crypto",
+      "controls": [
+        "ASVS:V6.1.1"
+      ]
+    },
+    {
+      "category": "elevation",
+      "title": "Bucket policy grants broader access than intended",
+      "description": "An over-broad principal or action in the policy extends access beyond what the workload needs.",
+      "mitigation": "broken-access-control",
+      "controls": [
+        "ASVS:V4.2.1"
+      ]
+    }
+  ]
+}

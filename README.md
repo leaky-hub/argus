@@ -1,9 +1,9 @@
 <h1 align="center">
   <img src="docs/screenshots/logo.svg" alt="" width="42" height="42" valign="middle" />
-  Bulwark
+  Argus
 </h1>
 
-<p align="center"><strong>AppSec + cloud posture, one wall.</strong></p>
+<p align="center"><strong>The all-seeing watch over your code and the cloud it runs in.</strong></p>
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue" />
@@ -12,32 +12,34 @@
   <img alt="Local-first" src="https://img.shields.io/badge/local--first-no%20cloud%20required-16a34a" />
 </p>
 
-**One security tool for the whole surface — code AND the cloud it runs in.**
-Bulwark runs the best open-source scanners against your repositories and your
-cloud accounts, merges everything into one deduplicated, risk-scored,
+**One security tool for the whole surface: code and the cloud it runs in.**
+Argus runs open-source scanners against your repositories and your cloud
+accounts, merges everything into one deduplicated, risk-scored,
 compliance-mapped findings model, AI-triages each finding on your own machine,
-gates CI on severity, and serves a three-persona web console over your run
-history — all from one Go binary. A defensive wall built from many stones:
-independent scanners mortared into one structure.
+gates CI on severity, and serves a web console over your run history, all from
+a single Go binary. Many scanners, one all-seeing view: their output merged
+into a single findings model.
+
+<p align="center"><img src="docs/diagrams/pipeline.svg" alt="Argus pipeline: scanners and cloud feed one findings model, enriched deterministically, then gating CI, exporting reports, and feeding the console" width="900"/></p>
 
 **Everything, one model.** SAST across **eleven languages** (Python,
 JavaScript, TypeScript, Go, Java, C#, Ruby, PHP, Kotlin, Rust, Scala; C via
 security-audit), secrets, dependencies (SCA), **IaC misconfiguration**
-(Terraform, CloudFormation, Kubernetes, Dockerfile, Helm), and **cloud
-security posture** (prowler — AWS today) all flow through the same banded
-severity, risk signals, and compliance mapping. DAST is on the
-[roadmap](docs/roadmap.md).
+(Terraform, CloudFormation, Kubernetes, Dockerfile, Helm, plus Bicep/ARM and
+Pulumi for architecture detection), and **cloud security posture** (prowler —
+AWS today) all flow through the same banded severity, risk signals, and
+compliance mapping. DAST is on the [roadmap](docs/roadmap.md).
 
 **Findings become audit evidence.** Every finding is mapped — deterministically,
 no LLM — to the framework controls it violates (**OWASP ASVS 4.0**,
 **PCI DSS 4.0**, and **CIS** AWS/Docker/Kubernetes benchmarks), and
-`bulwark comply` turns any scan into a per-framework gap report a GRC lead can
+`argus comply` turns any scan into a per-framework gap report a GRC lead can
 hand to an auditor: controls violated with evidence, controls with no
 violations detected, and an explicit "not assessable by static scanning"
 bucket so the report never overclaims ([docs/compliance.md](docs/compliance.md)).
 
 ```
-bulwark scan ./repo --profile standard --triage --save
+argus scan ./repo --profile standard --triage --save
   → runs in parallel:  semgrep (SAST) · gitleaks (secrets) · trivy (SCA) · checkov + trivy-config (IaC)
   → normalizes everything into one findings model
   → dedups/correlates overlapping findings
@@ -47,27 +49,30 @@ bulwark scan ./repo --profile standard --triage --save
   → writes SARIF 2.1.0 / Markdown / JSON, saves the run for the console
   → exits non-zero when findings hit your severity gate
 
-bulwark comply  → per-framework compliance gap report: violated / clean / not assessable
-bulwark serve   → local web console: Overview (GRC) · Findings (AppSec) · Runs (SecOps)
+argus comply  → per-framework compliance gap report: violated / clean / not assessable
+argus serve   → local web console: Overview, Findings, Runs, and more
                  + with users configured: login, scan launching, admin, audit
-bulwark user    → console users: add | list | passwd | remove (bootstrap the first admin)
-bulwark target  → registered scan targets the console may launch against
+argus user    → console users: add | list | passwd | remove (bootstrap the first admin)
+argus target  → registered scan targets the console may launch against
+argus ticket  → work items over findings: create | list | show | link | comment
+argus threats → threat models: list | show | STRIDE library | enumerate
 ```
 
 ## The console
 
-`bulwark serve` reads the runs you save and renders three persona views. Finding
-data (titles, paths, LLM rationales) is treated as hostile and rendered inert —
+`argus serve` reads the runs you save and renders them across seven tabs:
+Overview, Findings, Runs, **Tickets**, **Threats**, Operate, and Admin. Finding
+data (titles, paths, LLM rationales) is treated as hostile and rendered inert:
 escaping only, no HTML injection, strict CSP, binds `127.0.0.1`.
 
 Out of the box the console is a read-only viewer with no login. Create users
-(`bulwark user add <name> --role admin`) and it becomes an **operational
+(`argus user add <name> --role admin`) and it becomes an **operational
 console**: login + roles (viewer/operator/admin), scan launching against
-registered targets (`bulwark target add`) through a strictly serial job queue,
+registered targets (`argus target add`) through a strictly serial job queue,
 user management, and an append-only audit log. Threat model and design:
 [docs/console-ops.md](docs/console-ops.md).
 
-| Overview — GRC / exec | Findings — AppSec | Runs — SecOps |
+| Overview | Findings | Runs |
 |---|---|---|
 | ![Overview](docs/screenshots/overview.png) | ![Findings](docs/screenshots/findings.png) | ![Runs](docs/screenshots/runs.png) |
 
@@ -76,30 +81,66 @@ cross-run trend for leadership; a filterable explorer with per-finding triage
 rationale and violated-control chips for engineers; new-vs-resolved deltas and
 gate outcomes for operations.
 
+## From findings to work: tickets and threat models
+
+Scanning tells you what's wrong. Two pillars, both backed by an embedded SQLite
+database (`argus.db`, opened on `serve`), turn that into tracked work — and
+neither ever touches the gate.
+
+<p align="center"><img src="docs/diagrams/pillars.svg" alt="Argus architecture: a console over a deterministic core and two SQLite-backed work pillars, with invariants that hold across all of it" width="860"/></p>
+
+**Ticketing** is the work layer over findings. A ticket gathers evidence (many
+findings by stable fingerprint), carries a comment-and-event timeline, and
+computes a severity rollup at read time so it never goes stale. Filter by
+status, assignee, or priority; see how long a ticket has been open and whether
+it's overdue; assign from a roster with autocomplete. Closing a ticket "done"
+can write a `fixed` disposition for its linked findings — the one, explicit,
+audited bridge to the gate, and it refuses to overwrite a human's accepted-risk
+or false-positive call. Opt-in [GitHub Issues sync](docs/console-ops.md)
+(config-gated, off by default) creates or links an issue, storing only the URL
+and number; the token is referenced by env-var name, never stored.
+
+**Threat modeling** is STRIDE over your architecture. Add components (or
+generate a baseline from the repo's IaC — Terraform, CloudFormation,
+Kubernetes, Bicep, ARM, Pulumi, Helm), and Argus enumerates curated STRIDE
+threats from a version-pinned library per component tech — deterministic, no
+model in the loop. A local LLM can additionally *suggest* components and
+threats from the repo layout, each labeled `assisted` and confirmed by a human
+before it counts. Threats link to real findings, compliance controls, and
+mitigations; a draggable canvas lays out components, trust boundaries, and data
+flows. Export a model's threats to CSV or JSON.
+
+The rule both pillars live by: **a ticket or a threat never moves a severity or
+a gate outcome.** The gate reads file-based dispositions; the database owns work
+state, not the CI decision.
+
 ## Quickstart (90 seconds)
 
 ```bash
-# Prereqs: Go 1.22+, plus whichever scanners you want on PATH:
+# One command builds the binary and reports which scanners you have:
+./scripts/setup.sh
+
+# Or by hand — prereqs: Go 1.22+, plus whichever scanners you want on PATH:
 #   pipx install semgrep     (or: pip install semgrep)
 #   brew install gitleaks trivy   # trivy covers SCA *and* IaC misconfigs
 #   pipx install checkov          # optional: the broad IaC engine
-go build -o bulwark ./cmd/bulwark        # embeds the console; no Node needed to run
+go build -o argus ./cmd/argus        # embeds the console; no Node needed to run
 
 # Scan with the default `standard` multi-language profile, triage locally,
 # and save the run for the console:
-./bulwark scan . --triage --save
+./argus scan . --triage --save
 
 # Open the console over your saved runs:
-./bulwark serve                          # http://127.0.0.1:8080
+./argus serve                          # http://127.0.0.1:8080
 
 # Other common invocations:
-./bulwark scan . --profile fast          # tight, low-noise PR gate (semgrep p/ci)
-./bulwark scan . --profile max           # deepest recall; triage handles the FP volume
-./bulwark scan . --format sarif -o results.sarif   # GitHub code scanning
-./bulwark scan . --fail-severity high    # fail CI on high or critical
-./bulwark scan . --triage --exclude-fp   # drop LLM-marked false positives (explicit)
-./bulwark comply .                       # compliance gap report (fresh scan, Markdown)
-./bulwark comply . --latest -f json      # assess the last saved run instead
+./argus scan . --profile fast          # tight, low-noise PR gate (semgrep p/ci)
+./argus scan . --profile max           # deepest recall; triage handles the FP volume
+./argus scan . --format sarif -o results.sarif   # GitHub code scanning
+./argus scan . --fail-severity high    # fail CI on high or critical
+./argus scan . --triage --exclude-fp   # drop LLM-marked false positives (explicit)
+./argus comply .                       # compliance gap report (fresh scan, Markdown)
+./argus comply . --latest -f json      # assess the last saved run instead
 ```
 
 ## Cloud security posture (prowler)
@@ -111,8 +152,8 @@ in the console.
 
 ```bash
 # Prereq: prowler on PATH (`pipx install prowler`) and a read-only profile.
-./bulwark cloud-scan --provider aws --profile security-audit
-./bulwark cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2 --save
+./argus cloud-scan --provider aws --profile security-audit
+./argus cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2 --save
 ```
 
 **Credentials are referenced, never collected.** `--profile` names a profile
@@ -122,10 +163,10 @@ setup — create a read-only security-audit principal and point `--profile` at i
 
 ```bash
 # AWS: attach the two AWS-managed read-only policies to a dedicated principal.
-aws iam create-user --user-name bulwark-audit
-aws iam attach-user-policy --user-name bulwark-audit \
+aws iam create-user --user-name argus-audit
+aws iam attach-user-policy --user-name argus-audit \
   --policy-arn arn:aws:iam::aws:policy/SecurityAudit
-aws iam attach-user-policy --user-name bulwark-audit \
+aws iam attach-user-policy --user-name argus-audit \
   --policy-arn arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
 # Put its keys in a named profile in ~/.aws/credentials, e.g. [security-audit],
 # then reference that NAME. The platform runs with exactly what that profile
@@ -137,6 +178,28 @@ next beat. In the console, an admin registers a cloud target by picking a
 discovered profile name (never a key); cloud runs appear in the aggregated Runs
 tab with a resource-aware finding drawer and an optional on-demand,
 never-persisted **AI posture summary**.
+
+Every cloud finding also carries prowler's own **per-finding compliance
+mapping** — the exact controls it violates across NIST-CSF, ISO-27001, PCI,
+SOC2, HIPAA, GDPR, MITRE ATT&CK, FedRAMP and more — passed through verbatim
+and version-pinned, on top of the gap-reportable CIS-AWS mapping.
+
+## AI-assisted remediation
+
+From any finding, an operator can ask for an **assisted remediation**: a
+concrete, category-aware fix to review and run. Cloud findings get a scoped
+`aws`/`az`/`gcloud` script targeting the exact resource; code findings a
+before→after patch; dependencies the upgrade command; secrets rotation steps.
+
+It is **assisted, never automated**: Argus generates a script the *you* run
+with your own credentials — it never executes anything, never holds a write
+credential, and never marks a finding "fixed" (only a re-scan clears it, so
+every remediation ends with a verification step). A **deterministic safety
+linter** runs before anything reaches the browser: a destructive command
+(delete/terminate, `drop table`, `rm -rf`, allow-all) or an embedded
+credential is withheld, the human steps kept, with a warning — safe by
+degradation. It's an on-demand, never-persisted local-LLM seam, labeled
+AI-generated in the UI.
 
 Missing scanners are skipped with a note — the CLI degrades gracefully and
 runs whatever the environment provides. The same applies to triage: no LLM
@@ -163,7 +226,7 @@ category badge in the console.
 
 Every scan maps every finding to the security controls it violates —
 hand-curated, version-pinned data (`internal/compliance/data/`), zero LLM
-involvement, unmapped-is-visible, totals reconcile. `bulwark comply` renders the
+involvement, unmapped-is-visible, totals reconcile. `argus comply` renders the
 per-framework gap assessment (Markdown or JSON): **violated** controls with
 evidence pointers, **no violations detected** (deliberately not "compliant"),
 and an explicit **not assessable by static scanning** bucket. Adding a
@@ -246,7 +309,8 @@ repo and adjust the gate.
 - [Findings model](docs/findings-model.md) — the unified schema (versioned)
 - [Risk scoring](docs/risk-scoring.md) — the 0–10 formula and the bounded LLM adjustment
 - [Compliance](docs/compliance.md) — frameworks, mapping philosophy, adding a framework
-- [Roadmap](docs/roadmap.md) — Phases 6–9: DAST, threat modeling, IAST, platform
+- [Console & pillars](docs/console-ops.md) — authz model, ticketing, threat modeling, audit
+- [Roadmap](docs/roadmap.md) — what's next: DAST, more cloud providers, IAST
 
 ## Development
 
@@ -255,7 +319,7 @@ go build ./... && go test ./...     # `go build` alone works — the UI bundle i
 make ui                              # rebuild the React console into ui/dist (Node 22)
 make coverage                        # regenerate docs/coverage.md from a live scan
 ./demo/demo.sh                       # the full 10-minute investor story, end to end
-./bulwark scan testdata/fixture       # deliberately vulnerable sample; expect findings
+./argus scan testdata/fixture       # deliberately vulnerable sample; expect findings
 ```
 
 Licensed under Apache-2.0.

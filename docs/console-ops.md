@@ -25,7 +25,7 @@ an on-demand, never-persisted AI explanation per finding.
   phase**: a read-only, loopback-bound viewer over `.appsec/runs`. No login
   page, no session checks on read routes; every operational endpoint answers
   `403` with a message naming the bootstrap command
-  (`bulwark user add --role admin`). Nothing to configure, nothing new to
+  (`argus user add --role admin`). Nothing to configure, nothing new to
   trust.
 - **One or more users on disk ⇒ every `/api/*` route requires a session**,
   reads included. Mixed anonymous-read/authenticated-write is a footgun once
@@ -37,7 +37,7 @@ an on-demand, never-persisted AI explanation per finding.
   part of the SPA bundle.
 - **The console still ships no TLS.** A login over plaintext HTTP is a
   credential disclosure to the network path. The supported way to leave
-  loopback is a TLS-terminating reverse proxy in front (§8) — `bulwark serve`
+  loopback is a TLS-terminating reverse proxy in front (§8) — `argus serve`
   itself refuses to pretend otherwise, and the non-loopback warning says so.
 - **The browser can never supply a filesystem path or a scanner argument.**
   Scans launch against pre-registered target IDs with closed-enum options,
@@ -71,6 +71,7 @@ closes it. Tests referenced in §9 pin every row.
 | C2 | Profile name → child env | **Injection into `AWS_PROFILE`**: a crafted profile name (`default; rm -rf /`, `$(whoami)`, a newline injecting a second env var) reaching the prowler child environment | The chosen name is re-validated at scan time against the same discovered closed list (`cloudscan.Validate`) — a value that is not literally a section of `~/.aws` never reaches an env var, whatever surface supplied it (console form OR CLI flag). It is passed as a single `AWS_PROFILE=<name>` entry in the child's env slice (never a shell, never string-concatenated), and dies with the process. Regions match a closed `^[a-z0-9-]{1,32}$` grammar and are exec args, never shell. |
 | C3 | Account data in logs/audit | **Sensitive account identifiers** (account IDs, ARNs, prowler's stderr which echoes them) leaking into progress output, the audit log, or an error message | Prowler's stderr is **never raw-streamed** — the platform emits its own summarized progress lines. The error path surfaces only a bounded, ANSI-stripped, **account-ID-masked** tail of stderr (`tailBuffer.Summary`). Account IDs/ARNs appear only where prowler's own JSON already places them inside a finding (they are the finding's identity). The audit line records that a cloud scan ran (target ID, run ID) — never a credential, never raw account data. |
 | C4 | Cloud findings to the LLM | A cloud finding carries account IDs/ARNs (mildly sensitive) into a triage/explain/posture-summary prompt, or a "posture agent" is given tool access / a credential | The LLM stays at the **existing seams only** (triage verdict, on-demand explain, on-demand posture summary) — no agent loop, no tool use, no credential ever in context (a cloud finding has no secret value to carry). Prompts are metadata-only (there is no source file), through the same CSPRNG-marker boundary and output validation as every other category. Cloud findings are metadata, not secrets, so they follow the normal (non-SECRET) provider rules: local-LLM by default; a cloud provider only if the repo already opted in via `triage.allow_cloud`-style config. The posture summary is on-demand, never persisted, and labeled AI-generated in the UI. |
+| R1 | AI-assisted remediation | The model emits a **destructive** command (delete/terminate a resource, drop a table, `rm -rf`, disable auth/logging, allow-all), a **hallucinated** ARN/version, or a **credential literal**; a prompt-injected finding steers the fix; the user believes the platform "fixed" it | **Assisted only — the platform NEVER executes a remediation** and never holds a write credential; the output is a script the *user* runs with their own hands (`POST /api/remediate`, operator+). Same boundary as explain: CSPRNG markers, sanitized bounded inputs, strict JSON validation, SECRET-to-cloud gate, ephemeral (never in a run file), audit records the request not the content. A **deterministic safety linter** (`internal/triage/remediate_safety.go`) runs before the response returns AND is unit-tested with no LLM: any artifact containing a destructive command or a credential literal is **withheld** — the human steps survive, `kind` becomes `manual`, a warning explains why (SAFE-BY-DEGRADATION). Cloud scripts must name the resource or a placeholder or they are flagged. The prompt forbids destructive verbs and invented identifiers; sizes are capped. **No finding status is ever changed** — every remediation ends with a *re-scan to confirm* step, because the read-only platform cannot verify the fix. The console labels it AI-generated and shows the review-before-running banner. |
 
 Residual risk, stated plainly: no TLS in-process (§8); job/queue state is
 in-memory (a restart forgets queue history — completed runs and the audit
@@ -118,7 +119,7 @@ route pattern + method → minimum role, checked in middleware before any
 handler runs. The UI hides what you cannot do; the server refuses it.
 
 Legend for the zero-users column: `open` = behaves exactly as the pre-auth
-console; `403+hint` = refused with a body naming `bulwark user add`.
+console; `403+hint` = refused with a body naming `argus user add`.
 
 | Method | Route | Min role (users exist) | Zero users |
 |--------|-------|------------------------|------------|
@@ -190,7 +191,7 @@ Notes:
 
 ## 7. Scan execution model
 
-- **Registry**: targets are registered by an admin (CLI `bulwark target
+- **Registry**: targets are registered by an admin (CLI `argus target
   add|list|remove` or the admin API) as
   `{id, name, path, scanners, profile}`. `id` is random hex, assigned by the
   server — the browser only ever echoes it back. Path validation at
@@ -214,7 +215,7 @@ Notes:
   `scan` command now wraps — with the target repo's own `appsec.yml` as the
   config base. Findings are saved through the existing `runstore.Save` path
   **into the scanned target's own `.appsec/runs`**, exactly where
-  `bulwark scan --save` would put them. When the target is the served repo
+  `argus scan --save` would put them. When the target is the served repo
   (the primary workflow: register the repo you're serving), the run appears
   in the console's runs list with no new read API. A target pointing at a
   different repo still scans and saves correctly, but its history lives with
@@ -240,7 +241,7 @@ and the server saves but never writes reports.
 
 ## 8. Deployment: leaving loopback
 
-`bulwark serve` binds `127.0.0.1:8080` and terminates no TLS. That is a
+`argus serve` binds `127.0.0.1:8080` and terminates no TLS. That is a
 feature: TLS config is deployment-specific and doing it badly is worse than
 not doing it. **The supported way to expose the console is a
 TLS-terminating reverse proxy** (Caddy, nginx, Traefik) on the same host:
@@ -267,7 +268,7 @@ credentials will cross the network in cleartext without a TLS proxy.
 | Target registry | unknown target ID → 404; `target add` with relative / `..` / file / `/` → rejected |
 | Serial queue | two POSTed scans: second stays `queued` until first finishes; 11th pending → 429 |
 | Zero-users mode | pre-existing server tests unchanged; ops routes → 403 naming the bootstrap command |
-| Pipeline | golden capture: `bulwark scan` stdout/stderr/exit codes byte-identical pre/post extraction |
+| Pipeline | golden capture: `argus scan` stdout/stderr/exit codes byte-identical pre/post extraction |
 | Git URL policy (S1) | table-driven: `http://`, `ssh://`, `git://`, `file://`, scp-style, userinfo, no host, argument-injection shapes (`--upload-pack=…`) → rejected; plain https accepted |
 | Git executor (S1) | local bare-repo fixtures (`git init --bare` in tempdir; `file://` clones allowed ONLY via explicit test hook, never in production config); clone→scan→commit-SHA recorded; refresh preserves workspace `.appsec/runs`; no network in tests |
 | Scope confinement (S2) | table-driven: `../`, absolute, `.git/…`, `.appsec/…`, nonexistent, symlink-escape via a real symlink fixture → 400/failed; valid subdir and single file → scanned path = joined path |
@@ -283,26 +284,26 @@ credentials will cross the network in cleartext without a TLS proxy.
 ```bash
 # 1. Create the first admin (CLI only — there is no open registration API).
 cd /path/to/repo
-bulwark user add alice --role admin            # prompts for password (no echo)
+argus user add alice --role admin            # prompts for password (no echo)
 # or, for scripting:
-echo -n 's3cret-passphrase' | bulwark user add alice --role admin --password-stdin
+echo -n 's3cret-passphrase' | argus user add alice --role admin --password-stdin
 
 # 2. Register what may be scanned (admin).
-bulwark target add /abs/path/to/repo --name "payments-api" --scanners semgrep,gitleaks
+argus target add /abs/path/to/repo --name "payments-api" --scanners semgrep,gitleaks
 
 # 3. Serve and log in.
-bulwark serve            # http://127.0.0.1:8080 now shows a login page
+argus serve            # http://127.0.0.1:8080 now shows a login page
 
 # 4. Onboard teammates from the console (admin → Users) or the CLI:
-bulwark user add bob --role viewer
-bulwark user add carol --role operator
+argus user add bob --role viewer
+argus user add carol --role operator
 
 # 5. Operate: pick a target, choose scanners/profile/triage, Launch.
 #    Watch the job progress; the finished run lands in Runs as usual.
 #    Admins can review every action under Audit.
 ```
 
-`bulwark user list|passwd|remove` and `bulwark target list|remove` complete
+`argus user list|passwd|remove` and `argus target list|remove` complete
 the lifecycle. All user/target commands take `--dir` like `serve` does.
 
 ## 11. Explicit non-goals
@@ -366,16 +367,16 @@ and an optional branch instead of a path:
 file inside the target, validated per threat row S2 (relative, cleaned, no
 `..`, exists, inside root after `EvalSymlinks`, not into `.git/` or
 `.appsec/`) at enqueue and re-validated at execution. The pipeline receives
-the joined path the same way `bulwark scan <path>` does. Scope is recorded on
+the joined path the same way `argus scan <path>` does. Scope is recorded on
 the job and in the `scan.launch` audit line. The run is saved to the
 TARGET's run store (not the scope subdirectory) — a scoped run is part of
-the target's history, labeled by its job. No CLI change: `bulwark scan
+the target's history, labeled by its job. No CLI change: `argus scan
 <path>` already is scope.
 
 ### 12.3 Config layering (S3)
 
 Registry entries gain a structured `config` block, editable only via
-`PATCH /api/targets/{id}` (admin) or `bulwark target` CLI:
+`PATCH /api/targets/{id}` (admin) or `argus target` CLI:
 
 ```
 config: {
@@ -442,7 +443,7 @@ The table lives next to the compliance data and must be updated when a
 framework file is added (a loader test pins the correspondence). Frameworks
 are recorded on the job and audit line, NOT in the run file (same rule as
 `launchedBy`: run files are the frozen `report.Document`). CLI parity:
-`bulwark scan --frameworks PCI-DSS` validates and narrows identically, with a
+`argus scan --frameworks PCI-DSS` validates and narrows identically, with a
 NOTE progress line naming the narrowed scanner set.
 
 ### 12.6 On-demand explain (S5)
@@ -541,3 +542,123 @@ operator+) over one run's rollup — counts, top risk signals, top CIS control
 gaps — clearly labeled AI-generated. Scan launch rejects the filesystem knobs
 (scanner/profile/scope/framework) for cloud targets rather than silently
 ignoring them; only the triage toggle applies.
+
+## 14. Finding workflow: dispositions and the gate
+
+A **disposition** is durable human judgment about a single finding —
+`open` (the default, no record) / `in-progress` / `accepted-risk` /
+`false-positive` / `fixed` — with a note and an owner. It is keyed by the
+finding's stable **fingerprint**, so a disposition set on a finding in one run
+applies to the same finding in every later run: the console becomes a tool you
+work in, not a report you read.
+
+**One store, separate from everything else.** Dispositions live in
+`dispositions.json` beside a target's runs (`<root>/.appsec/` for dir/git,
+`.appsec/cloud/<id>/` for cloud), read/written by `internal/disposition` with
+the same mtime-reload + atomic-write discipline as the user/target stores. They
+are deliberately NOT in run files (which stay immutable historical records) and
+NOT LLM triage (advisory, per-run, machine). A disposition never rewrites a
+severity or a compliance mapping — the console overlays it onto findings at
+read time.
+
+**Authz & audit.** `POST /api/dispositions` (set) and
+`DELETE /api/dispositions/{fingerprint}` (clear to open) are **operator+**, CSRF
++ zero-users-mode gated like every other mutation. Each change emits a
+`finding.dispose` audit event recording the status — never the note text.
+
+**Regression.** A finding present in a run whose disposition is `fixed` is a
+regression (marked fixed, still detected). The run detail and the Overview
+"Finding workflow" tile surface the count; the Findings list badges it and
+offers a `regression` status filter.
+
+**The gate (default on).** Findings dispositioned `accepted-risk` or
+`false-positive` are excluded from the severity gate — a human formally
+accepting a risk stops it failing CI, while it stays visible in the report.
+`in-progress` and `fixed` still gate (a fix is unconfirmed until a re-scan
+clears the finding; no LLM verdict ever moves the gate — only a human
+disposition does). This applies in two places from the same
+`disposition.GateSuppressed` predicate:
+
+- **Console** — `gateFor` excludes suppressed findings and reports the count
+  as `GateInfo.Suppressed` (the gate badge shows "· N accepted").
+- **CLI** — `argus scan` loads the scanned tree's
+  `.appsec/dispositions.json` and drops accepted-risk/false-positive findings
+  from the gate decision, printing a `NOTE: N finding(s) excluded from the
+  gate by disposition`. `--strict-gate` gates on everything, ignoring
+  dispositions.
+
+## 15. Professional report export & console feedback
+
+**Report export.** Any run exports as a branded, print-ready HTML report
+(`GET /api/runs/{id}/export?format=html`, viewer): an executive summary
+(severity mix + disposition-aware gate outcome), compliance posture, and every
+finding grouped by severity with location, risk, description, remediation,
+mapped controls and workflow status. It is fully self-contained (inline CSS, an
+inline SVG mark — no external fetch) and print-optimized, so "Save as PDF" from
+the browser produces a clean deliverable. `report.WriteHTML` renders through
+`html/template`, so untrusted finding text is auto-escaped — an exported report
+is never an XSS vector. The same writer backs `argus scan --format html`.
+Console entry points: a "Report" link per run in the Runs tab and an "Export
+report" link in the Findings toolbar.
+
+**Feedback.** Mutations surface a toast (success/error) instead of failing
+silently, and destructive actions (delete run, suppress rule, remove user/target)
+use an in-app confirm dialog rather than `window.confirm`. Both live in
+`ui/src/toast.tsx` (`ToastProvider`/`ConfirmProvider`).
+
+**URL-addressable views.** The active tab, target, selected run, and the
+Findings framework/severity/status filters are encoded in the query string, so a
+view is shareable and reload-safe; navigation-significant changes use
+`pushState` so the browser Back button works.
+
+## 16. Secure-coding library (mitigations)
+
+For findings that need a code change, Argus ships a curated, human-vetted
+library of fixes — the open-source counterpart to a countermeasure catalog.
+`internal/mitigation` holds one embedded JSON entry per weakness class (SQL
+injection, XSS, SSRF, CSRF, session management, command injection, path
+traversal, and growing): the principle that fixes the class, before/after code
+per language (Python, JavaScript/TypeScript, Java, Go), the library to reach
+for, and references (OWASP cheat sheets, CWE). Adding a weakness or a language
+is a data-only change — drop in a JSON file, no code.
+
+It is deliberately separate from the LLM remediation seam. That generates a
+bespoke, review-required fix per finding; this is fixed guidance you trust the
+way you trust the sources it cites. `GET /api/mitigations?cwe=&lang=` (viewer)
+maps a finding's CWEs to an entry and promotes the snippet for the finding's
+language; the Findings drawer shows it as a "Secure code fix" panel with
+copyable vulnerable/secure blocks. `argus mitigations [weakness]` browses the
+same library from the terminal.
+
+## 17. Mitigation library growth & remediation grounding
+
+The secure-coding library (§16) now covers 21 weakness classes — SQLi, XSS,
+SSRF, CSRF, auth/session, command injection, path traversal, weak crypto,
+insecure deserialization, open redirect, XXE, LDAP injection, XPath injection,
+SSTI, and mass assignment — across Python, JavaScript/TypeScript, Java, Go,
+plus Ruby, PHP, and C# where each is the classic sink. Still data-only to grow.
+
+The AI remediation now anchors to real code. When a code finding carries a
+captured snippet, buildRemediatePrompt instructs the model to produce a
+unified diff whose context and removed lines are copied verbatim from that
+snippet — so the "before" side is the finding's actual vulnerable line, not an
+invented example. With no snippet it must not fabricate a diff (steps plus a
+clearly-illustrative example instead). The console renders code patches as a
+side-by-side before/after view (DiffView) whose columns size to content and
+scroll both ways, with the finding's file:line in the header.
+
+## 18. Portfolio Overview (all targets)
+
+The Overview defaults to a portfolio scope: it aggregates the LATEST run of
+every target (served repo + each registered target) into one posture — total,
+severity mix, category split, OWASP, compliance, risk bands, the disposition
+rollup, and a gate that fails if any target's latest run fails. The target
+selector's "All targets" is this default; picking a specific target scopes the
+Overview to it. `GET /api/summary?target=@all` (the `@all` sentinel) builds it
+from `storesForAggregate` — every run history in play. The per-run trend is
+per-target, so it's empty under `@all`.
+
+Findings and Runs need a single store, so under `@all` they show a "pick a
+target" prompt rather than a meaningless merge; selecting one (or "This repo")
+scopes all three tabs. The scope lives in the URL (absent = portfolio), so a
+portfolio or per-target view is shareable and reload-safe.

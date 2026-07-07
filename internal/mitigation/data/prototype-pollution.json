@@ -1,0 +1,19 @@
+{
+  "weakness": "prototype-pollution",
+  "title": "Prototype Pollution",
+  "cwes": ["CWE-1321"],
+  "principle": "Never let attacker-controlled keys reach an object's prototype. Reject or skip the keys __proto__, constructor, and prototype when merging, cloning, or setting properties from untrusted data. Prefer structures without a prototype (Map, or Object.create(null)) and use vetted, patched merge libraries.",
+  "snippets": [
+    {
+      "language": "javascript",
+      "library": "a Map or null-prototype object, and a guarded deep-merge",
+      "vulnerable": "function merge(t, s){ for (const k in s){ if (typeof s[k]==='object') merge(t[k]=t[k]||{}, s[k]); else t[k]=s[k]; } }",
+      "secure": "function merge(t, s){ for (const k in s){ if (k==='__proto__'||k==='constructor'||k==='prototype') continue; if (s[k]&&typeof s[k]==='object'){ t[k]=t[k]||{}; merge(t[k], s[k]); } else t[k]=s[k]; } }\n// or store untrusted maps in `new Map()` / `Object.create(null)`",
+      "note": "The classic sink is a recursive merge/set that follows __proto__. Skip those keys, or use a lodash version >= 4.17.21 and Object.freeze(Object.prototype) as defense in depth."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Prototype Pollution Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Prototype_Pollution_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-1321: Prototype Pollution", "url": "https://cwe.mitre.org/data/definitions/1321.html"}
+  ]
+}

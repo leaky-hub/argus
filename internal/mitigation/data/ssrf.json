@@ -1,0 +1,40 @@
+{
+  "weakness": "ssrf",
+  "title": "Server-Side Request Forgery (SSRF)",
+  "cwes": ["CWE-918"],
+  "principle": "Don't fetch a URL the user controls. If an outbound request must use user input, allowlist the exact hosts (or schemes and ports) you permit, resolve the host and reject private, loopback, and link-local addresses (including the cloud metadata IP 169.254.169.254), and disable redirect following so an allowed host can't bounce you inward.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "requests with an explicit host allowlist and redirects disabled",
+      "vulnerable": "resp = requests.get(user_url)",
+      "secure": "host = urlparse(user_url).hostname\nif host not in ALLOWED_HOSTS:\n    abort(400)\nresp = requests.get(user_url, allow_redirects=False, timeout=5)",
+      "note": "Allowlist by host, not by substring (\"evil.com/trusted.com\" defeats substring checks). For defense in depth, resolve the host and reject private ranges with ipaddress.ip_address(...).is_private."
+    },
+    {
+      "language": "javascript",
+      "library": "an allowlist plus a private-IP check before fetch",
+      "vulnerable": "const r = await fetch(userUrl);",
+      "secure": "const { hostname } = new URL(userUrl);\nif (!ALLOWED_HOSTS.has(hostname)) throw new Error('host not allowed');\nconst r = await fetch(userUrl, { redirect: 'error' });",
+      "note": "redirect: 'error' stops an allowed host from redirecting to an internal one. Resolve and block private/loopback ranges (e.g. with the 'ip' package) as a second layer."
+    },
+    {
+      "language": "java",
+      "library": "a validated URL against an allowlist, redirects off",
+      "vulnerable": "HttpURLConnection c = (HttpURLConnection) new URL(userUrl).openConnection();",
+      "secure": "URL u = new URL(userUrl);\nif (!ALLOWED_HOSTS.contains(u.getHost())) throw new SecurityException(\"host not allowed\");\nHttpURLConnection c = (HttpURLConnection) u.openConnection();\nc.setInstanceFollowRedirects(false);",
+      "note": "Also resolve InetAddress.getByName(host) and reject isSiteLocalAddress / isLoopbackAddress / isLinkLocalAddress."
+    },
+    {
+      "language": "go",
+      "library": "net/http with a redirect guard and a private-IP dial check",
+      "vulnerable": "resp, _ := http.Get(userURL)",
+      "secure": "u, err := url.Parse(userURL)\nif err != nil || !allowedHosts[u.Hostname()] {\n    return errors.New(\"host not allowed\")\n}\nclient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {\n    return http.ErrUseLastResponse\n}}\nresp, err := client.Get(userURL)",
+      "note": "For strong protection set a custom Transport.DialContext that resolves the address and rejects private/loopback/link-local IPs, so DNS rebinding can't slip through."
+    }
+  ],
+  "references": [
+    {"title": "OWASP SSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-918: Server-Side Request Forgery", "url": "https://cwe.mitre.org/data/definitions/918.html"}
+  ]
+}

@@ -1,5 +1,5 @@
 // Package pipeline is the scan pipeline, extracted from the CLI so the
-// `bulwark scan` command and the console's job queue execute the exact same
+// `argus scan` command and the console's job queue execute the exact same
 // code path: adapter selection → parallel scanners → normalize →
 // ignore-filter → correlate → triage (enrichment-only) → risk → compliance →
 // optional false-positive exclusion.

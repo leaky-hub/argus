@@ -1,0 +1,48 @@
+{
+  "weakness": "ssti",
+  "title": "Server-Side Template Injection (SSTI)",
+  "cwes": [
+    "CWE-1336"
+  ],
+  "principle": "Never let user input become the template. Templates are code; rendering an attacker-controlled template string can run arbitrary server code. Keep templates as fixed files (or constants) and pass user data in as context variables, which the engine escapes and treats as data.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "Jinja2/Flask render_template with a context",
+      "vulnerable": "return render_template_string(\"Hello \" + name)",
+      "secure": "return render_template(\"hello.html\", name=name)  # name is data, not template",
+      "note": "render_template_string on anything containing user input is the SSTI sink — {{7*7}} style payloads execute. Use a fixed template file and pass name in the context."
+    },
+    {
+      "language": "ruby",
+      "library": "ERB/Rails templates with locals",
+      "vulnerable": "ERB.new(\"Hello #{params[:name]}\").result(binding)",
+      "secure": "render inline: \"Hello <%= name %>\", locals: { name: params[:name] }\n# better: a fixed .erb view rendered with locals",
+      "note": "Building an ERB template from user input runs Ruby. Pass the value through locals into a fixed template; never interpolate it into the template source."
+    },
+    {
+      "language": "java",
+      "library": "Thymeleaf/Freemarker with a model, not a built template string",
+      "vulnerable": "Template t = new Template(\"t\", new StringReader(\"Hello \" + name), cfg);",
+      "secure": "// Freemarker: fixed template file, value via the data model\nmodel.put(\"name\", name);\ntemplate.process(model, out);",
+      "note": "Compiling a template from concatenated input allows expression execution. Load fixed templates and supply user data through the model/context."
+    },
+    {
+      "language": "javascript",
+      "library": "a precompiled template with data, not a compiled input string",
+      "vulnerable": "const html = Handlebars.compile('Hello ' + req.query.name)({});",
+      "secure": "const tmpl = Handlebars.compile('Hello {{name}}');   // fixed template\nconst html = tmpl({ name: req.query.name });          // data",
+      "note": "Compile a fixed template once and pass user input as data. Never build the template source from the request. Avoid EJS/underscore templates fed user strings."
+    }
+  ],
+  "references": [
+    {
+      "title": "OWASP Testing for Server-Side Template Injection",
+      "url": "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/18-Testing_for_Server-side_Template_Injection"
+    },
+    {
+      "title": "CWE-1336: Server-Side Template Injection",
+      "url": "https://cwe.mitre.org/data/definitions/1336.html"
+    }
+  ]
+}

@@ -1,13 +1,14 @@
 import { Severity } from "./api";
 
 // Severity → hex, matching tailwind.config.js `sev` ramp, for recharts (which
-// needs literal colors, not classes).
+// needs literal colors, not classes). Severity is the one saturated channel in
+// the app, so these are the only strong hues on a chart.
 export const SEV_COLOR: Record<Severity, string> = {
-  critical: "#b91c1c",
-  high: "#ea580c",
-  medium: "#d97706",
-  low: "#2563eb",
-  info: "#6b7280",
+  critical: "#c92a30",
+  high: "#d95d10",
+  medium: "#c98a10",
+  low: "#2f74c0",
+  info: "#6b7386",
 };
 
 // Tailwind classes for severity chips.
@@ -37,13 +38,17 @@ export const CATEGORY_LABEL: Record<string, string> = {
   CLOUD: "Cloud posture",
 };
 
+// Category chips are neutral so severity stays the one saturated channel in
+// the finding list. The per-category hue survives as a dot in charts and the
+// breakdown (CATEGORY_COLOR), where color encodes proportion, not urgency.
+const NEUTRAL_CHIP = "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 export const CATEGORY_CHIP: Record<string, string> = {
-  SAST: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
-  SECRET: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-  SCA: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
-  IAC: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
-  DAST: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-  CLOUD: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+  SAST: NEUTRAL_CHIP,
+  SECRET: NEUTRAL_CHIP,
+  SCA: NEUTRAL_CHIP,
+  IAC: NEUTRAL_CHIP,
+  DAST: NEUTRAL_CHIP,
+  CLOUD: NEUTRAL_CHIP,
 };
 
 export const CATEGORY_COLOR: Record<string, string> = {
@@ -61,10 +66,29 @@ export const VERDICT_LABEL: Record<string, string> = {
   uncertain: "Uncertain",
 };
 
+// Finding workflow disposition (human judgment). "open" is the default and
+// has no chip. Distinct palette from the LLM verdict chips so the two are not
+// confused.
+export const DISPOSITION_LABEL: Record<string, string> = {
+  "in-progress": "In progress",
+  "accepted-risk": "Accepted risk",
+  "false-positive": "False positive",
+  fixed: "Fixed",
+};
+export const DISPOSITION_CHIP: Record<string, string> = {
+  "in-progress": "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+  "accepted-risk": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  "false-positive": "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+  fixed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+};
+
+// LLM triage verdicts are advisory, so they read calm rather than loud: a
+// neutral chip with a self-explanatory label, never a saturated fill that
+// competes with the deterministic severity.
 export const VERDICT_CHIP: Record<string, string> = {
-  "true-positive": "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
-  "false-positive": "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  uncertain: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  "true-positive": NEUTRAL_CHIP,
+  "false-positive": NEUTRAL_CHIP,
+  uncertain: NEUTRAL_CHIP,
 };
 
 export function fmtTime(iso: string): string {
@@ -80,8 +104,8 @@ export function fmtTime(iso: string): string {
 }
 
 export function riskColor(score: number): string {
-  if (score >= 9) return "#b91c1c";
-  if (score >= 7) return "#ea580c";
-  if (score >= 4) return "#d97706";
-  return "#2563eb";
+  if (score >= 9) return "#c92a30";
+  if (score >= 7) return "#d95d10";
+  if (score >= 4) return "#c98a10";
+  return "#2f74c0";
 }

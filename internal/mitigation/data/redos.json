@@ -1,0 +1,48 @@
+{
+  "weakness": "redos",
+  "title": "Regular Expression Denial of Service (ReDoS)",
+  "cwes": [
+    "CWE-1333"
+  ],
+  "principle": "Keep untrusted input away from regexes that can backtrack exponentially. Avoid nested or overlapping quantifiers like (a+)+ or (.*)*; anchor patterns, bound repetition, and prefer a linear-time engine or plain string operations. If a user supplies the pattern, don't run it at all.",
+  "snippets": [
+    {
+      "language": "javascript",
+      "library": "a bounded, non-backtracking pattern (or the 're2' package)",
+      "vulnerable": "if (/^(\\w+\\s?)*$/.test(input)) { /* catastrophic backtracking */ }",
+      "secure": "if (/^\\w+(\\s\\w+)*$/.test(input)) { /* no overlapping quantifiers */ }\n// for user-supplied patterns use node-re2, which runs in linear time",
+      "note": "The danger is nested/adjacent quantifiers that can match the same text many ways. RE2 (via the re2 npm package) has no backtracking and can't ReDoS."
+    },
+    {
+      "language": "python",
+      "library": "the 're2' module for untrusted input, or a bounded pattern",
+      "vulnerable": "re.match(r'^(a+)+$', user_input)",
+      "secure": "re.match(r'^a+$', user_input)   # flatten the nested quantifier\n# or: import re2; re2.match(pattern, user_input)  # linear time",
+      "note": "Python's re backtracks. Google's re2 module is linear-time and safe for user-supplied patterns or hostile input. Also cap input length."
+    },
+    {
+      "language": "java",
+      "library": "a possessive quantifier / bounded pattern, or RE2/J",
+      "vulnerable": "Pattern.compile(\"(a+)+\").matcher(input).matches();",
+      "secure": "Pattern.compile(\"a++\").matcher(input).matches();   // possessive: no backtracking\n// or use com.google.re2j.Pattern for untrusted patterns",
+      "note": "Possessive quantifiers (a++, a*+) don't backtrack. RE2/J runs in linear time and is the safe choice for attacker-controlled input."
+    },
+    {
+      "language": "go",
+      "library": "the stdlib regexp (RE2, linear time)",
+      "vulnerable": "// importing a PCRE-style engine and using (a+)+ on user input",
+      "secure": "re := regexp.MustCompile(`a+`)\nre.MatchString(userInput)   // Go's regexp is RE2: no catastrophic backtracking",
+      "note": "Go's standard regexp package is RE2 and cannot ReDoS by construction. The risk only appears if you pull in a backtracking PCRE binding."
+    }
+  ],
+  "references": [
+    {
+      "title": "OWASP Regular expression Denial of Service (ReDoS)",
+      "url": "https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS"
+    },
+    {
+      "title": "CWE-1333: Inefficient Regular Expression Complexity",
+      "url": "https://cwe.mitre.org/data/definitions/1333.html"
+    }
+  ]
+}

@@ -22,11 +22,12 @@ func init() {
 	cloudScanCmd.Flags().String("regions", "", "Comma-separated region filter (default: provider default)")
 	cloudScanCmd.Flags().StringP("format", "f", "", "Output format: sarif, markdown, or json (default from config)")
 	cloudScanCmd.Flags().String("fail-severity", "", "Fail if findings meet or exceed this severity (critical|high|medium|low|info|none)")
-	cloudScanCmd.Flags().StringP("config", "c", "", "Path to bulwark.yml (or appsec.yml) configuration file")
+	cloudScanCmd.Flags().StringP("config", "c", "", "Path to argus.yml (or appsec.yml) configuration file")
 	cloudScanCmd.Flags().StringP("output", "o", "", "Output file path (default is stdout)")
 	cloudScanCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	cloudScanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 	cloudScanCmd.Flags().Bool("save", false, "Save the run under .appsec/cloud/<provider>-<profile>/runs for the console")
+	cloudScanCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
 	rootCmd.AddCommand(cloudScanCmd)
 }
 
@@ -43,8 +44,8 @@ prowler as AWS_PROFILE. Create a read-only security-audit principal
 (AWS SecurityAudit + ViewOnlyAccess) and point --profile at it; the platform
 runs with exactly what that profile can do.
 
-  bulwark cloud-scan --provider aws --profile security-audit
-  bulwark cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2`,
+  argus cloud-scan --provider aws --profile security-audit
+  argus cloud-scan --provider aws --profile security-audit --regions us-east-1,us-west-2`,
 	Args: cobra.NoArgs,
 	RunE: runCloudScan,
 }
@@ -95,7 +96,7 @@ func runCloudScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	if save, _ := cmd.Flags().GetBool("save"); save {
-		if meta, err := saveCloudRun(provider, profile, findings); err != nil {
+		if meta, err := saveCloudRun(provider, profile, findings, res.ToolVersion); err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: --save failed: %v\n", err)
 		} else {
 			fmt.Fprintf(os.Stderr, "==> saved run %s to %s\n", meta.ID, meta.Path)
@@ -107,7 +108,24 @@ func runCloudScan(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "\nPosture: %d checks failed, %d passed, %d manual\n", res.Failed, res.Passed, res.Manual)
 	printSummary(findings)
 
-	if model.GateExceeded(findings, gate) {
+	// Apply disposition suppression so the CLI gate matches the console: a risk
+	// accepted in the console (stored beside this target's cloud runs) stops
+	// failing CI but stays in the report. --strict-gate gates on everything.
+	gated := findings
+	if strict, _ := cmd.Flags().GetBool("strict-gate"); !strict {
+		base, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		dispDir := filepath.Join(base, ".appsec", "cloud", cloudTargetDir(provider, profile))
+		var suppressed int
+		gated, suppressed = excludeDispositionedAt(dispDir, findings)
+		if suppressed > 0 {
+			fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) excluded from the gate by disposition (accepted-risk/false-positive); --strict-gate to include them\n", suppressed)
+		}
+	}
+
+	if model.GateExceeded(gated, gate) {
 		return errGateFailed
 	}
 	return nil
@@ -119,14 +137,18 @@ func runCloudScan(cmd *cobra.Command, _ []string) error {
 // (locked decision 9). The store is the same runstore machinery code scans
 // use — deltas, list, load all work unchanged; the resource-slot fingerprint
 // makes cloud deltas meaningful across runs.
-func saveCloudRun(provider, profile string, findings []model.Finding) (runstore.RunMeta, error) {
+func saveCloudRun(provider, profile string, findings []model.Finding, toolVersion string) (runstore.RunMeta, error) {
 	base, err := os.Getwd()
 	if err != nil {
 		return runstore.RunMeta{}, err
 	}
 	id := cloudTargetDir(provider, profile)
 	store := runstore.Store{Dir: filepath.Join(base, ".appsec", "cloud", id, "runs")}
-	return store.Save(findings, time.Now())
+	var tools map[string]string
+	if toolVersion != "" {
+		tools = map[string]string{"prowler": toolVersion}
+	}
+	return store.SaveWithTools(findings, tools, time.Now())
 }
 
 // cloudTargetDir is the filesystem-safe per-target directory name. The

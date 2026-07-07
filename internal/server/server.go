@@ -1,4 +1,4 @@
-// Package server is the `bulwark serve` web console: a local-first HTTP server
+// Package server is the `argus serve` web console: a local-first HTTP server
 // that exposes saved scan runs as a JSON API, serves the embedded React UI,
 // and — once users are configured — authenticates sessions and executes
 // scans against registered targets through a strictly serial job queue.
@@ -24,12 +24,14 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/leaky-hub/appsec/internal/audit"
 	"github.com/leaky-hub/appsec/internal/config"
+	"github.com/leaky-hub/appsec/internal/disposition"
 	"github.com/leaky-hub/appsec/internal/jobs"
 	"github.com/leaky-hub/appsec/internal/llm"
 	"github.com/leaky-hub/appsec/internal/model"
@@ -37,6 +39,8 @@ import (
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server/auth"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/threatmodel"
+	"github.com/leaky-hub/appsec/internal/ticket"
 )
 
 // Server serves the console API and static UI over one repo's run history.
@@ -62,6 +66,12 @@ type Server struct {
 	targets  *targets.Registry
 	auditLog *audit.Log
 	queue    *jobs.Queue
+	tickets  *ticket.Store      // nil when the SQLite store isn't wired (legacy mode)
+	threats  *threatmodel.Store // nil disables threat-model endpoints
+
+	// githubAPIBase overrides the GitHub API endpoint IN TESTS ONLY; empty
+	// means https://api.github.com.
+	githubAPIBase string
 }
 
 // Options configure a Server.
@@ -79,6 +89,8 @@ type Options struct {
 	Targets  *targets.Registry
 	Audit    *audit.Log
 	Queue    *jobs.Queue
+	Tickets  *ticket.Store      // the SQLite-backed ticket store; nil disables ticket endpoints
+	Threats  *threatmodel.Store // the SQLite-backed threat-model store; nil disables its endpoints
 }
 
 // New builds a Server and its routes.
@@ -92,6 +104,7 @@ func New(opts Options) *Server {
 		store: opts.Store, dir: dir, gate: opts.Gate, gateName: opts.GateName, static: opts.Static,
 		users: opts.Users, sessions: opts.Sessions, limiter: opts.Limiter,
 		targets: opts.Targets, auditLog: opts.Audit, queue: opts.Queue,
+		tickets: opts.Tickets, threats: opts.Threats,
 	}
 	return s
 }
@@ -108,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
 	mux.HandleFunc("/api/users", s.handleUsers)                          // GET list, POST create (admin)
+	mux.HandleFunc("/api/users/names", s.handleUserNames)                // GET usernames only (operator, for assignee pickers)
 	mux.HandleFunc("/api/users/", s.handleUserByID)                      // PATCH, DELETE (admin)
 	mux.HandleFunc("/api/targets", s.handleTargets)                      // GET (viewer), POST (admin)
 	mux.HandleFunc("/api/targets/", s.handleTargetByID)                  // DELETE (admin)
@@ -116,7 +130,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/scans/", s.handleScanByID)                      // GET /api/scans/{jobId}
 	mux.HandleFunc("/api/frameworks", s.handleFrameworks)                // GET (viewer)
 	mux.HandleFunc("/api/explain", s.handleExplain)                      // POST (operator)
+	mux.HandleFunc("/api/remediate", s.handleRemediate)                  // POST (operator): on-demand assisted remediation, never persisted
+	mux.HandleFunc("/api/validate", s.handleValidate)                    // POST (operator): on-demand severity validation + CVSS
+	mux.HandleFunc("/api/mitigations", s.handleMitigations)              // GET (viewer): curated secure-coding guidance by CWE
+	mux.HandleFunc("/api/dispositions", s.handleDispositions)            // POST (operator): set a finding's workflow status
+	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)   // POST (operator): apply/clear across a selection
+	mux.HandleFunc("/api/dispositions/", s.handleDispositionByID)        // DELETE (operator): clear back to open
 	mux.HandleFunc("/api/cloud/posture-summary", s.handlePostureSummary) // POST (operator): on-demand, never persisted
+	mux.HandleFunc("/api/tickets", s.handleTickets)                      // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/work-summary", s.handleWorkSummary)             // GET ticket/threat status counts (viewer)
+	mux.HandleFunc("/api/tickets/", s.handleTicketByID)                  // GET/PATCH/DELETE + /links, /comments subpaths
+	mux.HandleFunc("/api/threat-models", s.handleThreatModels)           // GET list (viewer), POST create (operator)
+	mux.HandleFunc("/api/threat-models/", s.handleThreatModelByID)       // GET/DELETE + subaction POSTs
+	mux.HandleFunc("/api/threat-library", s.handleThreatLibrary)         // GET (viewer): component types for the picker
 	mux.HandleFunc("/api/audit", s.handleAudit)                          // GET (admin)
 	mux.HandleFunc("/", s.handleStatic)
 	return securityHeaders(s.authGate(mux))
@@ -168,7 +194,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().UTC().Format(rfc3339)})
 }
 
+// aggregateTarget is the sentinel target id that means "every target
+// combined" — the portfolio Overview. A real target id can never be this.
+const aggregateTarget = "@all"
+
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("target") == aggregateTarget {
+		resp, err := s.buildAggregateSummary()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to build summary")
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	store, ok := s.runStoreFor(w, r)
 	if !ok {
 		return
@@ -179,6 +218,63 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// storesForAggregate is every run history in play: the served repo plus each
+// registered target (dir/git repo root, or the cloud per-target store).
+func (s *Server) storesForAggregate() []runstore.Store {
+	stores := []runstore.Store{s.store}
+	if s.targets == nil {
+		return stores
+	}
+	ts, err := s.targets.List()
+	if err != nil {
+		return stores
+	}
+	for _, t := range ts {
+		if t.Kind() == targets.TypeCloud {
+			stores = append(stores, runstore.Store{Dir: s.targets.CloudRunStore(t)})
+		} else {
+			stores = append(stores, runstore.ForRepo(s.targets.Root(t)))
+		}
+	}
+	return dedupeStores(stores)
+}
+
+// dedupeStores drops run stores that resolve to the same directory, so a target
+// registered at the served root (or via a symlink, a trailing slash, or a
+// case-differing path on a case-insensitive filesystem) is not counted twice in
+// the portfolio aggregate. Identity is the symlink-resolved path, with an
+// os.SameFile check to catch aliases a string compare misses.
+func dedupeStores(stores []runstore.Store) []runstore.Store {
+	out := make([]runstore.Store, 0, len(stores))
+	seen := map[string]bool{}
+	var kept []os.FileInfo
+	for _, st := range stores {
+		canon := st.Dir
+		if resolved, err := filepath.EvalSymlinks(st.Dir); err == nil {
+			canon = resolved
+		}
+		if seen[canon] {
+			continue
+		}
+		if fi, err := os.Stat(canon); err == nil {
+			dup := false
+			for _, k := range kept {
+				if os.SameFile(fi, k) {
+					dup = true
+					break
+				}
+			}
+			if dup {
+				continue
+			}
+			kept = append(kept, fi)
+		}
+		seen[canon] = true
+		out = append(out, st)
+	}
+	return out
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +340,7 @@ func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request, store r
 
 // handleRunExport streams a run as SARIF or JSON for download. The report is
 // re-rendered from the stored findings through the same writers the CLI uses,
-// so an exported SARIF is byte-for-byte what `bulwark scan -f sarif` produces.
+// so an exported SARIF is byte-for-byte what `argus scan -f sarif` produces.
 func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store runstore.Store, id string) {
 	doc, err := store.Load(id)
 	if err != nil {
@@ -253,7 +349,7 @@ func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store r
 	}
 	format := r.URL.Query().Get("format")
 	// A safe download filename derived from the validated run id (no path sep).
-	fname := "bulwark-" + strings.ReplaceAll(id, ":", "-")
+	fname := "argus-" + strings.ReplaceAll(id, ":", "-")
 	switch format {
 	case "sarif":
 		w.Header().Set("Content-Type", "application/sarif+json; charset=utf-8")
@@ -268,9 +364,60 @@ func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request, store r
 		if err := report.WriteJSON(w, doc.Findings); err != nil {
 			return
 		}
+	case "html":
+		// A professional, print-to-PDF report with the run's gate and workflow
+		// context. Served inline so the browser renders (and prints) it.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `inline; filename="`+fname+`.html"`)
+		meta := s.htmlMeta(store, id, doc.Findings)
+		s.addWorkItemsToReport(&meta, r.URL.Query().Get("target"))
+		if err := report.WriteHTML(w, doc.Findings, meta); err != nil {
+			return
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "format must be sarif or json")
+		writeErr(w, http.StatusBadRequest, "format must be sarif, json, or html")
 	}
+}
+
+// htmlMeta assembles the presentation context for an exported report: the
+// target label, the run's gate outcome (disposition-aware), and the
+// per-finding workflow statuses.
+func (s *Server) htmlMeta(store runstore.Store, id string, findings []model.Finding) report.HTMLMeta {
+	dispMap := map[string]string{}
+	if all, err := dispositionStore(store).All(); err == nil {
+		for fid, rec := range all {
+			dispMap[fid] = rec.Status
+		}
+	}
+	gate := gateFor(findings, mustDispositions(store), s.gate, s.gateName)
+	return report.HTMLMeta{
+		Target:         s.reportTarget(store),
+		RunID:          id,
+		GeneratedAt:    time.Now().Format("2006-01-02 15:04 MST"),
+		GateThreshold:  s.gateName,
+		GateFailed:     gate.Failed,
+		GateSuppressed: gate.Suppressed,
+		Dispositions:   dispMap,
+	}
+}
+
+// mustDispositions returns the store's dispositions or an empty map.
+func mustDispositions(store runstore.Store) map[string]disposition.Record {
+	all, err := dispositionStore(store).All()
+	if err != nil {
+		return nil
+	}
+	return all
+}
+
+// reportTarget is a human label for the report header: the served repo's base
+// name, or the run store's owning directory for a target.
+func (s *Server) reportTarget(store runstore.Store) string {
+	dir := filepath.Dir(filepath.Dir(store.Dir)) // strip /.appsec/runs
+	if base := filepath.Base(dir); base != "" && base != "." && base != "/" {
+		return base
+	}
+	return ""
 }
 
 // runStoreFor resolves which run history a read serves: the served repo's

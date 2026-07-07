@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Severity, GateInfo } from "./api";
 import { SEV_CHIP, SEV_COLOR, CATEGORY_CHIP, CATEGORY_LABEL, CATEGORY_COLOR } from "./theme";
 
-// Logo is the Bulwark mark: a shield with a check. Inline SVG (no asset
+// Logo is the Argus mark: a shield with a check. Inline SVG (no asset
 // fetch, CSP-safe), sized by the `size` prop, tinted by currentColor's
 // sibling classes on the wrapper.
 export function Logo({ size = 22 }: { size?: number }) {
@@ -15,13 +15,13 @@ export function Logo({ size = 22 }: { size?: number }) {
   );
 }
 
-// Wordmark is the Logo + "Bulwark" name, used in the header and the login
+// Wordmark is the Logo + "Argus" name, used in the header and the login
 // page so the brand is one component, not a scattered string.
 export function Wordmark({ size = 22, className = "" }: { size?: number; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <Logo size={size} />
-      <span className="font-bold tracking-tight">Bulwark</span>
+      <span className="font-bold tracking-tight">Argus</span>
     </span>
   );
 }
@@ -147,13 +147,17 @@ export function CategoryBreakdown({ byCategory }: { byCategory: Record<string, n
 }
 
 export function GateBadge({ gate }: { gate: GateInfo }) {
+  const suppressed = gate.suppressed ?? 0;
+  const suffix = suppressed > 0
+    ? <span className="opacity-70" title="findings excluded from the gate by accepted-risk / false-positive disposition">· {suppressed} accepted</span>
+    : null;
   return gate.failed ? (
     <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-300">
-      ● FAIL <span className="opacity-70">≥ {gate.threshold}</span>
+      ● FAIL <span className="opacity-70">≥ {gate.threshold}</span> {suffix}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800 dark:bg-green-900/40 dark:text-green-300">
-      ● PASS <span className="opacity-70">≥ {gate.threshold}</span>
+      ● PASS <span className="opacity-70">≥ {gate.threshold}</span> {suffix}
     </span>
   );
 }
@@ -197,6 +201,44 @@ export function SeverityDonut({ bySeverity }: { bySeverity: Record<string, numbe
 
 export function Loading({ what }: { what: string }) {
   return <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading {what}…</div>;
+}
+
+// Skeleton is a single shimmering placeholder block. Compose them into a
+// content-shaped skeleton so a loading view keeps the layout it will fill.
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />;
+}
+
+// ConsoleSkeleton stands in for the whole app shell while the first payload
+// loads: a header bar, a row of stat tiles, and a couple of panels, so the boot
+// reads as "arriving" rather than a bare "Loading…" line.
+export function ConsoleSkeleton() {
+  return (
+    <div className="mx-auto min-h-full max-w-7xl px-4 pb-16" aria-busy="true" aria-label="Loading console">
+      <div className="mb-6 flex items-center gap-3 py-3">
+        <Skeleton className="h-6 w-24" />
+        <Skeleton className="h-6 w-64" />
+        <Skeleton className="ml-auto h-6 w-40" />
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-3 h-8 w-16" />
+            <Skeleton className="mt-3 h-3 w-32" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="mt-4 h-40 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function ErrorNote({ error }: { error: string }) {

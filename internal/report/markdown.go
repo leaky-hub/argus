@@ -59,7 +59,7 @@ func WriteMarkdown(w io.Writer, findings []model.Finding) error {
 		if _, err := fmt.Fprintln(w, ""); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "No findings. ✅"); err != nil {
+		if _, err := fmt.Fprintln(w, "No findings."); err != nil {
 			return err
 		}
 		return nil

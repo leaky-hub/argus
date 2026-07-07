@@ -47,6 +47,7 @@ export interface Finding {
   category: string;
   ruleId: string;
   title: string;
+  displayName?: string; // clean weakness name from the CWE map; falls back to title
   description?: string;
   severity: Severity;
   toolSeverity?: Severity; // what the tool's own scale normalized to; severity is banded deterministic risk (2.0.0)
@@ -85,6 +86,9 @@ export interface FrameworkSummary {
 export interface GateInfo {
   threshold: string;
   failed: boolean;
+  // Findings excluded from the gate by disposition (accepted-risk /
+  // false-positive) — still in the report, just no longer failing CI.
+  suppressed?: number;
 }
 export interface VerdictCounts {
   truePositive: number;
@@ -134,6 +138,28 @@ export interface TrendPoint {
   riskAvg: number;
 }
 
+// Curated secure-coding guidance for a weakness class (see internal/mitigation).
+export interface MitigationSnippet {
+  language: string;
+  library?: string;
+  vulnerable: string;
+  secure: string;
+  note?: string;
+}
+export interface MitigationReference {
+  title: string;
+  url: string;
+}
+export interface Mitigation {
+  weakness: string;
+  title: string;
+  cwes: string[];
+  principle: string;
+  snippets: MitigationSnippet[];
+  references: MitigationReference[];
+  matchedLanguage?: string;
+}
+
 export interface SummaryResponse {
   runCount: number;
   latestId: string;
@@ -147,6 +173,8 @@ export interface SummaryResponse {
   gate: GateInfo;
   verdicts: VerdictCounts;
   trend: TrendPoint[];
+  // Latest run's finding-workflow rollup by status (+ "regression").
+  dispositions?: Record<string, number>;
 }
 
 export interface RunListItem {
@@ -161,6 +189,87 @@ export interface RunListItem {
 export interface RunsResponse {
   runs: RunListItem[];
 }
+
+// A finding's durable human disposition (workflow status), keyed by
+// fingerprint so it follows the finding across re-scans. Absence = "open".
+export type DispositionStatus = "in-progress" | "accepted-risk" | "false-positive" | "fixed";
+export interface Disposition {
+  findingId: string;
+  status: DispositionStatus;
+  note?: string;
+  actor: string;
+  updatedAt: string;
+}
+
+// --- Ticketing ---
+export type TicketStatus = "open" | "in-progress" | "blocked" | "done";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export interface TicketRollup {
+  total: number;
+  resolved: number;
+  max?: Severity;
+  bySeverity: Record<string, number>;
+}
+export interface Ticket {
+  id: string;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  assignee?: string;
+  targetId?: string;
+  dueDate?: string;
+  externalUrl?: string;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt: string;
+}
+export interface TicketView extends Ticket {
+  linkCount: number;
+  rollup: TicketRollup;
+}
+export interface TicketLink { findingId: string; targetId?: string; }
+export interface TicketComment { id: string; kind: string; author?: string; body: string; createdAt: string; }
+export interface TicketDetail extends Ticket {
+  links: TicketLink[];
+  comments: TicketComment[];
+  rollup: TicketRollup;
+}
+
+// --- Threat modeling ---
+export type StrideCategory = "spoofing" | "tampering" | "repudiation" | "info-disclosure" | "denial-of-service" | "elevation";
+export type ThreatStatus = "open" | "mitigated" | "accepted" | "transferred";
+export interface ThreatModel {
+  id: string;
+  targetId?: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt: string;
+}
+export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; x: number; y: number; }
+export interface Threat {
+  id: string;
+  modelId: string;
+  componentId?: string;
+  category: StrideCategory;
+  title: string;
+  description?: string;
+  status: ThreatStatus;
+  source: "curated" | "assisted" | "manual";
+  mitigation?: string;
+  createdAt: string;
+}
+export interface ThreatLink { kind: "finding" | "control" | "mitigation"; ref: string; targetId?: string; }
+export interface ThreatFlow { id: string; modelId: string; fromId: string; toId: string; label?: string; }
+export interface ThreatModelDetail extends ThreatModel {
+  components: ThreatComponent[];
+  threats: Threat[];
+  links: Record<string, ThreatLink[]>;
+  flows: ThreatFlow[];
+}
+export interface LibraryComponent { tech: string; title: string; }
 
 export interface RunDetail {
   id: string;
@@ -177,6 +286,9 @@ export interface RunDetail {
   resolvedIds: string[];
   findings: Finding[];
   coverage?: CoverageAccounting;
+  // Per-finding workflow dispositions for findings present in this run,
+  // keyed by finding id. Absent/omitted findings are "open".
+  dispositions?: Record<string, Disposition>;
 }
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -211,10 +323,23 @@ export const api = {
   },
   // The download URL for a run export (SARIF or JSON). Server sets
   // Content-Disposition; the browser downloads. GET (viewer) — no CSRF.
-  exportUrl: (id: string, format: "sarif" | "json", targetId?: string) => {
+  exportUrl: (id: string, format: "sarif" | "json" | "html", targetId?: string) => {
     const q = new URLSearchParams({ format });
     if (targetId) q.set("target", targetId);
     return `api/runs/${encodeURIComponent(id)}/export?${q.toString()}`;
+  },
+  // Curated secure-coding guidance for a finding's CWEs. Resolves to null when
+  // the library has nothing for them (a 404), so callers can hide the panel.
+  mitigation: async (cwes: string[], lang?: string): Promise<Mitigation | null> => {
+    const q = new URLSearchParams();
+    cwes.forEach((c) => q.append("cwe", c));
+    if (lang) q.set("lang", lang);
+    try {
+      return await getJSON<Mitigation>(`api/mitigations?${q.toString()}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
   },
 };
 
@@ -227,7 +352,7 @@ export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "inf
 // --- New TypeScript types (exact JSON contract from the Go server) ---
 
 export interface UserInfo { id: string; username: string; role: string; createdAt: string; }
-export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; }
+export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; githubRepo?: string; }
 export interface LoginResponse { user: UserInfo; csrfToken: string; }
 
 export interface Snippet { startLine: number; lines: string[] }
@@ -344,6 +469,34 @@ export interface FrameworksResponse { frameworks: FrameworkInfo[] }
 
 export interface ExplainResponse { explanation: string; remediation?: string; model: string; cached: boolean }
 
+// AI-assisted remediation (on-demand, never persisted). Artifacts are scripts
+// the USER runs — the platform never executes them. safetyIssues, when
+// present, mean the deterministic linter withheld/defanged something.
+export interface RemediationArtifact { language: string; title: string; content: string }
+export interface RemediationResponse {
+  summary: string;
+  kind: "cli-script" | "code-patch" | "dependency-upgrade" | "secret-rotation" | "manual";
+  steps?: string[];
+  artifacts?: RemediationArtifact[];
+  warnings?: string[];
+  verification?: string;
+  model: string;
+  safetyIssues?: string[];
+}
+
+// Advisory severity validation (verdict + impact/likelihood + a
+// deterministically-scored CVSS 3.1 vector). Never changes stored severity.
+export interface ValidationResponse {
+  verdict: "true-positive" | "false-positive" | "uncertain";
+  impact: string;
+  likelihood: string;
+  cvssVector: string;
+  cvssScore: number;
+  cvssSeverity: string; // None/Low/Medium/High/Critical/unrated
+  rationale: string;
+  model: string;
+}
+
 export const opsApi = {
   me: (): Promise<MeResponse> => send<MeResponse>("GET", "api/auth/me"),
   
@@ -408,4 +561,93 @@ export const opsApi = {
 
   explain: (req: { targetId?: string; runId: string; findingId: string }): Promise<ExplainResponse> =>
     send<ExplainResponse>("POST", "api/explain", req),
+
+  remediate: (req: { targetId?: string; runId: string; findingId: string }): Promise<RemediationResponse> =>
+    send<RemediationResponse>("POST", "api/remediate", req),
+
+  validate: (req: { targetId?: string; runId: string; findingId: string }): Promise<ValidationResponse> =>
+    send<ValidationResponse>("POST", "api/validate", req),
+
+  setDisposition: (req: { targetId?: string; findingId: string; status: DispositionStatus; note?: string }): Promise<Disposition> =>
+    send<Disposition>("POST", "api/dispositions", req),
+
+  clearDisposition: (findingId: string, targetId?: string): Promise<void> => {
+    const q = targetId ? `?target=${encodeURIComponent(targetId)}` : "";
+    return send<void>("DELETE", `api/dispositions/${encodeURIComponent(findingId)}${q}`);
+  },
+
+  // Apply one status to many findings (or clear them, status omitted) in a
+  // single locked write. Returns how many were updated.
+  bulkDisposition: (req: { targetId?: string; findingIds: string[]; status?: DispositionStatus; note?: string }): Promise<{ updated: number }> =>
+    send<{ updated: number }>("POST", "api/dispositions/bulk", req),
+
+  // --- Ticketing ---
+  tickets: (filter?: { status?: string; assignee?: string; priority?: string }): Promise<{ tickets: TicketView[] }> => {
+    const q = new URLSearchParams();
+    if (filter?.status) q.set("status", filter.status);
+    if (filter?.assignee) q.set("assignee", filter.assignee);
+    if (filter?.priority) q.set("priority", filter.priority);
+    const qs = q.toString();
+    return send<{ tickets: TicketView[] }>("GET", `api/tickets${qs ? `?${qs}` : ""}`);
+  },
+  workSummary: (): Promise<{ tickets: Record<string, number>; threats: Record<string, number> }> =>
+    send<{ tickets: Record<string, number>; threats: Record<string, number> }>("GET", "api/work-summary"),
+  userNames: (): Promise<{ names: string[] }> =>
+    send<{ names: string[] }>("GET", "api/users/names"),
+  ticket: (id: string): Promise<TicketDetail> =>
+    send<TicketDetail>("GET", `api/tickets/${encodeURIComponent(id)}`),
+  createTicket: (req: { title: string; description?: string; priority?: string; assignee?: string; targetId?: string; findingIds?: string[] }): Promise<Ticket> =>
+    send<Ticket>("POST", "api/tickets", req),
+  updateTicket: (id: string, patch: Partial<{ title: string; description: string; status: TicketStatus; priority: TicketPriority; assignee: string; dueDate: string }>): Promise<Ticket> =>
+    send<Ticket>("PATCH", `api/tickets/${encodeURIComponent(id)}`, patch),
+  deleteTicket: (id: string): Promise<void> =>
+    send<void>("DELETE", `api/tickets/${encodeURIComponent(id)}`),
+  ticketComment: (id: string, body: string): Promise<TicketComment> =>
+    send<TicketComment>("POST", `api/tickets/${encodeURIComponent(id)}/comments`, { body }),
+  ticketLink: (id: string, findingId: string, targetId?: string, remove?: boolean): Promise<{ links: TicketLink[] }> =>
+    send<{ links: TicketLink[] }>("POST", `api/tickets/${encodeURIComponent(id)}/links`, { findingId, targetId, remove }),
+  ticketGitHub: (id: string, issueUrl?: string): Promise<{ externalUrl: string; externalId: string }> =>
+    send<{ externalUrl: string; externalId: string }>("POST", `api/tickets/${encodeURIComponent(id)}/github`, issueUrl ? { issueUrl } : {}),
+  ticketCloseFixed: (id: string): Promise<{ markedFixed: number; skipped: number; kept: number }> =>
+    send<{ markedFixed: number; skipped: number; kept: number }>("POST", `api/tickets/${encodeURIComponent(id)}/close-fixed`, {}),
+
+  // --- Threat modeling ---
+  threatLibrary: (): Promise<{ components: LibraryComponent[] }> =>
+    send<{ components: LibraryComponent[] }>("GET", "api/threat-library"),
+  threatModels: (target?: string): Promise<{ models: ThreatModel[] }> =>
+    send<{ models: ThreatModel[] }>("GET", `api/threat-models${target ? `?target=${encodeURIComponent(target)}` : ""}`),
+  threatModel: (id: string): Promise<ThreatModelDetail> =>
+    send<ThreatModelDetail>("GET", `api/threat-models/${encodeURIComponent(id)}`),
+  createThreatModel: (req: { name: string; targetId?: string; description?: string }): Promise<ThreatModel> =>
+    send<ThreatModel>("POST", "api/threat-models", req),
+  deleteThreatModel: (id: string): Promise<void> =>
+    send<void>("DELETE", `api/threat-models/${encodeURIComponent(id)}`),
+  addThreatComponent: (modelId: string, req: { name: string; tech?: string; kind?: string; notes?: string; source?: string }): Promise<ThreatComponent> =>
+    send<ThreatComponent>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, req),
+  removeThreatComponent: (modelId: string, componentId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/components`, { remove: true, componentId }),
+  removeThreat: (modelId: string, threatId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, { remove: true, threatId }),
+  suggestComponents: (modelId: string): Promise<{ suggestions: ComponentSuggestion[]; model: string }> =>
+    send<{ suggestions: ComponentSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest-components`, {}),
+  enumerateComponent: (modelId: string, componentId: string): Promise<{ added: number }> =>
+    send<{ added: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/enumerate`, { componentId }),
+  setThreatStatus: (modelId: string, threatId: string, status: ThreatStatus): Promise<void> =>
+    send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threat-status`, { threatId, status }),
+  linkThreat: (modelId: string, req: { threatId: string; kind: string; ref: string; targetId?: string; remove?: boolean }): Promise<void> =>
+    send<void>("POST", `api/threat-models/${encodeURIComponent(modelId)}/links`, req),
+  threatModelFromTarget: (targetId: string, name?: string): Promise<{ modelId: string; components: number; threats: number }> =>
+    send<{ modelId: string; components: number; threats: number }>("POST", "api/threat-models/from-target", { targetId, name }),
+  suggestThreats: (modelId: string): Promise<{ suggestions: ThreatSuggestion[]; model: string }> =>
+    send<{ suggestions: ThreatSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest`, {}),
+  saveThreatPositions: (modelId: string, positions: { componentId: string; x: number; y: number }[]): Promise<{ saved: number }> =>
+    send<{ saved: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/positions`, { positions }),
+  addThreatFlow: (modelId: string, req: { fromId: string; toId: string; label?: string }): Promise<ThreatFlow> =>
+    send<ThreatFlow>("POST", `api/threat-models/${encodeURIComponent(modelId)}/flows`, req),
+  removeThreatFlow: (modelId: string, flowId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/flows`, { remove: true, flowId }),
+  addThreat: (modelId: string, req: { category: StrideCategory; title: string; description?: string; componentId?: string; mitigation?: string; source?: string }): Promise<Threat> =>
+    send<Threat>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, req),
 };
+export interface ThreatSuggestion { category: StrideCategory; title: string; description?: string; component?: string; }
+export interface ComponentSuggestion { name: string; tech?: string; kind: string; rationale?: string; }

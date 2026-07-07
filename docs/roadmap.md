@@ -24,9 +24,9 @@ still catching runtime issues.
   curated `fast|standard|max` scan profiles running per-language semgrep packs
   across nine languages; a labeled polyglot fixture set with a coverage test
   and a generated language × weakness matrix (`docs/coverage.md`); file-based
-  run history (`scan --save`); and the first web console (`bulwark serve`) with
-  three persona views — Overview (GRC), Findings (AppSec), Runs (SecOps) —
-  served from the single embedded binary, rendering hostile finding data inert.
+  run history (`scan --save`); and the first web console (`argus serve`) with
+  Overview, Findings, and Runs tabs, served from the single embedded binary,
+  rendering hostile finding data inert.
   ✅ = every labeled plant detected under `standard`; the console shows a real
   cross-run trend, filterable findings with triage rationale, and new-vs-
   resolved deltas; an XSS fixture renders as text; `go build` alone produces
@@ -61,7 +61,7 @@ still catching runtime issues.
   and CIS-derived IaC coverage at section granularity (**CIS AWS Foundations
   v1.5.0, CIS Docker v1.6.0, CIS Kubernetes v1.8.0** via rule-ID families).
   The always-on pipeline stage writes `complianceControls`
-  (`"<FRAMEWORK>:<control-id>"`, schema **1.2.0**); `bulwark comply` produces
+  (`"<FRAMEWORK>:<control-id>"`, schema **1.2.0**); `argus comply` produces
   the auditor-shaped gap report (Markdown + JSON) with violated /
   no-violations-detected / not-assessable buckets that never overclaim
   (unmapped findings are listed, never dropped; totals reconcile, tested);
@@ -76,9 +76,17 @@ still catching runtime issues.
   dynamic scanning of a running target; wire results into the same model
   (the `location.url` slot exists). ✅ = DAST run against a deliberately-vuln
   app (e.g. Juice Shop) produces correlated findings.
-- **Phase 7 — Threat modeling:** code/architecture-aware threat model
-  generation (data-flow + STRIDE), ideally AI-assisted from repo + IaC,
-  producing a reviewable model and linked findings.
+- **Phase 7 — Threat modeling (shipped):** architecture-aware STRIDE threat
+  models. A curated, version-pinned STRIDE library enumerates threats per
+  component tech deterministically; `internal/iacdetect` bootstraps a baseline
+  from repo IaC (Terraform, CloudFormation, Kubernetes, Bicep, ARM, Pulumi,
+  Helm); a local LLM optionally suggests components and threats a human
+  confirms as `assisted`; threats link to real findings, controls, and
+  mitigations; a draggable canvas lays out components, trust boundaries, and
+  data flows. ✅ = a model generated from IaC with enumerated STRIDE, linked to
+  findings, exported to CSV/JSON. Paired with **ticketing** — a work layer over
+  findings with a timeline, severity rollup, aging, and opt-in GitHub Issues
+  sync. Both live in `internal/store` (embedded SQLite) and never move the gate.
 - **Phase 8 — IAST & runtime:** instrumentation/agent hooks for runtime
   vulnerability detection; correlate runtime evidence back to SAST findings
   (reachability truth).

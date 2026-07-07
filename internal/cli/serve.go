@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +15,10 @@ import (
 	"github.com/leaky-hub/appsec/internal/runstore"
 	"github.com/leaky-hub/appsec/internal/server"
 	"github.com/leaky-hub/appsec/internal/server/auth"
+	"github.com/leaky-hub/appsec/internal/store"
 	"github.com/leaky-hub/appsec/internal/targets"
+	"github.com/leaky-hub/appsec/internal/threatmodel"
+	"github.com/leaky-hub/appsec/internal/ticket"
 	"github.com/leaky-hub/appsec/ui"
 )
 
@@ -29,7 +33,7 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Serve the web console: scan history, and (with users) scan launching",
 	Long: `Starts the local-first web console over the scan history saved with
-'bulwark scan --save' (in <dir>/.appsec/runs).
+'argus scan --save' (in <dir>/.appsec/runs).
 
 Authentication is decided by <dir>/.appsec/users.json:
 
@@ -38,11 +42,11 @@ Authentication is decided by <dir>/.appsec/users.json:
     bootstrap command.
   - ONE OR MORE users: every API route requires a login (viewer, operator,
     or admin role). Operators launch scans against registered targets
-    ('bulwark target add' — a local directory or a remote https git repo)
+    ('argus target add' — a local directory or a remote https git repo)
     through a strictly serial job queue, optionally scoped to a subpath or
     focused on compliance frameworks; admins manage users, targets,
     per-target scan configuration, and the audit log. Bootstrap the first
-    admin with 'bulwark user add <name> --role admin'.
+    admin with 'argus user add <name> --role admin'.
 
 Remote git targets are cloned shallowly into <dir>/.appsec/workspace/<id>
 (https only; the scanned commit is recorded on the job and in the audit
@@ -77,6 +81,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	queue := jobs.New(server.ScanExecutor(registry, auditLog, gitws.New()))
 	queue.Start(cmd.Context())
 
+	// The embedded SQLite store holds the ticketing (and, later, threat-model)
+	// tables at <dir>/.appsec/argus.db. It never holds the gate's input.
+	db, err := store.Open(filepath.Join(dir, ".appsec"))
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
 	srv := server.New(server.Options{
 		Store:    runstore.ForRepo(dir),
 		Dir:      dir,
@@ -89,6 +101,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Targets:  registry,
 		Audit:    auditLog,
 		Queue:    queue,
+		Tickets:  ticket.NewStore(db),
+		Threats:  threatmodel.NewStore(db),
 	})
 
 	fmt.Fprintf(os.Stderr, "==> appsec console on http://%s  (serving %s/.appsec)\n", addr, dir)
@@ -105,7 +119,7 @@ func printAuthStatus(_ context.Context, users *auth.Store, addr string) {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "WARNING: users file unreadable (%v) — all authentication refused until fixed.\n", err)
 	case n == 0:
-		fmt.Fprintln(os.Stderr, "==> no users configured: read-only console, NO login. Bootstrap ops with `bulwark user add <name> --role admin`.")
+		fmt.Fprintln(os.Stderr, "==> no users configured: read-only console, NO login. Bootstrap ops with `argus user add <name> --role admin`.")
 		if !isLoopback(addr) {
 			fmt.Fprintf(os.Stderr, "WARNING: %s is not loopback — this console has NO AUTH and is now reachable off-host.\n", addr)
 		}

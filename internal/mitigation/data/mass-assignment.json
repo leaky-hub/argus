@@ -1,0 +1,40 @@
+{
+  "weakness": "mass-assignment",
+  "title": "Mass Assignment / Over-Posting",
+  "cwes": ["CWE-915"],
+  "principle": "Bind only the fields a user is allowed to set. Passing a whole request body straight into a model or ORM create/update lets an attacker set fields you never exposed — is_admin, role, account_id. Use an explicit allowlist (strong parameters, a DTO, or serializer fields) and copy just those.",
+  "snippets": [
+    {
+      "language": "ruby",
+      "library": "Rails strong parameters",
+      "vulnerable": "User.create(params[:user])",
+      "secure": "User.create(params.require(:user).permit(:name, :email))",
+      "note": "permit lists exactly the settable attributes; anything else (like :admin) is dropped. Never pass raw params to create/update/assign_attributes."
+    },
+    {
+      "language": "python",
+      "library": "an explicit field allowlist (or a DRF serializer / WTForms)",
+      "vulnerable": "user = User(**request.json)   # sets every posted field",
+      "secure": "allowed = {\"name\", \"email\"}\ndata = {k: v for k, v in request.json.items() if k in allowed}\nuser = User(**data)",
+      "note": "With Django REST Framework, list fields explicitly on the serializer (avoid fields = '__all__' for writes). With SQLAlchemy, assign only allowlisted attributes."
+    },
+    {
+      "language": "java",
+      "library": "a dedicated DTO with only the bindable fields",
+      "vulnerable": "@PostMapping void save(@RequestBody User user) { repo.save(user); }",
+      "secure": "@PostMapping void save(@RequestBody UserForm form) {   // name/email only\n    User u = new User(); u.setName(form.getName()); u.setEmail(form.getEmail());\n    repo.save(u);\n}",
+      "note": "Bind to a request DTO that exposes only user-settable fields, then copy into the entity. Or use @JsonIgnore / a Jackson mixin to block sensitive fields on the entity."
+    },
+    {
+      "language": "csharp",
+      "library": "a view model / bind allowlist",
+      "vulnerable": "public IActionResult Save(User user) { _db.Update(user); }",
+      "secure": "public IActionResult Save([Bind(\"Name,Email\")] UserVm vm) {\n    var u = _db.Find(vm.Id);\n    u.Name = vm.Name; u.Email = vm.Email;\n}",
+      "note": "Bind to a view model, or use [Bind(...)] to allowlist properties. Never model-bind an EF entity that carries fields like IsAdmin directly from the request."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Mass Assignment Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html"},
+    {"title": "CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes", "url": "https://cwe.mitre.org/data/definitions/915.html"}
+  ]
+}

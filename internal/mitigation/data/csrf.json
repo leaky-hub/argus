@@ -1,0 +1,40 @@
+{
+  "weakness": "csrf",
+  "title": "Cross-Site Request Forgery (CSRF)",
+  "cwes": ["CWE-352"],
+  "principle": "Make every state-changing request prove it came from your own UI. Use the framework's CSRF protection: a per-session token echoed on each unsafe request, or a double-submit cookie. Set session cookies SameSite=Lax or Strict, and never perform a state change on a GET. Don't hand-roll this; enable the middleware the framework ships.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "Django's CSRF middleware or Flask-WTF (CSRFProtect)",
+      "vulnerable": "@app.route('/transfer', methods=['POST'])\ndef transfer():  # no CSRF token checked\n    ...",
+      "secure": "# Flask\nfrom flask_wtf import CSRFProtect\ncsrf = CSRFProtect(app)  # now every POST needs a valid token; {{ csrf_token() }} in the form\n# Django: keep 'django.middleware.csrf.CsrfViewMiddleware' enabled and use {% csrf_token %}",
+      "note": "Don't decorate real endpoints with @csrf.exempt / @csrf_exempt. Set SESSION_COOKIE_SAMESITE = 'Lax'."
+    },
+    {
+      "language": "javascript",
+      "library": "csrf-csrf / a double-submit token, plus SameSite cookies",
+      "vulnerable": "app.post('/transfer', (req, res) => { /* no token check */ });",
+      "secure": "const { doubleCsrfProtection } = doubleCsrf({ getSecret: () => SECRET });\napp.use(doubleCsrfProtection);        // rejects POSTs without a valid token\napp.use(session({ cookie: { sameSite: 'lax', httpOnly: true, secure: true } }));",
+      "note": "The old 'csurf' package is deprecated; use csrf-csrf or your framework's built-in. SameSite alone is defense in depth, not a full substitute for a token."
+    },
+    {
+      "language": "java",
+      "library": "Spring Security CSRF (on by default)",
+      "vulnerable": "http.csrf(csrf -> csrf.disable()); // do not disable it",
+      "secure": "http.csrf(Customizer.withDefaults());\n// Spring injects and validates the token; include it via Thymeleaf's automatic hidden field or the CookieCsrfTokenRepository for SPAs.",
+      "note": "For a stateless JWT API that no browser calls with cookies, CSRF may not apply — but if you authenticate with cookies, keep it on."
+    },
+    {
+      "language": "go",
+      "library": "gorilla/csrf middleware",
+      "vulnerable": "http.HandleFunc(\"/transfer\", transfer) // no token",
+      "secure": "csrfMw := csrf.Protect(key, csrf.Secure(true), csrf.SameSite(csrf.SameSiteLaxMode))\nhttp.ListenAndServe(\":8080\", csrfMw(router))\n// render csrf.TemplateField(r) into your form",
+      "note": "gorilla/csrf validates the token on POST/PUT/PATCH/DELETE automatically. Serve the token in the form or an X-CSRF-Token header for fetch()."
+    }
+  ],
+  "references": [
+    {"title": "OWASP CSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "CWE-352: Cross-Site Request Forgery", "url": "https://cwe.mitre.org/data/definitions/352.html"}
+  ]
+}

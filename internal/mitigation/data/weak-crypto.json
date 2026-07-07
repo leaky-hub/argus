@@ -1,0 +1,40 @@
+{
+  "weakness": "weak-crypto",
+  "title": "Weak Cryptography & Insecure Randomness",
+  "cwes": ["CWE-326", "CWE-327", "CWE-328", "CWE-330", "CWE-338", "CWE-759", "CWE-760"],
+  "principle": "Use current, vetted primitives and let a library pick the details. For integrity use SHA-256 or better, never MD5 or SHA-1. For encryption use an authenticated mode like AES-GCM, never ECB, and never a hardcoded key or IV. For anything security-relevant — tokens, IDs, salts — draw from a cryptographically secure RNG, not the language's default random.",
+  "snippets": [
+    {
+      "language": "python",
+      "library": "hashlib (SHA-256) and secrets for tokens",
+      "vulnerable": "digest = hashlib.md5(data).hexdigest()\ntoken = str(random.random())",
+      "secure": "digest = hashlib.sha256(data).hexdigest()\ntoken = secrets.token_urlsafe(32)",
+      "note": "MD5/SHA-1 are broken for security use. random is predictable; secrets (or os.urandom) is the CSPRNG. For passwords use argon2/bcrypt, not a bare hash."
+    },
+    {
+      "language": "javascript",
+      "library": "node:crypto (createHash sha256, randomUUID/randomBytes)",
+      "vulnerable": "const h = crypto.createHash('md5').update(data).digest('hex');\nconst id = Math.random().toString(36);",
+      "secure": "const h = crypto.createHash('sha256').update(data).digest('hex');\nconst id = crypto.randomUUID();",
+      "note": "Math.random() is not cryptographic — never use it for tokens, session ids, or password reset codes. Use crypto.randomBytes / randomUUID."
+    },
+    {
+      "language": "java",
+      "library": "MessageDigest (SHA-256), SecureRandom, AES/GCM",
+      "vulnerable": "MessageDigest.getInstance(\"MD5\");\nnew Random().nextInt();\nCipher.getInstance(\"AES/ECB/PKCS5Padding\");",
+      "secure": "MessageDigest.getInstance(\"SHA-256\");\nnew SecureRandom().nextInt();\nCipher.getInstance(\"AES/GCM/NoPadding\");",
+      "note": "ECB leaks structure; GCM authenticates. SecureRandom, not Random, for keys/tokens. Never hardcode the key or reuse a GCM nonce."
+    },
+    {
+      "language": "go",
+      "library": "crypto/sha256, crypto/rand, crypto/cipher (GCM)",
+      "vulnerable": "sum := md5.Sum(data)\nn := mrand.Int()   // math/rand",
+      "secure": "sum := sha256.Sum256(data)\nb := make([]byte, 32); crypto_rand.Read(b)  // crypto/rand",
+      "note": "math/rand is deterministic and seedable — never for secrets. Use crypto/rand. For encryption use cipher.NewGCM, not a raw block mode."
+    }
+  ],
+  "references": [
+    {"title": "OWASP Cryptographic Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html"},
+    {"title": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", "url": "https://cwe.mitre.org/data/definitions/327.html"}
+  ]
+}

@@ -30,7 +30,7 @@ export function Runs({
       <button
         onClick={onRescan}
         disabled={rescanBusy}
-        className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
         title="Queue a fresh scan of the selected target — use after applying a remediation to confirm it cleared"
       >
         {rescanBusy ? "Queuing…" : "↻ Re-scan target"}
@@ -42,7 +42,7 @@ export function Runs({
       <Panel title="Run history" right={rescan}>
         <EmptyState
           title="No runs"
-          hint={activeTarget ? "Re-scan this target, or run `bulwark scan --save`." : "Record runs with `bulwark scan --save` or launch one from Operate."}
+          hint={activeTarget ? "Re-scan this target, or run `argus scan --save`." : "Record runs with `argus scan --save` or launch one from Operate."}
         />
       </Panel>
     );
@@ -69,7 +69,7 @@ export function Runs({
                 key={r.id}
                 onClick={() => onSelect(r.id)}
                 className={`cursor-pointer border-t border-gray-100 align-top hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50 ${
-                  selectedId === r.id ? "bg-blue-50 dark:bg-blue-950/40" : ""
+                  selectedId === r.id ? "bg-accent-100 dark:bg-accent-500/10" : ""
                 }`}
               >
                 <td className="py-2.5 pr-3">
@@ -99,6 +99,15 @@ export function Runs({
                     exports, and admin-only delete. */}
                 <td className="py-2.5 pr-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center gap-1.5">
+                    <a
+                      href={api.exportUrl(r.id, "html", activeTarget || undefined)}
+                      target="_blank"
+                      rel="noopener"
+                      className="rounded border border-accent-200 bg-accent-50 px-1.5 py-0.5 text-[11px] font-medium text-accent-700 hover:bg-accent-100 dark:border-accent-800 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:bg-accent-500/20"
+                      title="Open a professional report (print to PDF from the browser)"
+                    >
+                      Report
+                    </a>
                     <a
                       href={api.exportUrl(r.id, "sarif", activeTarget || undefined)}
                       className="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"

@@ -237,7 +237,7 @@ resource "aws_redshift_cluster" "dw" {}
 	expect := map[string]string{
 		"dw": "database", "gke": "api-service", "fn": "api-service",
 		"sql": "database", "cosmos": "database", "aks": "api-service", "site": "web-app",
-		"eks": "api-service",
+		"eks":        "api-service",
 		"opensearch": "database", "traefik": "web-app", "vault": "auth-service",
 	}
 	for name, tech := range expect {

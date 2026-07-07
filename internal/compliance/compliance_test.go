@@ -116,12 +116,12 @@ func TestIaCRuleMappings(t *testing.T) {
 		ruleID string
 		want   []string
 	}{
-		{"CKV_AWS_24", []string{"CIS-AWS:5.2", "PCI-DSS:2.2.1"}},  // open SSH ingress -> SG 0.0.0.0/0 admin ports
-		{"AWS-0107", []string{"CIS-AWS:5.2", "PCI-DSS:2.2.1"}},    // trivy twin of the same class
-		{"CKV_AWS_3", []string{"CIS-AWS:2.2.1", "PCI-DSS:2.2.1"}}, // EBS encryption
-		{"AWS-0092", []string{"CIS-AWS:2.1.5", "PCI-DSS:2.2.1"}},  // S3 public ACL -> block public access
+		{"CKV_AWS_24", []string{"CIS-AWS:5.2", "PCI-DSS:2.2.1"}},    // open SSH ingress -> SG 0.0.0.0/0 admin ports
+		{"AWS-0107", []string{"CIS-AWS:5.2", "PCI-DSS:2.2.1"}},      // trivy twin of the same class
+		{"CKV_AWS_3", []string{"CIS-AWS:2.2.1", "PCI-DSS:2.2.1"}},   // EBS encryption
+		{"AWS-0092", []string{"CIS-AWS:2.1.5", "PCI-DSS:2.2.1"}},    // S3 public ACL -> block public access
 		{"CKV_AWS_145", []string{"CIS-AWS:2.1.1", "PCI-DSS:2.2.1"}}, // S3 encryption at rest
-		{"CKV_AWS_18", []string{"CIS-AWS:3.6", "PCI-DSS:2.2.1"}},  // S3 access logging
+		{"CKV_AWS_18", []string{"CIS-AWS:3.6", "PCI-DSS:2.2.1"}},    // S3 access logging
 		{"CKV_DOCKER_3", []string{"CIS-DOCKER:4", "PCI-DSS:2.2.1"}},
 		{"DS-0002", []string{"CIS-DOCKER:4", "PCI-DSS:2.2.1"}},   // root user, via DS- family
 		{"CKV_K8S_16", []string{"CIS-K8S:5.2", "PCI-DSS:2.2.1"}}, // privileged container

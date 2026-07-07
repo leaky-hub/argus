@@ -390,6 +390,8 @@ export interface SettingsView {
   anthropicKeySet: boolean;
   scanProfile: string;
   failSeverity: string;
+  semgrepRulesets: string[];
+  semgrepRulesetsAdditive: boolean;
   remediationEnabled: boolean;
 }
 export interface SettingsInput {
@@ -398,7 +400,17 @@ export interface SettingsInput {
   triage?: TriageSettings;
   scanProfile?: string;
   failSeverity?: string;
+  semgrepRulesets?: string[];
+  semgrepRulesetsAdditive?: boolean;
   remediationEnabled?: boolean;
+}
+
+// One custom-ruleset entry's validation verdict from the check-rules endpoint.
+export interface RulesetStatus {
+  entry: string;
+  kind?: string; // "pack" | "local"
+  ok: boolean;
+  message?: string;
 }
 
 export interface MeResponse { authRequired: boolean; authenticated: boolean; user?: UserInfo; csrfToken?: string; githubRepo?: string; ssoEnabled?: boolean; }
@@ -635,6 +647,8 @@ export const opsApi = {
     send<SettingsView>("GET", "api/admin/settings"),
   saveSettings: (req: SettingsInput): Promise<SettingsView> =>
     send<SettingsView>("PUT", "api/admin/settings", req),
+  validateRulesets: (semgrepRulesets: string[]): Promise<{ results: RulesetStatus[] }> =>
+    send<{ results: RulesetStatus[] }>("POST", "api/admin/settings/validate-rulesets", { semgrepRulesets }),
 
   getOIDCConfig: (): Promise<OIDCConfigView> =>
     send<OIDCConfigView>("GET", "api/admin/oidc"),

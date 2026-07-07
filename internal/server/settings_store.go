@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/leaky-hub/argus/internal/config"
+	"github.com/leaky-hub/argus/internal/scanner"
 )
 
 // Console-managed settings. The admin panel edits these and they persist to
@@ -25,6 +26,13 @@ type ConsoleSettings struct {
 	ScanProfile        string               `json:"scanProfile,omitempty"`  // fast|standard|max
 	FailSeverity       string               `json:"failSeverity,omitempty"` // critical|high|medium|low|info|none
 	RemediationEnabled *bool                `json:"remediationEnabled,omitempty"`
+
+	// Custom semgrep rulesets: registry packs, the argus/curated sentinel, or
+	// local rule file/dir paths. SemgrepRulesetsAdditive true (the console
+	// default) adds them to the profile packs; false replaces the profile
+	// packs entirely. Empty = not managed here (appsec.yml wins).
+	SemgrepRulesets         []string `json:"semgrepRulesets,omitempty"`
+	SemgrepRulesetsAdditive *bool    `json:"semgrepRulesetsAdditive,omitempty"`
 }
 
 // TriageSettings is the UI-editable subset of the triage config. The Anthropic
@@ -98,6 +106,18 @@ func applyConsoleSettings(cfg *config.Config, cs ConsoleSettings) {
 	}
 	if cs.FailSeverity != "" {
 		cfg.FailSeverity = cs.FailSeverity
+	}
+	if len(cs.SemgrepRulesets) > 0 {
+		// The store holds a plain entry list plus an additive flag; the config
+		// layer expresses additive as a leading marker, so translate here and
+		// keep ResolveSemgrepRulesets the single implementation of the
+		// replace-vs-add decision. Additive defaults on when the flag is unset.
+		additive := cs.SemgrepRulesetsAdditive == nil || *cs.SemgrepRulesetsAdditive
+		if additive {
+			cfg.SemgrepRules = append([]string{scanner.AdditiveMarker}, cs.SemgrepRulesets...)
+		} else {
+			cfg.SemgrepRules = append([]string{}, cs.SemgrepRulesets...)
+		}
 	}
 	if cs.RemediationEnabled != nil {
 		cfg.Remediation.Enabled = *cs.RemediationEnabled

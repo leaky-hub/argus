@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { opsApi, SettingsView, SettingsInput, TriageSettings, ApiError } from "../api";
+import { opsApi, SettingsView, SettingsInput, TriageSettings, ApiError, RulesetStatus } from "../api";
 import { Panel } from "../components";
 
 const inputClass =
@@ -31,6 +31,11 @@ export function ConsoleSettingsPanel(): JSX.Element {
 
   const [triage, setTriage] = useState<TriageSettings>(defaultTriage);
 
+  const [rulesets, setRulesets] = useState<string>("");
+  const [additive, setAdditive] = useState<boolean>(true);
+  const [ruleResults, setRuleResults] = useState<RulesetStatus[] | null>(null);
+  const [validating, setValidating] = useState<boolean>(false);
+
   function seed(v: SettingsView) {
     setView(v);
     setGithubRepo(v.githubRepo || "");
@@ -39,6 +44,9 @@ export function ConsoleSettingsPanel(): JSX.Element {
     setFailSeverity(v.failSeverity || "");
     setRemediationEnabled(v.remediationEnabled ?? false);
     setTriage(v.triage || defaultTriage);
+    setRulesets((v.semgrepRulesets || []).join("\n"));
+    setAdditive(v.semgrepRulesetsAdditive ?? true);
+    setRuleResults(null);
   }
 
   useEffect(() => {
@@ -48,6 +56,8 @@ export function ConsoleSettingsPanel(): JSX.Element {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load settings"))
       .finally(() => setLoading(false));
   }, []);
+
+  const rulesetLines = () => rulesets.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
 
   async function handleSave() {
     setSaved(false);
@@ -61,6 +71,8 @@ export function ConsoleSettingsPanel(): JSX.Element {
         scanProfile: scanProfile || undefined,
         failSeverity: failSeverity || undefined,
         remediationEnabled: remediationEnabled,
+        semgrepRulesets: rulesetLines(),
+        semgrepRulesetsAdditive: additive,
       };
       const resp = await opsApi.saveSettings(input);
       seed(resp);
@@ -70,6 +82,19 @@ export function ConsoleSettingsPanel(): JSX.Element {
       setError(err instanceof ApiError ? err.message : "Failed to save settings");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleValidate() {
+    setValidating(true);
+    setRuleResults(null);
+    try {
+      const resp = await opsApi.validateRulesets(rulesetLines());
+      setRuleResults(resp.results);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to validate rulesets");
+    } finally {
+      setValidating(false);
     }
   }
 
@@ -99,7 +124,7 @@ export function ConsoleSettingsPanel(): JSX.Element {
                 {view?.githubTokenSet ? (
                   <span className="text-xs text-green-600 dark:text-green-400">✓ Token set on the server</span>
                 ) : (
-                  <span className="text-xs text-amber-600 dark:text-amber-400">Token not set — export the named variable</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-400">Token not set. Export the named variable.</span>
                 )}
               </div>
               <p className={hintClass}>The token is read from this environment variable, never stored.</p>
@@ -196,6 +221,56 @@ export function ConsoleSettingsPanel(): JSX.Element {
                 Allow admins to apply curated cloud remediations
               </label>
             </div>
+          </div>
+        </div>
+
+        {/* Custom semgrep rules */}
+        <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Custom semgrep rules</div>
+          <div className="space-y-4 mt-2">
+            <div>
+              <label className={labelClass}>Rulesets</label>
+              <textarea
+                rows={5}
+                placeholder={"p/python\n./rules/custom.yml\nargus/curated"}
+                value={rulesets}
+                onChange={(e) => setRulesets(e.target.value)}
+                className={`${inputClass} min-h-[96px] font-mono text-xs`}
+              />
+              <p className={hintClass}>One per line: a registry pack (p/...), the argus/curated set, or a path to a local rule file or directory. Remote URLs are not allowed.</p>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={additive} onChange={(e) => setAdditive(e.target.checked)} />
+                Add to the profile packs (uncheck to replace them entirely)
+              </label>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={handleValidate}
+                disabled={validating || rulesetLines().length === 0}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+              >
+                {validating ? "Validating…" : "Validate rules"}
+              </button>
+            </div>
+
+            {ruleResults && (
+              <div className="mt-2 space-y-1">
+                {ruleResults.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className={r.ok ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                      {r.ok ? "✓" : "✗"}
+                    </span>
+                    <span className="font-mono">{r.entry}</span>
+                    {!r.ok && r.message && <span className="text-xs text-red-600 dark:text-red-400">{r.message}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

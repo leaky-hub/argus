@@ -14,7 +14,7 @@ const db = {
 // (1) SQL injection: build a query string with string concatenation of user input and pass to db.query. (CWE-89)
 app.get('/user', (req, res) => {
   const userId = req.query.id;
-  // PLANT-GAP: SQL injection via string concatenation (CWE-89) — mock db object defeats taint rules; caught by no profile
+  // PLANT(js-sqli, min-profile=standard, CWE-89): SQL injection via string concatenation (registry taint rules want a known db library; caught by argus/curated)
   const query = `SELECT * FROM users WHERE id = '${userId}'`;
   db.query(query, (err, result) => {
     if (err) return res.status(500).send('Error');

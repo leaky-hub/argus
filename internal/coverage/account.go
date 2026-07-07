@@ -1,5 +1,5 @@
 // Skip accounting: what a scan did NOT look at. Honesty is part of output
-// quality — "no findings" in a tree full of unscanned binaries or Rust code
+// quality: "no findings" in a tree full of unscanned binaries or Rust code
 // is not the same claim as "no findings" in a fully-analyzable tree. The
 // accounting is computed at save time, stored in the run document (schema
 // 2.0.0), and surfaced in the console run detail.
@@ -77,8 +77,11 @@ var sastExtensions = map[string]bool{
 	".rs":    true,              // rust (p/rust)
 	".scala": true, ".sc": true, // scala (p/scala)
 	".c": true, ".h": true, //nolint // c (p/security-audit's C rules)
-	// Swift (.swift) and Elixir (.ex/.exs) did NOT land — their packs caught
-	// nothing plantable — so they stay in unsupportedSourceExtensions below.
+	// Swift landed via the curated local ruleset (argus/curated), with all
+	// five of its plants proven by TestProfileRecall. Elixir (.ex/.exs) did
+	// NOT land and cannot on the OSS engine (no Elixir parser); it stays in
+	// unsupportedSourceExtensions below.
+	".swift": true,
 }
 
 // iacConfigExtensions / iacConfigNames: files the IaC scanners
@@ -106,9 +109,8 @@ var unsupportedSourceExtensions = map[string]bool{
 	// languages). .cpp/.cc/etc stay unsupported: C++ is a different rule set
 	// than the C rules that landed.
 	".cpp": true, ".cc": true, ".cxx": true, ".hpp": true,
-	".swift": true, // did not land
-	".m":     true, ".mm": true, ".pl": true, ".pm": true, ".lua": true,
-	".dart": true, ".ex": true, ".exs": true, ".erl": true, ".hrl": true, // elixir/erlang did not land
+	".m": true, ".mm": true, ".pl": true, ".pm": true, ".lua": true,
+	".dart": true, ".ex": true, ".exs": true, ".erl": true, ".hrl": true, // elixir/erlang: OSS engine cannot parse them
 	".clj": true, ".cljs": true, ".hs": true, ".ml": true, ".mli": true,
 	".fs": true, ".fsx": true, ".r": true, ".jl": true, ".nim": true,
 	".zig": true, ".sol": true, ".groovy": true, ".sh": true, ".bash": true,

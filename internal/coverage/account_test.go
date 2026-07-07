@@ -20,7 +20,8 @@ func write(t *testing.T, root, rel string, data []byte) {
 func TestAccount(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "src/app.py", []byte("print('hi')\n"))
-	write(t, root, "src/View.swift", []byte("import SwiftUI\n"))     // unsupported source (Swift did not land)
+	write(t, root, "src/View.swift", []byte("import SwiftUI\n"))     // sast-covered (Swift landed via argus/curated)
+	write(t, root, "src/vuln.ex", []byte("defmodule X do\nend\n"))   // unsupported source (no Elixir parser in the OSS engine)
 	write(t, root, "deploy/Dockerfile", []byte("FROM scratch\n"))    // iac
 	write(t, root, "notes.md", []byte("# notes\n"))                  // secrets-only text
 	write(t, root, "blob.bin", []byte{0x7f, 'E', 'L', 'F', 0, 0, 1}) // binary (NUL)
@@ -33,15 +34,15 @@ func TestAccount(t *testing.T) {
 	write(t, root, "dump.sql.txt", big) // oversize wins over other buckets
 
 	acc := Account(root)
-	if acc.FilesTotal != 6 {
-		t.Errorf("filesTotal = %d, want 6 (.git and .appsec never walked)", acc.FilesTotal)
+	if acc.FilesTotal != 7 {
+		t.Errorf("filesTotal = %d, want 7 (.git and .appsec never walked)", acc.FilesTotal)
 	}
-	if acc.SastCovered != 1 || acc.IacConfig != 1 || acc.SecretsOnly != 1 {
-		t.Errorf("buckets = sast %d, iac %d, secretsOnly %d; want 1/1/1",
+	if acc.SastCovered != 2 || acc.IacConfig != 1 || acc.SecretsOnly != 1 {
+		t.Errorf("buckets = sast %d, iac %d, secretsOnly %d; want 2/1/1",
 			acc.SastCovered, acc.IacConfig, acc.SecretsOnly)
 	}
-	if acc.UnsupportedSource != 1 || len(acc.UnsupportedSample) != 1 || acc.UnsupportedSample[0] != "src/View.swift" {
-		t.Errorf("unsupported = %d %v, want 1 [src/View.swift]", acc.UnsupportedSource, acc.UnsupportedSample)
+	if acc.UnsupportedSource != 1 || len(acc.UnsupportedSample) != 1 || acc.UnsupportedSample[0] != "src/vuln.ex" {
+		t.Errorf("unsupported = %d %v, want 1 [src/vuln.ex]", acc.UnsupportedSource, acc.UnsupportedSample)
 	}
 	if acc.Binary != 1 || acc.Oversize != 1 {
 		t.Errorf("binary %d / oversize %d, want 1/1", acc.Binary, acc.Oversize)

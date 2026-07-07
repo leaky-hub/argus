@@ -1,0 +1,226 @@
+# Argus curated semgrep rules (the "argus/curated" ruleset).
+#
+# Every rule here earned its slot the same way a registry pack does: it
+# catches a labeled PLANT in testdata/polyglot that every registry pack in
+# the profile misses, proven by TestProfileRecall. Rules are reviewed
+# detection policy, version-pinned with the binary, never fetched.
+#
+# Conventions:
+#   - ids start with "argus-curated-" (the adapter strips semgrep's temp-path
+#     prefix back to this stable id; see internal/scanner/curated.go).
+#   - metadata.cwe uses the "CWE-n: Name" form the registry uses; the model
+#     normalizes it to the bare id.
+#   - Prefer shapes that cannot match the safe form of the same construct;
+#     each class has a PLANT-FP safe-code counterpart in testdata/polyglot
+#     that must stay unflagged.
+rules:
+  # ---- Python ----------------------------------------------------------
+  - id: argus-curated-py-path-traversal-join
+    languages: [python]
+    severity: ERROR
+    message: >
+      File path built by joining a base directory with an unsanitized value
+      and opened. A value containing "../" escapes the base directory.
+      Sanitize with os.path.basename, or resolve and verify the path stays
+      inside the base.
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      category: security
+      confidence: MEDIUM
+      references:
+        - https://owasp.org/www-community/attacks/Path_Traversal
+    patterns:
+      - pattern: open(os.path.join($BASE, $NAME), ...)
+      - metavariable-pattern:
+          metavariable: $NAME
+          patterns:
+            - pattern: $NAME
+            - pattern-not: '"..."'
+            - pattern-not: os.path.basename(...)
+            - pattern-not: secure_filename(...)
+            - pattern-not: werkzeug.utils.secure_filename(...)
+
+  # ---- Go --------------------------------------------------------------
+  - id: argus-curated-go-shell-command-built
+    languages: [go]
+    severity: ERROR
+    message: >
+      Shell invoked with a command string built from variables. Anything an
+      attacker controls in the string becomes shell syntax. Pass the program
+      and its arguments directly to exec.Command instead of going through
+      "sh -c".
+    metadata:
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", $A + $B)
+      - pattern: exec.Command("bash", "-c", $A + $B)
+      - pattern: exec.Command("sh", "-c", fmt.Sprintf(...))
+      - pattern: exec.Command("bash", "-c", fmt.Sprintf(...))
+
+  # ---- JavaScript / TypeScript ------------------------------------------
+  - id: argus-curated-js-sqli-tainted-query
+    languages: [javascript, typescript]
+    severity: ERROR
+    mode: taint
+    message: >
+      SQL query text reaches a query call from request input. Concatenated or
+      interpolated input becomes SQL syntax. Use a parameterized query and
+      bind the value.
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      category: security
+      confidence: MEDIUM
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.params
+      - pattern: req.body
+    pattern-sinks:
+      - patterns:
+          - pattern: $QUERY
+          - pattern-inside: $DB.query($QUERY, ...)
+
+  # ---- Kotlin ------------------------------------------------------------
+  - id: argus-curated-kt-sqli-concat
+    languages: [kotlin]
+    severity: ERROR
+    message: >
+      SQL executed from a string built by concatenation. Concatenated values
+      become SQL syntax. Use a PreparedStatement with bound parameters.
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: $STMT.executeQuery($A + $B)
+      - pattern: $STMT.executeUpdate($A + $B)
+      - pattern: $STMT.execute($A + $B)
+
+  - id: argus-curated-kt-weak-random
+    languages: [kotlin]
+    severity: WARNING
+    message: >
+      java.util.Random is predictable; its output must not be used for
+      tokens, session ids, or anything security-relevant. Use
+      java.security.SecureRandom.
+    metadata:
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: Random().$M(...)
+      - pattern: java.util.Random().$M(...)
+
+  # ---- PHP ---------------------------------------------------------------
+  - id: argus-curated-php-extract-request
+    languages: [php]
+    severity: ERROR
+    message: >
+      extract() over request data turns every request parameter into a PHP
+      variable, letting an attacker overwrite existing variables. Read the
+      specific parameters you need instead.
+    metadata:
+      cwe: "CWE-621: Variable Extraction Error"
+      category: security
+      confidence: HIGH
+    pattern-either:
+      - pattern: extract($_GET)
+      - pattern: extract($_POST)
+      - pattern: extract($_REQUEST)
+      - pattern: extract($_COOKIE)
+
+  - id: argus-curated-php-weak-rand
+    languages: [php]
+    severity: WARNING
+    message: >
+      rand()/mt_rand() are predictable; their output must not be used for
+      tokens or anything security-relevant. Use random_int() or
+      random_bytes().
+    metadata:
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: rand()
+      - pattern: rand($MIN, $MAX)
+      - pattern: mt_rand()
+      - pattern: mt_rand($MIN, $MAX)
+
+  # ---- Swift ---------------------------------------------------------------
+  - id: argus-curated-swift-sqli-dynamic-query
+    languages: [swift]
+    severity: ERROR
+    message: >
+      SQL prepared from a dynamically built string. Interpolated values
+      become SQL syntax. Prepare a constant statement with "?" placeholders
+      and bind values with sqlite3_bind_*.
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      category: security
+      confidence: MEDIUM
+    patterns:
+      - pattern: sqlite3_prepare_v2($DB, $QUERY, ...)
+      - metavariable-pattern:
+          metavariable: $QUERY
+          patterns:
+            - pattern: $QUERY
+            - pattern-not: '"..."'
+
+  - id: argus-curated-swift-weak-hash-md5
+    languages: [swift]
+    severity: WARNING
+    message: >
+      CC_MD5 computes MD5, which is broken for any security purpose. Use
+      SHA-256 or better (CryptoKit SHA256, or CC_SHA256).
+    metadata:
+      cwe: "CWE-328: Use of Weak Hash"
+      category: security
+      confidence: HIGH
+    pattern: CC_MD5(...)
+
+  - id: argus-curated-swift-trust-all-tls
+    languages: [swift]
+    severity: ERROR
+    message: >
+      URLCredential built directly from the challenge's serverTrust accepts
+      any certificate, disabling TLS validation. Evaluate the trust (or use
+      default handling) instead of unconditionally returning a credential.
+    metadata:
+      cwe: "CWE-295: Improper Certificate Validation"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: 'URLCredential(trust: $CHALLENGE.protectionSpace.serverTrust!)'
+      - pattern: 'URLCredential(trust: $CHALLENGE.protectionSpace.serverTrust)'
+
+  - id: argus-curated-swift-shell-command-built
+    languages: [swift]
+    severity: ERROR
+    message: >
+      Process arguments hand "-c" plus a concatenated string to a shell, so
+      anything in the string becomes shell syntax. Run the program directly
+      with a fixed argument array.
+    metadata:
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      category: security
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: '$TASK.arguments = ["-c", $A + $B]'
+
+  - id: argus-curated-swift-hardcoded-aws-key
+    languages: [swift]
+    severity: ERROR
+    message: >
+      Hardcoded AWS access key id. Credentials in source ship with the
+      binary and leak with the repo. Move it to configuration or a secret
+      store and rotate the key.
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      category: security
+      confidence: HIGH
+    patterns:
+      - pattern: let $KEY = $VAL
+      - metavariable-regex:
+          metavariable: $VAL
+          regex: '"AKIA[0-9A-Z]{16}"'

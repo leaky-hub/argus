@@ -24,6 +24,6 @@ def weak_hash(password):
 
 
 def path_traversal(filename):
-    # PLANT-GAP: path traversal via unsanitized user filename (CWE-22) — caught by no profile; tracked in docs/coverage.md
+    # PLANT(py-path-traversal, min-profile=standard, CWE-22): path traversal via unsanitized user filename joined under a base dir (caught by argus/curated)
     with open(os.path.join("/var/data", filename)) as fh:
         return fh.read()

@@ -1,5 +1,5 @@
 {
-  "_comment": "Canary manifest for the polyglot coverage guard. Each plant listed here MUST be detected under the `standard` profile; internal/coverage asserts it and regenerates docs/coverage.md. CWEs are the values semgrep actually emits on detection (which sometimes differ from the plant's textbook CWE, e.g. code injection reported as CWE-94). Adding a language means adding its fixture AND at least one canary here. Known gaps (path traversal in py/ts, JVM/.NET command injection) are intentionally NOT canaries; the generated matrix reports them honestly.",
+  "_comment": "Canary manifest for the polyglot coverage guard. Each plant listed here MUST be detected under the `standard` profile; internal/coverage asserts it and regenerates docs/coverage.md. CWEs are the values semgrep actually emits on detection (which sometimes differ from the plant's textbook CWE, e.g. code injection reported as CWE-94). Adding a language means adding its fixture AND at least one canary here. Detections credited to the curated local ruleset (argus/curated) are marked; remaining known gaps (JVM/.NET command injection at standard; Elixir entirely, since the OSS engine cannot parse it) are intentionally NOT canaries; the generated matrix reports them honestly.",
   "languages": [
     {
       "language": "Python",
@@ -12,6 +12,10 @@
         {
           "cwe": "CWE-327",
           "name": "Weak hash (MD5)"
+        },
+        {
+          "cwe": "CWE-22",
+          "name": "Path traversal (unsanitized join; argus/curated)"
         }
       ]
     },
@@ -30,6 +34,10 @@
         {
           "cwe": "CWE-95",
           "name": "Code injection (eval)"
+        },
+        {
+          "cwe": "CWE-89",
+          "name": "SQL injection (tainted query string; argus/curated)"
         }
       ]
     },
@@ -54,6 +62,10 @@
         {
           "cwe": "CWE-328",
           "name": "Weak hash (MD5)"
+        },
+        {
+          "cwe": "CWE-78",
+          "name": "OS command injection (shell string; argus/curated)"
         }
       ]
     },
@@ -132,6 +144,10 @@
         {
           "cwe": "CWE-328",
           "name": "Weak hash (MD5)"
+        },
+        {
+          "cwe": "CWE-89",
+          "name": "SQL injection (concatenated statement; argus/curated)"
         }
       ]
     },
@@ -166,6 +182,32 @@
         {
           "cwe": "CWE-676",
           "name": "Use of dangerous function (gets)"
+        }
+      ]
+    },
+    {
+      "language": "Swift",
+      "file": "swift/Vuln.swift",
+      "canaries": [
+        {
+          "cwe": "CWE-89",
+          "name": "SQL injection (interpolated statement; argus/curated)"
+        },
+        {
+          "cwe": "CWE-78",
+          "name": "OS command injection (shell string; argus/curated)"
+        },
+        {
+          "cwe": "CWE-328",
+          "name": "Weak hash (MD5; argus/curated)"
+        },
+        {
+          "cwe": "CWE-295",
+          "name": "TLS validation disabled (argus/curated)"
+        },
+        {
+          "cwe": "CWE-798",
+          "name": "Hardcoded credential (argus/curated)"
         }
       ]
     }

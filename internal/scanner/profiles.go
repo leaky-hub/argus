@@ -74,8 +74,15 @@ var standardPacks = []string{
 	"p/scala", // scala: tainted-sql-string (CWE-89); p/security-audit catches none
 	// C landed too but via p/security-audit's own C rules (insecure-use-gets-fn,
 	// CWE-676) — p/c added nothing over it on the plants, so it is NOT listed
-	// (see docs/coverage.md). Swift and Elixir did NOT land: p/swift and
-	// p/elixir caught nothing plantable — documented, not added.
+	// (see docs/coverage.md). Elixir did NOT land: p/elixir caught nothing
+	// plantable, and the OSS engine cannot parse Elixir at all (Pro-only), so
+	// curated local rules cannot cover it either (documented, not added).
+	// Swift landed via argus/curated below (p/swift itself caught nothing).
+
+	// The platform's own curated rules (internal/scanner/rules/curated.yaml,
+	// embedded): detections for weaknesses every registry pack above provably
+	// misses. Same earn-your-slot bar, held per rule by TestProfileRecall.
+	CuratedRuleset,
 }
 
 // maxOnlyPacks: long-tail recall added on top of standard. Every pack here

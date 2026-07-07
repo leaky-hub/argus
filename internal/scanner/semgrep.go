@@ -24,7 +24,9 @@ func (s *Semgrep) Available() bool  { return toolOnPath("semgrep") }
 
 // Scan executes semgrep against the target and returns raw findings. Each
 // ruleset pack is passed as a separate --config flag (semgrep unions them). An
-// explicit config (unlike --config auto) works with metrics disabled.
+// explicit config (unlike --config auto) works with metrics disabled. The
+// CuratedRuleset sentinel resolves to the embedded curated rules, written to
+// a temp file for the run.
 func (s *Semgrep) Scan(ctx context.Context, target string) ([]model.RawFinding, error) {
 	packs := s.Rulesets
 	if len(packs) == 0 {
@@ -39,6 +41,15 @@ func (s *Semgrep) Scan(ctx context.Context, target string) ([]model.RawFinding, 
 		"--timeout", "0",
 	}
 	for _, p := range packs {
+		if p == CuratedRuleset {
+			path, cleanup, err := materializeCuratedRules()
+			if err != nil {
+				return nil, err
+			}
+			defer cleanup()
+			args = append(args, "--config", path)
+			continue
+		}
 		args = append(args, "--config", p)
 	}
 	args = append(args, target)
@@ -47,7 +58,19 @@ func (s *Semgrep) Scan(ctx context.Context, target string) ([]model.RawFinding, 
 	if err != nil {
 		return nil, fmt.Errorf("semgrep scan failed: %w", err)
 	}
-	return parseSemgrep(data)
+	findings, err := parseSemgrep(data)
+	if err != nil {
+		return nil, err
+	}
+	// Curated rules ran from a temp file, and semgrep bakes the temp path into
+	// their check_ids. Restore the stable ids so displayed rule ids and finding
+	// fingerprints never depend on where the file materialized.
+	for i := range findings {
+		if id, ok := stableCuratedID(findings[i].RuleID); ok {
+			findings[i].RuleID = id
+		}
+	}
+	return findings, nil
 }
 
 // parseSemgrep decodes semgrep JSON output into RawFindings. Split out from

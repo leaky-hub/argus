@@ -74,7 +74,7 @@ func anyCWE(got map[string]bool, cwes []string) bool {
 func GenerateMarkdown(labels []Label, std, max map[string]map[string]bool) string {
 	var b strings.Builder
 
-	b.WriteString("# Coverage — the eagle-eye matrix\n\n")
+	b.WriteString("# Coverage: the eagle-eye matrix\n\n")
 	b.WriteString("> **Generated, not authored.** This file is produced by\n")
 	b.WriteString("> `internal/coverage` from a live scan of the labeled fixtures under\n")
 	b.WriteString("> `testdata/polyglot/`. Regenerate with `make coverage` (or\n")
@@ -98,7 +98,7 @@ func GenerateMarkdown(labels []Label, std, max map[string]map[string]bool) strin
 	}
 	profileUse := map[string]string{
 		scanner.ProfileFast:     "tight PR gates, low noise",
-		scanner.ProfileStandard: "default — broad multi-language audit",
+		scanner.ProfileStandard: "default: broad multi-language audit",
 		scanner.ProfileMax:      "deep audit; recall over noise (triage handles FPs)",
 	}
 	for _, p := range []string{scanner.ProfileFast, scanner.ProfileStandard, scanner.ProfileMax} {
@@ -141,7 +141,7 @@ func GenerateMarkdown(labels []Label, std, max map[string]map[string]bool) strin
 		for _, c := range l.Canaries {
 			names = append(names, fmt.Sprintf("%s (%s)", c.Name, c.CWE))
 		}
-		b.WriteString(fmt.Sprintf("- **%s** — %s\n", l.Language, strings.Join(names, "; ")))
+		b.WriteString(fmt.Sprintf("- **%s**: %s\n", l.Language, strings.Join(names, "; ")))
 	}
 	b.WriteString("\n")
 
@@ -149,48 +149,57 @@ func GenerateMarkdown(labels []Label, std, max map[string]map[string]bool) strin
 	b.WriteString("## Known gaps (honest accounting)\n\n")
 	gaps := knownGaps(labels, std, max)
 	if len(gaps) == 0 {
-		b.WriteString("None among the labeled classes — every weakness class shown is caught by at least one profile.\n\n")
+		b.WriteString("None among the labeled classes: every weakness class shown is caught by at least one profile.\n\n")
 	} else {
 		b.WriteString("Weakness classes present in a fixture that no curated profile currently catches:\n\n")
 		for _, g := range gaps {
 			b.WriteString("- " + g + "\n")
 		}
-		b.WriteString("\nThese are tracked as detection-policy work, not hidden. ")
-		b.WriteString("Compiled-language command injection (Java `Runtime.exec`, C# `Process.Start`, ")
-		b.WriteString("Go `exec.Command`) and path traversal are the notable holes; a dedicated ")
-		b.WriteString("gosec/CodeQL-style pass is the roadmap answer.\n\n")
+		b.WriteString("\nThese are tracked as detection-policy work, not hidden: each is a\n")
+		b.WriteString("candidate for a registry pack or an argus/curated rule, under the same\n")
+		b.WriteString("earn-your-slot bar.\n\n")
 	}
 
 	// --- Per-scanner writeup ------------------------------------------------
 	b.WriteString("## Per-scanner review\n\n")
-	b.WriteString("- **semgrep (SAST)** — the breadth engine. `standard` runs a security-audit +\n")
+	b.WriteString("- **semgrep (SAST)**: the breadth engine. `standard` runs a security-audit +\n")
 	b.WriteString("  OWASP-Top-Ten base plus a per-language pack for Python, JS, TS, Go, Java, C#,\n")
-	b.WriteString("  Ruby, PHP, Kotlin, **Rust** (`p/rust`), and **Scala** (`p/scala`). `max` adds\n")
-	b.WriteString("  `p/default`, `p/secrets`, `p/gosec`, and framework/category packs, which is\n")
-	b.WriteString("  what lifts Kotlin command injection, Python string-format SQLi, and TS\n")
-	b.WriteString("  weak-crypto into coverage (see ◐ cells).\n")
-	b.WriteString("- **New languages (cloud-posture session), honest accounting.** Five were\n")
-	b.WriteString("  evaluated against the earn-your-slot bar (a pack lands only with a fixture\n")
-	b.WriteString("  plant it detects). **Rust** and **Scala** landed with dedicated packs\n")
-	b.WriteString("  (`p/rust`: untrusted-input CWE-807, unsafe-usage CWE-242; `p/scala`:\n")
-	b.WriteString("  tainted-sql-string CWE-89). **C** landed too, but through\n")
-	b.WriteString("  `p/security-audit`'s own C rules (`insecure-use-gets-fn`, CWE-676) — a\n")
+	b.WriteString("  Ruby, PHP, Kotlin, **Rust** (`p/rust`), and **Scala** (`p/scala`), plus the\n")
+	b.WriteString("  **argus/curated** local ruleset (below). `max` adds `p/default`, `p/secrets`,\n")
+	b.WriteString("  `p/gosec`, and framework/category packs, which is what lifts Kotlin command\n")
+	b.WriteString("  injection, Python string-format SQLi, and TS weak-crypto into coverage\n")
+	b.WriteString("  (see ◐ cells).\n")
+	b.WriteString("- **argus/curated (local rules, detection-depth session).** The platform's own\n")
+	b.WriteString("  vetted rules (`internal/scanner/rules/curated.yaml`, embedded in the binary,\n")
+	b.WriteString("  never fetched) close gaps every registry pack provably missed: Python path\n")
+	b.WriteString("  traversal (CWE-22), Go shell command injection (CWE-78), JavaScript SQLi\n")
+	b.WriteString("  through a query string (CWE-89), Kotlin concatenated-statement SQLi (CWE-89)\n")
+	b.WriteString("  and predictable PRNG (CWE-330), PHP extract() (CWE-621) and rand() tokens\n")
+	b.WriteString("  (CWE-330), and all five Swift plants (SQLi, shell cmdi, MD5, disabled TLS\n")
+	b.WriteString("  validation, hardcoded credential). Every rule holds the same earn-your-slot\n")
+	b.WriteString("  bar as a pack, per rule, via TestProfileRecall, and each class has a\n")
+	b.WriteString("  safe-code PLANT-FP counterpart that must stay unflagged.\n")
+	b.WriteString("- **New languages, honest accounting.** **Rust** and **Scala** landed with\n")
+	b.WriteString("  dedicated packs (`p/rust`: untrusted-input CWE-807, unsafe-usage CWE-242;\n")
+	b.WriteString("  `p/scala`: tainted-sql-string CWE-89). **C** landed through\n")
+	b.WriteString("  `p/security-audit`'s own C rules (`insecure-use-gets-fn`, CWE-676); a\n")
 	b.WriteString("  dedicated `p/c` added nothing over it on the plants, so it was NOT added.\n")
-	b.WriteString("  **Swift** and **Elixir** did NOT land: `p/swift` and `p/elixir` (thin\n")
-	b.WriteString("  registry packs) caught none of their fixture plants even with `p/default`;\n")
-	b.WriteString("  their fixtures remain as `PLANT-GAP` documentation and `.swift`/`.ex` stay\n")
-	b.WriteString("  \"unsupported source\" in skip accounting. Nothing is claimed that a scan\n")
-	b.WriteString("  did not prove.\n")
-	b.WriteString("- **gitleaks (SECRET)** — default ruleset (100+ credential patterns) is\n")
+	b.WriteString("  **Swift** landed via argus/curated after `p/swift` caught none of its\n")
+	b.WriteString("  plants. **Elixir** did NOT land and cannot on the OSS engine: parsing\n")
+	b.WriteString("  Elixir is a Pro-only plugin (every elixir rule errors with MissingPlugin),\n")
+	b.WriteString("  so neither registry packs nor local rules can cover it; its fixture stays\n")
+	b.WriteString("  `PLANT-GAP` documentation and `.ex`/`.exs` stay \"unsupported source\" in\n")
+	b.WriteString("  skip accounting. Nothing is claimed that a scan did not prove.\n")
+	b.WriteString("- **gitleaks (SECRET)**: default ruleset (100+ credential patterns) is\n")
 	b.WriteString("  sufficient; secret material is redacted before it ever reaches a report or an\n")
-	b.WriteString("  LLM. No per-language tuning needed — secrets are language-agnostic.\n")
+	b.WriteString("  LLM. No per-language tuning needed: secrets are language-agnostic.\n")
 	b.WriteString("  **Git history mode** (schema 2.0.0): when the scan target is a git\n")
 	b.WriteString("  repository, a second pass scans the commit history, so a credential that\n")
-	b.WriteString("  was committed and later deleted — but never rotated — still surfaces,\n")
+	b.WriteString("  was committed and later deleted, but never rotated, still surfaces,\n")
 	b.WriteString("  labeled `meta.gitHistory` with the introducing commit. Shallow console\n")
 	b.WriteString("  workspaces (depth-1 clones) cover a single commit of history and say so\n")
 	b.WriteString("  (`meta.gitShallow`). Cost: roughly one extra gitleaks pass per scan.\n")
-	b.WriteString("- **trivy (SCA)** — vulnerability scanning of dependency manifests and lockfiles\n")
+	b.WriteString("- **trivy (SCA)**: vulnerability scanning of dependency manifests and lockfiles\n")
 	b.WriteString("  across ecosystems; `--profile` does not change SCA behavior (semgrep-only).\n")
 	b.WriteString("  Trivy's built-in misconfiguration scanner is the Phase 4 IaC teaser.\n\n")
 
@@ -210,13 +219,13 @@ func GenerateMarkdown(labels []Label, std, max map[string]map[string]bool) strin
 	b.WriteString("Every saved run carries a `coverage` block (schema 2.0.0): files bucketed\n")
 	b.WriteString("as SAST-covered, IaC/config, secrets-only text, **unsupported source**\n")
 	b.WriteString("(recognizable code in a language no profile analyzes), **binary**, and\n")
-	b.WriteString("**oversize** (> 5 MB), plus git-repo/shallow facts — with sample paths.\n")
+	b.WriteString("**oversize** (> 5 MB), plus git-repo/shallow facts, with sample paths.\n")
 	b.WriteString("The console renders it on the run detail. \"No findings\" in a tree full\n")
 	b.WriteString("of unscanned binaries is a different claim than \"no findings\" in a fully\n")
 	b.WriteString("analyzable tree; the accounting keeps the difference visible.\n\n")
 
 	b.WriteString("## Why breadth is safe here\n\n")
-	b.WriteString("Wide rulesets raise false-positive volume — that is the intended tradeoff. The\n")
+	b.WriteString("Wide rulesets raise false-positive volume; that is the intended tradeoff. The\n")
 	b.WriteString("Phase 2 AI triage layer is the answer: every finding gets a local-LLM verdict and\n")
 	b.WriteString("a 0–10 risk score, so `standard`/`max` breadth stays actionable instead of\n")
 	b.WriteString("drowning the reviewer. Breadth + triage is the pairing the demo shows.\n")
@@ -265,7 +274,7 @@ func GenerateIaCSection(labels []IaCLabel, findings []model.Finding) string {
 	var b strings.Builder
 	b.WriteString("## Infrastructure-as-Code coverage\n\n")
 	b.WriteString("IaC misconfiguration scanning (category `IAC`) runs **checkov** and\n")
-	b.WriteString("**trivy-config** (the trivy misconfiguration pass — no extra binary) against\n")
+	b.WriteString("**trivy-config** (the trivy misconfiguration pass, no extra binary) against\n")
 	b.WriteString("Terraform, CloudFormation, Kubernetes manifests, Dockerfiles, and Helm charts.\n")
 	b.WriteString("IaC engines run whenever available; `--profile` governs semgrep only. Planted\n")
 	b.WriteString("misconfigurations under `testdata/iac/` are asserted detected by\n")
@@ -287,7 +296,7 @@ func GenerateIaCSection(labels []IaCLabel, findings []model.Finding) string {
 }
 
 // knownGaps lists weakness classes that appear in a fixture (as a canary) yet
-// are caught by neither profile — defensive: with correct labels this is empty,
+// are caught by neither profile. Defensive: with correct labels this is empty,
 // but it surfaces any silent regression in the source packs.
 func knownGaps(labels []Label, std, max map[string]map[string]bool) []string {
 	var out []string
@@ -299,7 +308,7 @@ func knownGaps(labels []Label, std, max map[string]map[string]bool) []string {
 				continue
 			}
 			if classLevel(l.File, c, std, max) == detNone {
-				out = append(out, fmt.Sprintf("%s — %s", l.Language, c.Label))
+				out = append(out, fmt.Sprintf("%s: %s", l.Language, c.Label))
 			}
 		}
 	}

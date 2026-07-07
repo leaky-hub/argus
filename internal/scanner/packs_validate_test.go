@@ -39,7 +39,18 @@ func TestSemgrepPacksResolve(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	for _, pack := range packs {
-		cmd := exec.CommandContext(ctx, "semgrep", "scan", "--config", pack, "--metrics=off", "--quiet", "--json", empty)
+		config := pack
+		if pack == CuratedRuleset {
+			// The sentinel resolves to the embedded ruleset, validated the same
+			// way a registry pack is: it must load and run.
+			path, cleanup, err := materializeCuratedRules()
+			if err != nil {
+				t.Fatalf("materialize curated rules: %v", err)
+			}
+			defer cleanup()
+			config = path
+		}
+		cmd := exec.CommandContext(ctx, "semgrep", "scan", "--config", config, "--metrics=off", "--quiet", "--json", empty)
 		cmd.Env = os.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("pack %s failed to resolve: %v\n%s", pack, err, truncate(out, 400))

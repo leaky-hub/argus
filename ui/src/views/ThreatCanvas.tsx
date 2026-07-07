@@ -264,9 +264,9 @@ export function ThreatCanvas({
             return (
               <g key={c.id} onPointerDown={(e) => startDrag(e, c.id)} onPointerMove={handleMove} onPointerUp={handleUp} style={{ cursor: canEdit ? "grab" : "default" }}>
                 <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={12} className={`fill-amber-500/5 ${sel ? "stroke-accent-500" : "stroke-amber-500/50"}`} strokeWidth={sel ? 2 : 1.5} strokeDasharray="6 4" />
-                <text x={b.x + 12} y={b.y + 23} className="fill-amber-600 dark:fill-amber-400" fontSize={14} fontWeight={600}>{c.name}</text>
+                <text x={b.x + 12} y={b.y + 24} className="fill-amber-600 dark:fill-amber-400" fontSize={16} fontWeight={600}>{c.name}</text>
                 {c.tech && (
-                  <text x={b.x + b.w - 12} y={b.y + 23} textAnchor="end" className="fill-amber-500 dark:fill-amber-500/90" fontSize={12} fontWeight={700} letterSpacing={0.5}>{boundaryTypeLabel(c.tech).toUpperCase()}</text>
+                  <text x={b.x + b.w - 12} y={b.y + 24} textAnchor="end" className="fill-amber-500 dark:fill-amber-500/90" fontSize={13} fontWeight={700} letterSpacing={0.5}>{boundaryTypeLabel(c.tech).toUpperCase()}</text>
                 )}
                 {canEdit && sel && (
                   <rect x={b.x + b.w - 16} y={b.y + b.h - 16} width={16} height={16} className="fill-accent-500" style={{ cursor: "nwse-resize" }}
@@ -310,8 +310,8 @@ export function ThreatCanvas({
                 <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={rx}
                   className={`fill-white dark:fill-gray-900 ${isFlowSource || sel ? "stroke-accent-500" : "stroke-gray-300 dark:stroke-gray-700"}`}
                   strokeWidth={isFlowSource || sel ? 2 : 1} strokeDasharray={dash} />
-                <text x={b.x + 13} y={b.y + 27} className="fill-gray-900 dark:fill-gray-100" fontSize={14} fontWeight={600}>{c.name.length > 22 ? c.name.slice(0, 22) + "…" : c.name}</text>
-                {c.tech && <text x={b.x + 13} y={b.y + 47} className="fill-gray-400" fontSize={12}>{c.tech}</text>}
+                <text x={b.x + 13} y={b.y + 27} className="fill-gray-900 dark:fill-gray-100" fontSize={16} fontWeight={600}>{c.name.length > 20 ? c.name.slice(0, 20) + "…" : c.name}</text>
+                {c.tech && <text x={b.x + 13} y={b.y + 48} className="fill-gray-400" fontSize={13}>{c.tech}</text>}
                 {threatCounts[c.id] ? (
                   <>
                     <circle cx={b.x + b.w - 5} cy={b.y + 5} r={11} className="fill-red-600" />

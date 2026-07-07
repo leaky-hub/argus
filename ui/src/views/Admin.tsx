@@ -33,6 +33,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   // server-discovered closed list (never a free-form key).
   const [cloudProvider, setCloudProvider] = useState("aws");
   const [cloudProfileName, setCloudProfileName] = useState("");
+  const [cloudAccount, setCloudAccount] = useState(""); // Azure subscription id / GCP project id
   const [cloudRegions, setCloudRegions] = useState("");
   const [cloudProfileChoices, setCloudProfileChoices] = useState<string[]>([]);
   const [cloudProfileError, setCloudProfileError] = useState<string | null>(null);
@@ -279,30 +280,46 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                   className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
                 >
                   <option value="aws">aws</option>
+                  <option value="azure">azure</option>
+                  <option value="gcp">gcp</option>
                 </select>
-                <select
-                  value={cloudProfileName}
-                  onChange={(e) => setCloudProfileName(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-                >
-                  <option value="">— select a local profile —</option>
-                  {cloudProfileChoices.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                {cloudProvider === "aws" ? (
+                  <select
+                    value={cloudProfileName}
+                    onChange={(e) => setCloudProfileName(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <option value="">— select a local profile —</option>
+                    {cloudProfileChoices.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder={cloudProvider === "azure" ? "Subscription id (GUID)" : "Project id"}
+                    value={cloudAccount}
+                    onChange={(e) => setCloudAccount(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+                  />
+                )}
               </div>
-              <input
-                type="text"
-                placeholder="Regions (optional, comma-separated, e.g. us-east-1,us-west-2)"
-                value={cloudRegions}
-                onChange={(e) => setCloudRegions(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
-              />
+              {cloudProvider === "aws" && (
+                <input
+                  type="text"
+                  placeholder="Regions (optional, comma-separated, e.g. us-east-1,us-west-2)"
+                  value={cloudRegions}
+                  onChange={(e) => setCloudRegions(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+                />
+              )}
               {cloudProfileError && <p className="text-xs text-red-600 dark:text-red-400">{cloudProfileError}</p>}
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                The profile is a NAME from this host's cloud config (e.g. <code>~/.aws</code>) —
-                never a key. The platform runs prowler with whatever that profile can do;
-                point it at a read-only security-audit principal.
+                {cloudProvider === "aws"
+                  ? "The profile is a NAME from this host's cloud config (~/.aws) — never a key. Point it at a read-only security-audit principal."
+                  : cloudProvider === "azure"
+                  ? "The subscription id is a reference — never a key. Provide a service principal (AZURE_CLIENT_ID/SECRET/TENANT) with the Reader role in the serve process's environment."
+                  : "The project id is a reference — never a key. Provide Application Default Credentials with the Viewer role in the serve process's environment."}
               </p>
             </div>
           )}
@@ -346,7 +363,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
           <button
             onClick={handleAddTarget}
-            disabled={!newTargetName || (newTargetType === "dir" ? !newTargetPath : newTargetType === "git" ? !newTargetUrl : !cloudProfileName)}
+            disabled={!newTargetName || (newTargetType === "dir" ? !newTargetPath : newTargetType === "git" ? !newTargetUrl : cloudProvider === "aws" ? !cloudProfileName : !cloudAccount)}
             className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Register target
@@ -593,13 +610,14 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           profile: newTargetProfile || undefined,
         });
       } else if (newTargetType === "cloud") {
-        if (!cloudProfileName) return;
+        if (cloudProvider === "aws" ? !cloudProfileName : !cloudAccount) return;
         const regions = cloudRegions.split(",").map((r) => r.trim()).filter(Boolean);
         await opsApi.createTarget({
           name: newTargetName,
           provider: cloudProvider,
-          profileName: cloudProfileName,
-          regions: regions.length > 0 ? regions : undefined,
+          profileName: cloudProvider === "aws" ? cloudProfileName : undefined,
+          account: cloudProvider === "aws" ? undefined : cloudAccount.trim(),
+          regions: cloudProvider === "aws" && regions.length > 0 ? regions : undefined,
         });
       } else {
         if (!newTargetPath) return;

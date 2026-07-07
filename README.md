@@ -20,13 +20,15 @@ gates CI on severity, and serves a web console over your run history, all from
 a single Go binary. Many scanners, one all-seeing view: their output merged
 into a single findings model.
 
+<p align="center"><img src="docs/diagrams/pipeline.svg" alt="Argus pipeline: scanners and cloud feed one findings model, enriched deterministically, then gating CI, exporting reports, and feeding the console" width="900"/></p>
+
 **Everything, one model.** SAST across **eleven languages** (Python,
 JavaScript, TypeScript, Go, Java, C#, Ruby, PHP, Kotlin, Rust, Scala; C via
 security-audit), secrets, dependencies (SCA), **IaC misconfiguration**
-(Terraform, CloudFormation, Kubernetes, Dockerfile, Helm), and **cloud
-security posture** (prowler — AWS today) all flow through the same banded
-severity, risk signals, and compliance mapping. DAST is on the
-[roadmap](docs/roadmap.md).
+(Terraform, CloudFormation, Kubernetes, Dockerfile, Helm, plus Bicep/ARM and
+Pulumi for architecture detection), and **cloud security posture** (prowler —
+AWS today) all flow through the same banded severity, risk signals, and
+compliance mapping. DAST is on the [roadmap](docs/roadmap.md).
 
 **Findings become audit evidence.** Every finding is mapped — deterministically,
 no LLM — to the framework controls it violates (**OWASP ASVS 4.0**,
@@ -52,14 +54,16 @@ argus serve   → local web console: Overview, Findings, Runs, and more
                  + with users configured: login, scan launching, admin, audit
 argus user    → console users: add | list | passwd | remove (bootstrap the first admin)
 argus target  → registered scan targets the console may launch against
+argus ticket  → work items over findings: create | list | show | link | comment
+argus threats → threat models: list | show | STRIDE library | enumerate
 ```
 
 ## The console
 
-`argus serve` reads the runs you save and renders them across five tabs:
-Overview, Findings, Runs, Operate, and Admin. Finding data (titles, paths, LLM
-rationales) is treated as hostile and rendered inert: escaping only, no HTML
-injection, strict CSP, binds `127.0.0.1`.
+`argus serve` reads the runs you save and renders them across seven tabs:
+Overview, Findings, Runs, **Tickets**, **Threats**, Operate, and Admin. Finding
+data (titles, paths, LLM rationales) is treated as hostile and rendered inert:
+escaping only, no HTML injection, strict CSP, binds `127.0.0.1`.
 
 Out of the box the console is a read-only viewer with no login. Create users
 (`argus user add <name> --role admin`) and it becomes an **operational
@@ -77,10 +81,46 @@ cross-run trend for leadership; a filterable explorer with per-finding triage
 rationale and violated-control chips for engineers; new-vs-resolved deltas and
 gate outcomes for operations.
 
+## From findings to work: tickets and threat models
+
+Scanning tells you what's wrong. Two pillars, both backed by an embedded SQLite
+database (`argus.db`, opened on `serve`), turn that into tracked work — and
+neither ever touches the gate.
+
+<p align="center"><img src="docs/diagrams/pillars.svg" alt="Argus architecture: a console over a deterministic core and two SQLite-backed work pillars, with invariants that hold across all of it" width="860"/></p>
+
+**Ticketing** is the work layer over findings. A ticket gathers evidence (many
+findings by stable fingerprint), carries a comment-and-event timeline, and
+computes a severity rollup at read time so it never goes stale. Filter by
+status, assignee, or priority; see how long a ticket has been open and whether
+it's overdue; assign from a roster with autocomplete. Closing a ticket "done"
+can write a `fixed` disposition for its linked findings — the one, explicit,
+audited bridge to the gate, and it refuses to overwrite a human's accepted-risk
+or false-positive call. Opt-in [GitHub Issues sync](docs/console-ops.md)
+(config-gated, off by default) creates or links an issue, storing only the URL
+and number; the token is referenced by env-var name, never stored.
+
+**Threat modeling** is STRIDE over your architecture. Add components (or
+generate a baseline from the repo's IaC — Terraform, CloudFormation,
+Kubernetes, Bicep, ARM, Pulumi, Helm), and Argus enumerates curated STRIDE
+threats from a version-pinned library per component tech — deterministic, no
+model in the loop. A local LLM can additionally *suggest* components and
+threats from the repo layout, each labeled `assisted` and confirmed by a human
+before it counts. Threats link to real findings, compliance controls, and
+mitigations; a draggable canvas lays out components, trust boundaries, and data
+flows. Export a model's threats to CSV or JSON.
+
+The rule both pillars live by: **a ticket or a threat never moves a severity or
+a gate outcome.** The gate reads file-based dispositions; the database owns work
+state, not the CI decision.
+
 ## Quickstart (90 seconds)
 
 ```bash
-# Prereqs: Go 1.22+, plus whichever scanners you want on PATH:
+# One command builds the binary and reports which scanners you have:
+./scripts/setup.sh
+
+# Or by hand — prereqs: Go 1.22+, plus whichever scanners you want on PATH:
 #   pipx install semgrep     (or: pip install semgrep)
 #   brew install gitleaks trivy   # trivy covers SCA *and* IaC misconfigs
 #   pipx install checkov          # optional: the broad IaC engine
@@ -269,7 +309,8 @@ repo and adjust the gate.
 - [Findings model](docs/findings-model.md) — the unified schema (versioned)
 - [Risk scoring](docs/risk-scoring.md) — the 0–10 formula and the bounded LLM adjustment
 - [Compliance](docs/compliance.md) — frameworks, mapping philosophy, adding a framework
-- [Roadmap](docs/roadmap.md) — Phases 6–9: DAST, threat modeling, IAST, platform
+- [Console & pillars](docs/console-ops.md) — authz model, ticketing, threat modeling, audit
+- [Roadmap](docs/roadmap.md) — what's next: DAST, more cloud providers, IAST
 
 ## Development
 

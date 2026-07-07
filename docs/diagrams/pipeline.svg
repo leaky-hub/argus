@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 430" font-family="'IBM Plex Sans','Segoe UI',system-ui,sans-serif" role="img" aria-label="Argus scan pipeline: scanners and cloud feed a unified findings model, which is correlated, risk-scored, triaged, and compliance-mapped, then gates CI, exports reports, and feeds the console.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9a96a6"/></marker>
+    <marker id="ai" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6e56cf"/></marker>
+  </defs>
+  <style>
+    .t{fill:#302e3b;font-size:14px;font-weight:600}
+    .s{fill:#6a6777;font-size:11px}
+    .lbl{fill:#908ca0;font-size:11px;font-weight:700;letter-spacing:.08em}
+    .card{fill:#f4f3f8;stroke:#d7d4e0;stroke-width:1}
+    .spine{fill:#efecfb;stroke:#6e56cf;stroke-width:1.4}
+    .out{fill:#eef7f0;stroke:#16a34a;stroke-width:1.2}
+    .flow{stroke:#9a96a6;stroke-width:1.4;fill:none}
+    .flowa{stroke:#6e56cf;stroke-width:1.6;fill:none}
+  </style>
+  <rect x="0" y="0" width="1160" height="430" rx="16" fill="#fbfafd"/>
+
+  <text x="120" y="40" text-anchor="middle" class="lbl">SOURCES</text>
+  <rect class="card" x="30" y="54" width="180" height="40" rx="8"/><text class="t" x="46" y="72">semgrep</text><text class="s" x="46" y="87">SAST · 11 languages</text>
+  <rect class="card" x="30" y="102" width="180" height="40" rx="8"/><text class="t" x="46" y="120">gitleaks</text><text class="s" x="46" y="135">secrets · git history</text>
+  <rect class="card" x="30" y="150" width="180" height="40" rx="8"/><text class="t" x="46" y="168">trivy</text><text class="s" x="46" y="183">SCA + IaC</text>
+  <rect class="card" x="30" y="198" width="180" height="40" rx="8"/><text class="t" x="46" y="216">checkov</text><text class="s" x="46" y="231">IaC misconfig</text>
+  <rect class="card" x="30" y="256" width="180" height="42" rx="8"/><text class="t" x="46" y="275">prowler</text><text class="s" x="46" y="290">cloud posture · AWS</text>
+
+  <rect class="spine" x="270" y="122" width="150" height="116" rx="10"/>
+  <text class="t" x="345" y="166" text-anchor="middle">Unified</text>
+  <text class="t" x="345" y="185" text-anchor="middle">findings model</text>
+  <text class="s" x="345" y="206" text-anchor="middle">normalize · dedup</text>
+  <text class="s" x="345" y="221" text-anchor="middle">stable fingerprints</text>
+
+  <path class="flow" marker-end="url(#ah)" d="M210 74 C245 74 245 152 268 160"/>
+  <path class="flow" marker-end="url(#ah)" d="M210 122 C245 122 245 168 268 170"/>
+  <path class="flow" marker-end="url(#ah)" d="M210 170 L268 180"/>
+  <path class="flow" marker-end="url(#ah)" d="M210 218 C245 218 245 198 268 190"/>
+  <path class="flow" marker-end="url(#ah)" d="M210 277 C245 277 245 210 268 200"/>
+
+  <text x="545" y="40" text-anchor="middle" class="lbl">DETERMINISTIC ENRICHMENT</text>
+  <rect class="card" x="470" y="62" width="150" height="50" rx="8"/><text class="t" x="484" y="83">Correlate</text><text class="s" x="484" y="99">merge overlaps</text>
+  <rect class="card" x="470" y="126" width="150" height="50" rx="8"/><text class="t" x="484" y="147">Risk score</text><text class="s" x="484" y="163">0–10 · banded sev</text>
+  <rect class="card" x="470" y="190" width="150" height="50" rx="8"/><text class="t" x="484" y="211">Compliance</text><text class="s" x="484" y="227">ASVS · PCI · CIS</text>
+  <rect class="card" x="470" y="254" width="150" height="50" rx="8"/><text class="t" x="484" y="275">CVSS · coverage</text><text class="s" x="484" y="291">computed, not trusted</text>
+
+  <path class="flow" marker-end="url(#ah)" d="M420 180 C445 180 445 87 468 87"/>
+  <path class="flow" marker-end="url(#ah)" d="M420 180 C445 180 445 151 468 151"/>
+  <path class="flow" marker-end="url(#ah)" d="M420 180 C445 180 445 215 468 215"/>
+  <path class="flow" marker-end="url(#ah)" d="M420 180 C445 180 445 279 468 279"/>
+
+  <rect class="spine" x="672" y="120" width="140" height="46" rx="8" stroke-dasharray="5 4"/>
+  <text class="t" x="686" y="140">AI triage</text><text class="s" x="686" y="156">advisory · local</text>
+  <path class="flowa" marker-end="url(#ai)" d="M622 150 C645 150 650 143 670 143"/>
+  <text class="s" x="742" y="182" text-anchor="middle" fill="#6e56cf" font-weight="600">never moves severity or gate</text>
+
+  <text x="1000" y="40" text-anchor="middle" class="lbl">OUTPUTS</text>
+  <rect class="out" x="888" y="62" width="234" height="46" rx="8"/><text class="t" x="904" y="82">CI gate</text><text class="s" x="904" y="98">non-zero on your severity</text>
+  <rect class="out" x="888" y="120" width="234" height="46" rx="8"/><text class="t" x="904" y="140">Reports</text><text class="s" x="904" y="156">SARIF · Markdown · JSON</text>
+  <rect class="out" x="888" y="178" width="234" height="46" rx="8"/><text class="t" x="904" y="198">comply</text><text class="s" x="904" y="214">gap report · violated / clean / n-a</text>
+  <rect class="spine" x="888" y="236" width="234" height="60" rx="8"/><text class="t" x="904" y="257">Console</text><text class="s" x="904" y="273">run history · tickets · threats</text><text class="s" x="904" y="288">local · 127.0.0.1 · strict CSP</text>
+
+  <path class="flow" marker-end="url(#ah)" d="M620 180 C740 180 770 85 886 85"/>
+  <path class="flow" marker-end="url(#ah)" d="M620 180 C740 180 770 143 886 143"/>
+  <path class="flow" marker-end="url(#ah)" d="M620 180 C740 180 770 201 886 201"/>
+  <path class="flow" marker-end="url(#ah)" d="M620 180 C760 180 780 264 886 264"/>
+
+  <text x="580" y="400" text-anchor="middle" class="s">One binary. Scanners are optional and run when present; the model, risk, and compliance are always deterministic. The local LLM is advisory and clearly labeled.</text>
+</svg>

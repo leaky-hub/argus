@@ -76,9 +76,17 @@ still catching runtime issues.
   dynamic scanning of a running target; wire results into the same model
   (the `location.url` slot exists). ✅ = DAST run against a deliberately-vuln
   app (e.g. Juice Shop) produces correlated findings.
-- **Phase 7 — Threat modeling:** code/architecture-aware threat model
-  generation (data-flow + STRIDE), ideally AI-assisted from repo + IaC,
-  producing a reviewable model and linked findings.
+- **Phase 7 — Threat modeling (shipped):** architecture-aware STRIDE threat
+  models. A curated, version-pinned STRIDE library enumerates threats per
+  component tech deterministically; `internal/iacdetect` bootstraps a baseline
+  from repo IaC (Terraform, CloudFormation, Kubernetes, Bicep, ARM, Pulumi,
+  Helm); a local LLM optionally suggests components and threats a human
+  confirms as `assisted`; threats link to real findings, controls, and
+  mitigations; a draggable canvas lays out components, trust boundaries, and
+  data flows. ✅ = a model generated from IaC with enumerated STRIDE, linked to
+  findings, exported to CSV/JSON. Paired with **ticketing** — a work layer over
+  findings with a timeline, severity rollup, aging, and opt-in GitHub Issues
+  sync. Both live in `internal/store` (embedded SQLite) and never move the gate.
 - **Phase 8 — IAST & runtime:** instrumentation/agent hooks for runtime
   vulnerability detection; correlate runtime evidence back to SAST findings
   (reachability truth).

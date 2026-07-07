@@ -19,6 +19,18 @@ The scan pipeline itself lives in `internal/pipeline` and has exactly two
 callers: the `argus scan` CLI command (a thin flag-parsing wrapper) and the
 console's serial job queue. Both run the same code path end to end.
 
+The console sits over that deterministic core plus two SQLite-backed work
+pillars (ticketing and threat modeling), and a set of invariants holds across
+all of it:
+
+![Argus architecture — console, deterministic core, work pillars, and invariants](diagrams/pillars.svg)
+
+The dashed line between the console and the layers below is deliberate: the
+core reads immutable run files and owns no app state, while the pillars own the
+only mutable, related app state in the product (`internal/store`, embedded
+SQLite via modernc). The gate's input — file-based dispositions — stays outside
+the database on purpose, so a work item can never quietly move a CI outcome.
+
 ## Package layout
 
 | Package | Role | Ownership note |

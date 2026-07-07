@@ -261,7 +261,10 @@ func (s *Store) EnumerateComponent(componentID string, now time.Time) (int, erro
 	return added, nil
 }
 
-// AddThreat inserts a hand-authored (or human-confirmed assisted) threat.
+// AddThreat inserts a hand-authored (source="manual") or human-confirmed
+// assisted threat. "curated" is reserved for EnumerateComponent — it means
+// "from the threatlib library", and a hand-typed threat claiming it would
+// misstate provenance. Any unknown source becomes "manual".
 func (s *Store) AddThreat(modelID, componentID, category, title, description, source, mitigation, actor string, now time.Time) (Threat, error) {
 	if _, err := s.GetModel(modelID); err != nil {
 		return Threat{}, err
@@ -272,8 +275,19 @@ func (s *Store) AddThreat(modelID, componentID, category, title, description, so
 	if strings.TrimSpace(title) == "" {
 		return Threat{}, errors.New("threat title is required")
 	}
-	if source != "curated" && source != "assisted" {
-		source = "curated"
+	if source != "assisted" && source != "manual" {
+		source = "manual"
+	}
+	// A threat may only point at a component in its own model.
+	if componentID != "" {
+		var one int
+		err := s.db.QueryRow(`SELECT 1 FROM threat_components WHERE id=? AND model_id=?`, componentID, modelID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Threat{}, fmt.Errorf("component %s is not in this model", componentID)
+		}
+		if err != nil {
+			return Threat{}, err
+		}
 	}
 	return addThreatTo(s.db, modelID, componentID, category, title, description, source, mitigation, actor, now)
 }
@@ -311,12 +325,14 @@ func threatsOf(q dbtx, modelID string) ([]Threat, error) {
 	return out, rows.Err()
 }
 
-// SetThreatStatus updates a threat's human status (open/mitigated/accepted/transferred).
-func (s *Store) SetThreatStatus(threatID, status string, now time.Time) error {
+// SetThreatStatus updates a threat's human status (open/mitigated/accepted/
+// transferred). Scoped to modelID so a caller can only move threats of the
+// model it addressed (and the audit trail records the right model).
+func (s *Store) SetThreatStatus(modelID, threatID, status string, now time.Time) error {
 	if !threatStatuses[status] {
 		return fmt.Errorf("invalid threat status %q", status)
 	}
-	res, err := s.db.Exec(`UPDATE threats SET status=? WHERE id=?`, status, threatID)
+	res, err := s.db.Exec(`UPDATE threats SET status=? WHERE id=? AND model_id=?`, status, threatID, modelID)
 	if err != nil {
 		return err
 	}
@@ -333,19 +349,37 @@ func (s *Store) DeleteThreat(id string) error {
 
 // --- Links ---
 
-func (s *Store) LinkThreat(threatID, kind, ref, targetID string) error {
+// LinkThreat attaches evidence to a threat, scoped to modelID like
+// SetThreatStatus: linking through another model's id is refused.
+func (s *Store) LinkThreat(modelID, threatID, kind, ref, targetID string) error {
 	if kind != "finding" && kind != "control" && kind != "mitigation" {
 		return fmt.Errorf("invalid link kind %q", kind)
 	}
 	if strings.TrimSpace(ref) == "" {
 		return errors.New("ref is required")
 	}
+	if err := s.threatInModel(modelID, threatID); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO threat_links (threat_id, kind, ref, target_id) VALUES (?,?,?,?)`, threatID, kind, ref, targetID)
 	return err
 }
 
-func (s *Store) UnlinkThreat(threatID, kind, ref, targetID string) error {
+func (s *Store) UnlinkThreat(modelID, threatID, kind, ref, targetID string) error {
+	if err := s.threatInModel(modelID, threatID); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM threat_links WHERE threat_id=? AND kind=? AND ref=? AND target_id=?`, threatID, kind, ref, targetID)
+	return err
+}
+
+// threatInModel returns ErrNotFound unless threatID belongs to modelID.
+func (s *Store) threatInModel(modelID, threatID string) error {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM threats WHERE id=? AND model_id=?`, threatID, modelID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
 	return err
 }
 

@@ -147,9 +147,9 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		if err := decodeBody(w, r, &req, 1<<20); err != nil {
 			return
 		}
-		source := req.Source
-		if source != "assisted" {
-			source = "curated" // confirming an AI suggestion sends source="assisted"
+		source := "manual" // hand-authored; confirming an AI suggestion sends source="assisted"
+		if req.Source == "assisted" {
+			source = "assisted"
 		}
 		t, err := s.threats.AddThreat(id, req.ComponentID, req.Category, req.Title, req.Description, source, req.Mitigation, actor, now)
 		if err != nil {
@@ -167,7 +167,7 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		if err := decodeBody(w, r, &req, 8192); err != nil {
 			return
 		}
-		if err := s.threats.SetThreatStatus(req.ThreatID, req.Status, now); err != nil {
+		if err := s.threats.SetThreatStatus(id, req.ThreatID, req.Status, now); err != nil {
 			s.writeThreatErr(w, err)
 			return
 		}
@@ -184,7 +184,7 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		if req.Remove {
-			err = s.threats.UnlinkThreat(req.ThreatID, req.Kind, req.Ref, req.TargetID)
+			err = s.threats.UnlinkThreat(id, req.ThreatID, req.Kind, req.Ref, req.TargetID)
 		} else {
 			// A finding link must reference a real finding, same rule as ticket
 			// links; control/mitigation refs are curated ids, checked on render.
@@ -194,10 +194,10 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			err = s.threats.LinkThreat(req.ThreatID, req.Kind, req.Ref, req.TargetID)
+			err = s.threats.LinkThreat(id, req.ThreatID, req.Kind, req.Ref, req.TargetID)
 		}
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			s.writeThreatErr(w, err)
 			return
 		}
 		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "link", "kind": req.Kind})

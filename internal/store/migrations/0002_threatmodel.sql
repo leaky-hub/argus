@@ -33,7 +33,7 @@ CREATE TABLE threats (
   title        TEXT NOT NULL,
   description  TEXT NOT NULL DEFAULT '',
   status       TEXT NOT NULL DEFAULT 'open',  -- open | mitigated | accepted | transferred
-  source       TEXT NOT NULL DEFAULT 'curated', -- curated | assisted (assisted = LLM-suggested, human-confirmed)
+  source       TEXT NOT NULL DEFAULT 'curated', -- curated (threatlib) | manual (hand-authored) | assisted (LLM-suggested, human-confirmed)
   mitigation   TEXT NOT NULL DEFAULT '',      -- suggested mitigation weakness id (from the library)
   created_at   TEXT NOT NULL,
   created_by   TEXT NOT NULL DEFAULT ''

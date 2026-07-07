@@ -82,6 +82,30 @@ func TestThreatModelLifecycle(t *testing.T) {
 		t.Errorf("garbage finding link = %d, want 400", rec.Code)
 	}
 
+	// A threat is only addressable through its own model: another model's URL
+	// cannot move its status or attach links to it.
+	rec = f.do("POST", "/api/threat-models", `{"name":"Other"}`, oper)
+	var other struct{ ID string }
+	json.Unmarshal(rec.Body.Bytes(), &other)
+	if rec := f.do("POST", "/api/threat-models/"+other.ID+"/threat-status", `{"threatId":"`+th.ID+`","status":"accepted"}`, oper); rec.Code != 404 {
+		t.Errorf("cross-model status = %d, want 404", rec.Code)
+	}
+	if rec := f.do("POST", "/api/threat-models/"+other.ID+"/links", `{"threatId":"`+th.ID+`","kind":"control","ref":"ASVS:V1.1.1"}`, oper); rec.Code != 404 {
+		t.Errorf("cross-model link = %d, want 404", rec.Code)
+	}
+	f.do("DELETE", "/api/threat-models/"+other.ID, "", admin)
+
+	// A hand-authored threat records source=manual, whatever the caller claims.
+	rec = f.do("POST", "/api/threat-models/"+m.ID+"/threats", `{"category":"tampering","title":"Hand-typed","source":"curated"}`, oper)
+	if rec.Code != 201 {
+		t.Fatalf("add threat: %d %s", rec.Code, rec.Body.String())
+	}
+	var handmade struct{ Source string }
+	json.Unmarshal(rec.Body.Bytes(), &handmade)
+	if handmade.Source != "manual" {
+		t.Errorf("hand-authored source = %q, want manual", handmade.Source)
+	}
+
 	// Viewer cannot mutate; only admin deletes.
 	if rec := f.do("POST", "/api/threat-models", `{"name":"x"}`, viewer); rec.Code != 403 {
 		t.Errorf("viewer create = %d, want 403", rec.Code)

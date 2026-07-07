@@ -196,14 +196,22 @@ func TestAuthzMatrix(t *testing.T) {
 		{"GET", "/api/tickets/tk-1", 401, pass, pass, pass},
 		{"PATCH", "/api/tickets/tk-1", 401, 403, pass, pass},
 		{"POST", "/api/tickets/tk-1/comments", 401, 403, pass, pass},
-		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass}, // delete is admin-only
+		{"POST", "/api/tickets/tk-1/links", 401, 403, pass, pass},
+		{"POST", "/api/tickets/tk-1/close-fixed", 401, 403, pass, pass}, // writes dispositions (operator, like /api/dispositions)
+		{"DELETE", "/api/tickets/tk-1", 401, 403, 403, pass},           // delete is admin-only
 
 		{"GET", "/api/threat-library", 401, pass, pass, pass},
 		{"GET", "/api/threat-models", 401, pass, pass, pass},
 		{"POST", "/api/threat-models", 401, 403, pass, pass},
 		{"GET", "/api/threat-models/tm-1", 401, pass, pass, pass},
+		{"POST", "/api/threat-models/from-target", 401, 403, pass, pass}, // scans a target's IaC
 		{"POST", "/api/threat-models/tm-1/components", 401, 403, pass, pass},
-		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass}, // delete is admin-only
+		{"POST", "/api/threat-models/tm-1/enumerate", 401, 403, pass, pass},
+		{"POST", "/api/threat-models/tm-1/threats", 401, 403, pass, pass},
+		{"POST", "/api/threat-models/tm-1/threat-status", 401, 403, pass, pass},
+		{"POST", "/api/threat-models/tm-1/links", 401, 403, pass, pass},
+		{"POST", "/api/threat-models/tm-1/suggest", 401, 403, pass, pass}, // LLM seam (operator, like explain)
+		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass},       // delete is admin-only
 
 		{"GET", "/api/targets", 401, pass, pass, pass},
 		{"POST", "/api/targets", 401, 403, 403, pass},

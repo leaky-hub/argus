@@ -64,29 +64,80 @@ func TestModelComponentEnumerate(t *testing.T) {
 func TestThreatStatusAndLinks(t *testing.T) {
 	s := newStore(t)
 	m, _ := s.CreateModel("", "M", "", "a", t0)
-	th, err := s.AddThreat(m.ID, "", "tampering", "SQLi at the query layer", "", "curated", "sqli", "a", t0)
+	th, err := s.AddThreat(m.ID, "", "tampering", "SQLi at the query layer", "", "manual", "sqli", "a", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Status transitions are validated.
-	if err := s.SetThreatStatus(th.ID, "mitigated", t0); err != nil {
+	if err := s.SetThreatStatus(m.ID, th.ID, "mitigated", t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetThreatStatus(th.ID, "bogus", t0); err == nil {
+	if err := s.SetThreatStatus(m.ID, th.ID, "bogus", t0); err == nil {
 		t.Error("invalid status must be rejected")
 	}
 	// Link to a finding, a control, and a mitigation.
-	if err := s.LinkThreat(th.ID, "finding", "fp-123", "t-1"); err != nil {
+	if err := s.LinkThreat(m.ID, th.ID, "finding", "fp-123", "t-1"); err != nil {
 		t.Fatal(err)
 	}
-	s.LinkThreat(th.ID, "control", "ASVS:V5.3.4", "")
-	s.LinkThreat(th.ID, "mitigation", "sqli", "")
-	if err := s.LinkThreat(th.ID, "bogus", "x", ""); err == nil {
+	s.LinkThreat(m.ID, th.ID, "control", "ASVS:V5.3.4", "")
+	s.LinkThreat(m.ID, th.ID, "mitigation", "sqli", "")
+	if err := s.LinkThreat(m.ID, th.ID, "bogus", "x", ""); err == nil {
 		t.Error("invalid link kind must be rejected")
 	}
 	links, _ := s.LinksForModel(m.ID)
 	if len(links[th.ID]) != 3 {
 		t.Errorf("links = %d, want 3", len(links[th.ID]))
+	}
+}
+
+// TestCrossModelScoping: a threat can only be moved, linked, or attached to a
+// component through its OWN model — addressing it via another model's id is
+// refused, so the audit trail can't record the wrong model.
+func TestCrossModelScoping(t *testing.T) {
+	s := newStore(t)
+	mA, _ := s.CreateModel("", "A", "", "a", t0)
+	mB, _ := s.CreateModel("", "B", "", "a", t0)
+	compB, _ := s.AddComponent(mB.ID, "component", "DB", "database", "", t0)
+	th, err := s.AddThreat(mA.ID, "", "tampering", "T", "", "manual", "", "a", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetThreatStatus(mB.ID, th.ID, "mitigated", t0); err != ErrNotFound {
+		t.Errorf("cross-model status = %v, want ErrNotFound", err)
+	}
+	if got, _ := s.Threats(mA.ID); got[0].Status != "open" {
+		t.Errorf("cross-model status write landed: %q", got[0].Status)
+	}
+	if err := s.LinkThreat(mB.ID, th.ID, "control", "ASVS:V1.1.1", ""); err != ErrNotFound {
+		t.Errorf("cross-model link = %v, want ErrNotFound", err)
+	}
+	if err := s.UnlinkThreat(mB.ID, th.ID, "control", "ASVS:V1.1.1", ""); err != ErrNotFound {
+		t.Errorf("cross-model unlink = %v, want ErrNotFound", err)
+	}
+	// A threat may not point at a component from another model.
+	if _, err := s.AddThreat(mA.ID, compB.ID, "tampering", "X", "", "manual", "", "a", t0); err == nil {
+		t.Error("threat attached to another model's component")
+	}
+}
+
+// TestThreatSourceProvenance: "curated" means the threatlib library wrote it.
+// A hand-authored threat is "manual" even if the caller claims otherwise; only
+// "assisted" (human-confirmed LLM suggestion) passes through.
+func TestThreatSourceProvenance(t *testing.T) {
+	s := newStore(t)
+	m, _ := s.CreateModel("", "M", "", "a", t0)
+	for _, tc := range []struct{ give, want string }{
+		{"curated", "manual"}, {"", "manual"}, {"llm", "manual"},
+		{"manual", "manual"}, {"assisted", "assisted"},
+	} {
+		th, err := s.AddThreat(m.ID, "", "spoofing", "src "+tc.give, "", tc.give, "", "a", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if th.Source != tc.want {
+			t.Errorf("AddThreat source %q stored %q, want %q", tc.give, th.Source, tc.want)
+		}
 	}
 }
 

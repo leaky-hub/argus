@@ -31,20 +31,50 @@ type Component struct {
 // maxFileBytes bounds how much of any one file is read.
 const maxFileBytes = 512 * 1024
 
+// maxCandidateFiles bounds how many matching files are scanned and
+// maxWalkEntries how many directory entries are visited, so a pathological
+// tree can't pin the request that triggered the scan. Recall on any sane repo
+// is unaffected; a tree that trips these caps needs a human anyway.
+const (
+	maxCandidateFiles = 2000
+	maxWalkEntries    = 200000
+)
+
 // tfResourceTech maps a Terraform resource type prefix to a threatlib tech. The
 // longest matching prefix wins, so "aws_db_instance" beats a broader rule.
 var tfResourceTech = []struct{ prefix, tech string }{
+	// AWS data stores
 	{"aws_db_instance", "database"},
 	{"aws_rds_cluster", "database"},
 	{"aws_dynamodb_table", "database"},
 	{"aws_elasticache", "database"},
+	{"aws_memorydb", "database"},
+	{"aws_redshift", "database"},
+	{"aws_docdb", "database"},
+	{"aws_neptune", "database"},
+	{"aws_opensearch", "database"},
+	{"aws_elasticsearch_domain", "database"},
+	// Azure data stores (both the legacy azurerm_sql_* and current azurerm_mssql_* names)
 	{"azurerm_postgresql", "database"},
 	{"azurerm_mysql", "database"},
+	{"azurerm_mariadb", "database"},
 	{"azurerm_sql", "database"},
+	{"azurerm_mssql", "database"},
+	{"azurerm_cosmosdb", "database"},
+	{"azurerm_redis_cache", "database"},
+	// GCP data stores
 	{"google_sql_database_instance", "database"},
+	{"google_bigquery", "database"},
+	{"google_bigtable", "database"},
+	{"google_spanner", "database"},
+	{"google_firestore", "database"},
+	{"google_redis_instance", "database"},
+	// Object storage
 	{"aws_s3_bucket", "object-store"},
 	{"azurerm_storage_account", "object-store"},
+	{"azurerm_storage_container", "object-store"},
 	{"google_storage_bucket", "object-store"},
+	// Compute / API surfaces
 	{"aws_lb", "api-service"},
 	{"aws_alb", "api-service"},
 	{"aws_elb", "api-service"},
@@ -53,12 +83,34 @@ var tfResourceTech = []struct{ prefix, tech string }{
 	{"aws_lambda_function", "api-service"},
 	{"aws_ecs_service", "api-service"},
 	{"aws_ecs_task_definition", "api-service"},
+	{"aws_eks_", "api-service"},
+	{"aws_apprunner", "api-service"},
 	{"google_cloud_run", "api-service"},
+	{"google_cloudfunctions", "api-service"},
+	{"google_container_cluster", "api-service"},
+	{"google_api_gateway", "api-service"},
+	{"azurerm_kubernetes_cluster", "api-service"},
+	{"azurerm_function_app", "api-service"},
+	{"azurerm_linux_function_app", "api-service"},
+	{"azurerm_windows_function_app", "api-service"},
+	{"azurerm_api_management", "api-service"},
+	{"azurerm_application_gateway", "api-service"},
+	// Identity
 	{"aws_cognito", "auth-service"},
 	{"auth0_", "auth-service"},
 	{"okta_", "auth-service"},
+	{"keycloak_", "auth-service"},
+	{"azuread_application", "auth-service"},
+	{"google_identity_platform", "auth-service"},
+	// Web frontends
 	{"aws_cloudfront_distribution", "web-app"},
 	{"aws_amplify_app", "web-app"},
+	{"aws_elastic_beanstalk", "web-app"},
+	{"azurerm_app_service", "web-app"},
+	{"azurerm_linux_web_app", "web-app"},
+	{"azurerm_windows_web_app", "web-app"},
+	{"azurerm_cdn", "web-app"},
+	{"google_app_engine", "web-app"},
 }
 
 // cfnTypeTech maps a CloudFormation resource Type token to a tech.
@@ -66,13 +118,26 @@ var cfnTypeTech = []struct{ contains, tech string }{
 	{"AWS::RDS::", "database"},
 	{"AWS::DynamoDB::", "database"},
 	{"AWS::ElastiCache::", "database"},
+	{"AWS::Redshift::", "database"},
+	{"AWS::DocDB::", "database"},
+	{"AWS::Neptune::", "database"},
+	{"AWS::OpenSearchService::", "database"},
+	{"AWS::Elasticsearch::", "database"},
 	{"AWS::S3::Bucket", "object-store"},
 	{"AWS::ElasticLoadBalancingV2::", "api-service"},
+	{"AWS::ElasticLoadBalancing::", "api-service"},
 	{"AWS::ApiGateway", "api-service"},
 	{"AWS::Lambda::Function", "api-service"},
 	{"AWS::ECS::Service", "api-service"},
+	{"AWS::EKS::", "api-service"},
+	{"AWS::AppRunner::", "api-service"},
+	// SAM transforms (template.yaml is the default artifact name)
+	{"AWS::Serverless::Function", "api-service"},
+	{"AWS::Serverless::Api", "api-service"},
+	{"AWS::Serverless::HttpApi", "api-service"},
 	{"AWS::Cognito::", "auth-service"},
 	{"AWS::CloudFront::", "web-app"},
+	{"AWS::ElasticBeanstalk::", "web-app"},
 }
 
 // imageTech maps a substring of a container image to a tech (k8s / compose).
@@ -83,16 +148,29 @@ var imageTech = []struct{ contains, tech string }{
 	{"mongo", "database"},
 	{"redis", "database"},
 	{"cassandra", "database"},
+	{"couchdb", "database"},
+	{"elasticsearch", "database"},
+	{"opensearch", "database"},
+	{"memcached", "database"},
 	{"minio", "object-store"},
 	{"nginx", "web-app"},
 	{"httpd", "web-app"},
+	{"traefik", "web-app"},
+	{"caddy", "web-app"},
+	{"haproxy", "web-app"},
 	{"keycloak", "auth-service"},
 	{"dex", "auth-service"},
+	{"vault", "auth-service"},
+	{"authelia", "auth-service"},
+	{"oauth2-proxy", "auth-service"},
 }
 
 var (
 	tfResourceRe = regexp.MustCompile(`(?m)^\s*resource\s+"([a-z0-9_]+)"\s+"([a-zA-Z0-9_-]+)"`)
-	cfnTypeRe    = regexp.MustCompile(`Type:\s*["']?(AWS::[A-Za-z0-9:]+)`)
+	// Matches YAML (`Type: AWS::X::Y`) and JSON (`"Type": "AWS::X::Y"`) alike:
+	// JSON has a quote before the colon, which the old `Type:` form missed —
+	// CloudFormation JSON was silently undetectable.
+	cfnTypeRe = regexp.MustCompile(`Type["']?\s*:\s*["']?(AWS::[A-Za-z0-9:]+)`)
 	k8sKindRe    = regexp.MustCompile(`(?m)^\s*kind:\s*["']?([A-Za-z]+)`)
 	imageRe      = regexp.MustCompile(`(?m)^\s*image:\s*["']?([^\s"']+)`)
 )
@@ -114,9 +192,13 @@ func Scan(dir string) ([]Component, error) {
 		}
 	}
 
+	entries, candidates := 0, 0
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries, keep walking
+		}
+		if entries++; entries > maxWalkEntries {
+			return fs.SkipAll
 		}
 		if d.IsDir() {
 			if skipDirs[d.Name()] {
@@ -125,17 +207,29 @@ func Scan(dir string) ([]Component, error) {
 			return nil
 		}
 		rel, _ := filepath.Rel(dir, path)
-		name := d.Name()
-		lower := strings.ToLower(name)
+		lower := strings.ToLower(d.Name())
+		isTF := strings.HasSuffix(lower, ".tf")
+		isYAML := strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")
+		isJSON := strings.HasSuffix(lower, ".json")
+		if !isTF && !isYAML && !isJSON {
+			return nil
+		}
+		if candidates++; candidates > maxCandidateFiles {
+			return fs.SkipAll
+		}
+		body := readCapped(path)
 		switch {
-		case strings.HasSuffix(lower, ".tf"):
-			scanTerraform(path, rel, add)
+		case isTF:
+			scanTerraform(body, rel, add)
 		case isCompose(lower):
-			scanImages(path, rel, add)
-		case strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml"):
-			scanKubernetes(path, rel, add)
-		case strings.HasSuffix(lower, ".json") || lower == "template.json":
-			scanCloudFormation(path, rel, add)
+			scanImages(body, rel, add)
+		case isYAML && strings.Contains(body, "AWS::"):
+			// CloudFormation / SAM written as YAML (template.yaml et al.)
+			scanCloudFormation(body, rel, add)
+		case isYAML:
+			scanKubernetes(body, rel, add)
+		default: // JSON: only CloudFormation is recognized
+			scanCloudFormation(body, rel, add)
 		}
 		return nil
 	})
@@ -156,8 +250,7 @@ func Scan(dir string) ([]Component, error) {
 	return out, nil
 }
 
-func scanTerraform(path, rel string, add func(name, tech, source string)) {
-	body := readCapped(path)
+func scanTerraform(body, rel string, add func(name, tech, source string)) {
 	for _, m := range tfResourceRe.FindAllStringSubmatch(body, -1) {
 		rtype, rname := m[1], m[2]
 		if tech := techForTFResource(rtype); tech != "" {
@@ -176,8 +269,7 @@ func techForTFResource(rtype string) string {
 	return best
 }
 
-func scanCloudFormation(path, rel string, add func(name, tech, source string)) {
-	body := readCapped(path)
+func scanCloudFormation(body, rel string, add func(name, tech, source string)) {
 	if !strings.Contains(body, "AWS::") {
 		return
 	}
@@ -192,15 +284,14 @@ func scanCloudFormation(path, rel string, add func(name, tech, source string)) {
 	}
 }
 
-func scanKubernetes(path, rel string, add func(name, tech, source string)) {
-	body := readCapped(path)
+func scanKubernetes(body, rel string, add func(name, tech, source string)) {
 	// A workload kind plus its container image: the image usually reveals the
 	// tech (postgres → database); otherwise a Deployment/StatefulSet is a service.
 	kinds := k8sKindRe.FindAllStringSubmatch(body, -1)
 	if len(kinds) == 0 {
 		return
 	}
-	matchedImage := scanImages(path, rel, add)
+	matchedImage := scanImages(body, rel, add)
 	if matchedImage {
 		return
 	}
@@ -219,8 +310,7 @@ func isCompose(name string) bool {
 
 // scanImages adds a component per recognized container image; returns whether
 // any image matched.
-func scanImages(path, rel string, add func(name, tech, source string)) bool {
-	body := readCapped(path)
+func scanImages(body, rel string, add func(name, tech, source string)) bool {
 	matched := false
 	for _, m := range imageRe.FindAllStringSubmatch(body, -1) {
 		img := strings.ToLower(m[1])

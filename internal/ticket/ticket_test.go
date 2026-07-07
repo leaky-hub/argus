@@ -1,6 +1,7 @@
 package ticket
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -146,3 +147,38 @@ func TestDeleteCascades(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+// TestConcurrentPatchesBothApply: Update is read-modify-write over every
+// column, so two concurrent patches of DIFFERENT fields must not revert each
+// other (the classic lost update). The transaction serializes them.
+func TestConcurrentPatchesBothApply(t *testing.T) {
+	s := newStore(t)
+	for i := 0; i < 40; i++ {
+		tk, err := s.Create(CreateInput{Title: "orig title", Description: "orig desc"}, "a", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Update(tk.ID, UpdateInput{Title: strptr("new title")}, t0.Add(time.Minute))
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Update(tk.ID, UpdateInput{Description: strptr("new desc")}, t0.Add(time.Minute))
+		}()
+		close(start)
+		wg.Wait()
+		got, err := s.Get(tk.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Title != "new title" || got.Description != "new desc" {
+			t.Fatalf("iteration %d lost a patch: title=%q desc=%q", i, got.Title, got.Description)
+		}
+	}
+}

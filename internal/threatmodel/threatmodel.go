@@ -85,6 +85,14 @@ type Store struct{ db *store.DB }
 
 func NewStore(db *store.DB) *Store { return &Store{db: db} }
 
+// dbtx is the subset of database/sql shared by *sql.DB and *sql.Tx, so a
+// helper can run standalone or inside a transaction.
+type dbtx interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // --- Models ---
 
 func (s *Store) CreateModel(targetID, name, description, actor string, now time.Time) (Model, error) {
@@ -148,8 +156,8 @@ func (s *Store) DeleteModel(id string) error {
 	return nil
 }
 
-func (s *Store) touchModel(id string, now time.Time) {
-	s.db.Exec(`UPDATE threat_models SET updated_at=? WHERE id=?`, now.UTC().Format(time.RFC3339), id)
+func touchModel(q dbtx, id string, now time.Time) {
+	q.Exec(`UPDATE threat_models SET updated_at=? WHERE id=?`, now.UTC().Format(time.RFC3339), id)
 }
 
 // --- Components ---
@@ -174,7 +182,7 @@ func (s *Store) AddComponent(modelID, kind, name, tech, notes string, now time.T
 	if err != nil {
 		return Component{}, fmt.Errorf("threatmodel: add component: %w", err)
 	}
-	s.touchModel(modelID, now)
+	touchModel(s.db, modelID, now)
 	return c, nil
 }
 
@@ -205,9 +213,17 @@ func (s *Store) DeleteComponent(id string) error {
 // EnumerateComponent inserts the curated STRIDE threats for a component's tech
 // that aren't already present (matched by category+title), returning how many
 // were added. Deterministic: content comes from threatlib, source is "curated".
+// The read (what exists) and the inserts share one transaction so two racing
+// enumerations of the same component can't double-insert the curated set.
 func (s *Store) EnumerateComponent(componentID string, now time.Time) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("threatmodel: enumerate: %w", err)
+	}
+	defer tx.Rollback()
+
 	var modelID, tech string
-	err := s.db.QueryRow(`SELECT model_id, tech FROM threat_components WHERE id=?`, componentID).Scan(&modelID, &tech)
+	err = tx.QueryRow(`SELECT model_id, tech FROM threat_components WHERE id=?`, componentID).Scan(&modelID, &tech)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
 	}
@@ -218,7 +234,7 @@ func (s *Store) EnumerateComponent(componentID string, now time.Time) (int, erro
 	if !ok {
 		return 0, fmt.Errorf("no curated threats for component tech %q", tech)
 	}
-	existing, err := s.Threats(modelID)
+	existing, err := threatsOf(tx, modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -233,12 +249,15 @@ func (s *Store) EnumerateComponent(componentID string, now time.Time) (int, erro
 		if seen[th.Category+"\x00"+th.Title] {
 			continue
 		}
-		if _, err := s.addThreat(modelID, componentID, th.Category, th.Title, th.Description, "curated", th.Mitigation, "", now); err != nil {
-			return added, err
+		if _, err := addThreatTo(tx, modelID, componentID, th.Category, th.Title, th.Description, "curated", th.Mitigation, "", now); err != nil {
+			return 0, err
 		}
 		added++
 	}
-	s.touchModel(modelID, now)
+	touchModel(tx, modelID, now)
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("threatmodel: enumerate: %w", err)
+	}
 	return added, nil
 }
 
@@ -256,14 +275,14 @@ func (s *Store) AddThreat(modelID, componentID, category, title, description, so
 	if source != "curated" && source != "assisted" {
 		source = "curated"
 	}
-	return s.addThreat(modelID, componentID, category, title, description, source, mitigation, actor, now)
+	return addThreatTo(s.db, modelID, componentID, category, title, description, source, mitigation, actor, now)
 }
 
-func (s *Store) addThreat(modelID, componentID, category, title, description, source, mitigation, actor string, now time.Time) (Threat, error) {
+func addThreatTo(q dbtx, modelID, componentID, category, title, description, source, mitigation, actor string, now time.Time) (Threat, error) {
 	t := Threat{ID: newID("th"), ModelID: modelID, ComponentID: componentID, Category: category,
 		Title: bound(title, nameMax), Description: bound(description, textMax), Status: "open",
 		Source: source, Mitigation: mitigation, CreatedAt: now.UTC().Format(time.RFC3339), CreatedBy: actor}
-	_, err := s.db.Exec(`INSERT INTO threats (id, model_id, component_id, category, title, description, status, source, mitigation, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := q.Exec(`INSERT INTO threats (id, model_id, component_id, category, title, description, status, source, mitigation, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.ModelID, t.ComponentID, t.Category, t.Title, t.Description, t.Status, t.Source, t.Mitigation, t.CreatedAt, t.CreatedBy)
 	if err != nil {
 		return Threat{}, fmt.Errorf("threatmodel: add threat: %w", err)
@@ -272,7 +291,11 @@ func (s *Store) addThreat(modelID, componentID, category, title, description, so
 }
 
 func (s *Store) Threats(modelID string) ([]Threat, error) {
-	rows, err := s.db.Query(`SELECT id, model_id, component_id, category, title, description, status, source, mitigation, created_at, created_by FROM threats WHERE model_id=? ORDER BY category, title`, modelID)
+	return threatsOf(s.db, modelID)
+}
+
+func threatsOf(q dbtx, modelID string) ([]Threat, error) {
+	rows, err := q.Query(`SELECT id, model_id, component_id, category, title, description, status, source, mitigation, created_at, created_by FROM threats WHERE model_id=? ORDER BY category, title`, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("threatmodel: threats: %w", err)
 	}

@@ -1,6 +1,7 @@
 package threatmodel
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -109,5 +110,47 @@ func TestModelCascadeAndValidation(t *testing.T) {
 	}
 	if _, err := s.GetModel(m.ID); err != ErrNotFound {
 		t.Errorf("get after delete = %v, want ErrNotFound", err)
+	}
+}
+
+// TestConcurrentEnumerateNoDuplicates: EnumerateComponent reads the existing
+// threats and inserts what's missing; two racing enumerations of the same
+// component must not double-insert the curated set. The transaction makes the
+// read-then-insert atomic.
+func TestConcurrentEnumerateNoDuplicates(t *testing.T) {
+	s := newStore(t)
+	m, err := s.CreateModel("t-1", "Race", "", "a", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.AddComponent(m.ID, "component", "API", "api-service", "", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			s.EnumerateComponent(c.ID, t0)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	threats, err := s.Threats(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, th := range threats {
+		key := th.Category + "\x00" + th.Title
+		if seen[key] {
+			t.Fatalf("duplicate threat from racing enumerations: %s / %s", th.Category, th.Title)
+		}
+		seen[key] = true
 	}
 }

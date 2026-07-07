@@ -46,6 +46,9 @@ func ValidPriority(p string) bool { return priorities[p] }
 // ErrNotFound is returned when a ticket id does not exist.
 var ErrNotFound = errors.New("ticket not found")
 
+// ticketCols is the SELECT column list scanTicket expects, in scan order.
+const ticketCols = `id, title, description, status, priority, assignee, target_id, due_date, external_url, external_id, created_at, created_by, updated_at`
+
 // Ticket is one work item. Timestamps are RFC3339 strings (as stored).
 type Ticket struct {
 	ID          string `json:"id"`
@@ -143,8 +146,20 @@ type UpdateInput struct {
 }
 
 // Update applies a patch and bumps updated_at. Returns the updated ticket.
+// The read and the write share one transaction: Update rewrites every column
+// from the row it read, so two concurrent patches of different fields would
+// otherwise revert each other (lost update). The pool has a single connection,
+// so holding the transaction serializes racing updates.
 func (s *Store) Update(id string, in UpdateInput, now time.Time) (Ticket, error) {
-	t, err := s.Get(id)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Ticket{}, fmt.Errorf("ticket: update: %w", err)
+	}
+	defer tx.Rollback()
+	t, err := scanTicket(tx.QueryRow(`SELECT `+ticketCols+` FROM tickets WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Ticket{}, ErrNotFound
+	}
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -177,9 +192,12 @@ func (s *Store) Update(id string, in UpdateInput, now time.Time) (Ticket, error)
 		t.DueDate = strings.TrimSpace(*in.DueDate)
 	}
 	t.UpdatedAt = now.UTC().Format(time.RFC3339)
-	_, err = s.db.Exec(`UPDATE tickets SET title=?, description=?, status=?, priority=?, assignee=?, due_date=?, updated_at=? WHERE id=?`,
+	_, err = tx.Exec(`UPDATE tickets SET title=?, description=?, status=?, priority=?, assignee=?, due_date=?, updated_at=? WHERE id=?`,
 		t.Title, t.Description, t.Status, t.Priority, t.Assignee, t.DueDate, t.UpdatedAt, t.ID)
 	if err != nil {
+		return Ticket{}, fmt.Errorf("ticket: update: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return Ticket{}, fmt.Errorf("ticket: update: %w", err)
 	}
 	return t, nil
@@ -199,7 +217,7 @@ func (s *Store) Delete(id string) error {
 
 // Get returns one ticket by id.
 func (s *Store) Get(id string) (Ticket, error) {
-	row := s.db.QueryRow(`SELECT id, title, description, status, priority, assignee, target_id, due_date, external_url, external_id, created_at, created_by, updated_at FROM tickets WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+ticketCols+` FROM tickets WHERE id = ?`, id)
 	t, err := scanTicket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Ticket{}, ErrNotFound
@@ -216,7 +234,7 @@ type ListFilter struct {
 
 // List returns tickets newest-updated first, applying any filter fields.
 func (s *Store) List(f ListFilter) ([]Ticket, error) {
-	q := `SELECT id, title, description, status, priority, assignee, target_id, due_date, external_url, external_id, created_at, created_by, updated_at FROM tickets`
+	q := `SELECT ` + ticketCols + ` FROM tickets`
 	var where []string
 	var args []any
 	if f.Status != "" {

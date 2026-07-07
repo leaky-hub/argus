@@ -53,9 +53,13 @@ func Open(dir string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
 	}
-	// One writer connection serializes writes, which keeps a low-concurrency,
-	// local-first console clear of SQLITE_BUSY churn. WAL still serves reads
-	// without blocking; this is plenty for a single-operator console.
+	// ONE connection total: every read and write serializes at the pool, which
+	// keeps a low-concurrency, local-first console clear of SQLITE_BUSY churn.
+	// Two consequences callers must respect: (1) a transaction owns the only
+	// connection until commit — everything inside it must go through the tx,
+	// never back through the pool; (2) always drain a Rows before the next
+	// query. Violating either blocks forever rather than erroring. WAL stays on
+	// for crash safety, not read concurrency (there are no reader connections).
 	sqlDB.SetMaxOpenConns(1)
 	db := &DB{sqlDB}
 	if err := db.migrate(); err != nil {

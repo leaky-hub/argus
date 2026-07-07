@@ -1,6 +1,6 @@
 # Contributing to Argus
 
-Thanks for helping build Argus. This project has a strong, specific ethos —
+Thanks for helping build Argus. This project has a strong, specific ethos;
 reading it first will save a round-trip on review.
 
 ## The ethos (read this before your first PR)
@@ -12,7 +12,7 @@ reading it first will save a round-trip on review.
   `internal/coverage`.
 - **The LLM is enrichment, never a dependency or an authority.** It never
   moves a severity, a gate, a compliance mapping, or a finding's status. Prompt
-  assembly and output validation are a security boundary (`internal/triage`) —
+  assembly and output validation are a security boundary (`internal/triage`):
   reviewed carefully, never auto-generated.
 - **Determinism where it counts.** Severity banding, compliance mapping,
   fingerprints, and correlation are deterministic and table-tested. A change to
@@ -47,7 +47,7 @@ go test -race ./internal/jobs ./internal/server   # concurrency-sensitive pkgs
 ```
 
 Integration tests that shell out to a scanner or an LLM **skip** when the tool
-is unavailable — they never fail for a missing dependency. If you touch the
+is unavailable; they never fail for a missing dependency. If you touch the
 SARIF writer, re-validate against the 2.1.0 schema (see the ajv note in the
 cloud-posture PR / `internal/report`).
 
@@ -60,6 +60,21 @@ cloud-posture PR / `internal/report`).
 - Run `gofmt`, `go vet ./...`, and the relevant tests before pushing.
 - Security-relevant changes: see [`SECURITY.md`](SECURITY.md) and the threat
   model in `docs/console-ops.md`.
+
+## Review and merge
+
+Every change reaches `main` through a pull request that a maintainer reviews and
+approves. `main` is protected: direct pushes are off, [`CODEOWNERS`](.github/CODEOWNERS)
+routes each PR to the repo owner for a required review, and the CI check
+(`argus`) must pass before anything merges. This holds for everyone, dependency
+bumps and maintainers' own branches included, so nothing lands on `main`
+unreviewed. Open a PR from a fork or a topic branch; a maintainer approves, then
+merges.
+
+Want to help regularly? Land a few clean PRs and ask about a collaborator role
+in the PR or a discussion. Write access is granted case by case, and even with
+it, `main` stays review-gated: a second set of eyes on every change is the point,
+not a formality.
 
 By contributing you agree your contributions are licensed under the project's
 [Apache-2.0 license](LICENSE).

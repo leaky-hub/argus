@@ -1,0 +1,34 @@
+# Dependabot keeps dependencies patched, which for a security tool is part of
+# practicing what we preach. Every update arrives as a pull request, so it goes
+# through the same review gate as any other change: a maintainer approves and
+# CI passes before it merges. Nothing auto-merges.
+version: 2
+updates:
+  # Go modules (the CLI + console backend).
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "go"]
+    commit-message:
+      prefix: "deps(go)"
+
+  # The React/Vite console.
+  - package-ecosystem: npm
+    directory: "/ui"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "deps(ui)"
+
+  # The GitHub Actions the CI workflow pins.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "deps(actions)"

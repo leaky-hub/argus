@@ -1,11 +1,11 @@
 ---
 name: Bug report
-about: Something Argus did wrong — a crash, a wrong finding, a broken command
+about: Something Argus did wrong: a crash, a wrong finding, or a broken command
 title: ""
 labels: bug
 ---
 
-**Do not report security vulnerabilities here** — see [SECURITY.md](../SECURITY.md).
+**Do not report security vulnerabilities here.** See [SECURITY.md](../SECURITY.md).
 
 ### What happened
 

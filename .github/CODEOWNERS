@@ -1,0 +1,9 @@
+# Code owners for Argus.
+#
+# Every path is owned by the repo owner, so every pull request requires their
+# review and approval before it can merge. GitHub enforces this through branch
+# protection on `main` ("Require review from Code Owners"). Contributions are
+# welcome via pull request; a maintainer approves each one, nothing merges
+# unreviewed.
+
+* @leaky-hub

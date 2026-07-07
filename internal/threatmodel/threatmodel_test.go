@@ -271,3 +271,53 @@ func TestDeleteThreatScoped(t *testing.T) {
 		t.Error("threat not deleted")
 	}
 }
+
+// TestFlowsAndPositions: flows connect components of the SAME model only,
+// cascade with their components, and canvas positions clamp and persist.
+func TestFlowsAndPositions(t *testing.T) {
+	s := newStore(t)
+	m, _ := s.CreateModel("", "M", "", "a", t0)
+	mB, _ := s.CreateModel("", "B", "", "a", t0)
+	a, _ := s.AddComponent(m.ID, "component", "API", "api-service", "", "manual", t0)
+	b, _ := s.AddComponent(m.ID, "component", "DB", "database", "", "manual", t0)
+	foreign, _ := s.AddComponent(mB.ID, "component", "X", "", "", "manual", t0)
+
+	if _, err := s.AddFlow(m.ID, a.ID, foreign.ID, "x", t0); err == nil {
+		t.Error("cross-model flow accepted")
+	}
+	if _, err := s.AddFlow(m.ID, a.ID, a.ID, "self", t0); err == nil {
+		t.Error("self-flow accepted")
+	}
+	fl, err := s.AddFlow(m.ID, a.ID, b.ID, "queries", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flows, _ := s.Flows(m.ID); len(flows) != 1 || flows[0].Label != "queries" {
+		t.Errorf("flows wrong: %+v", flows)
+	}
+
+	// Positions: new components are unplaced (-1); set + clamp + scope.
+	if a.X != -1 || a.Y != -1 {
+		t.Errorf("new component placed: %v,%v", a.X, a.Y)
+	}
+	if err := s.SetComponentPosition(m.ID, a.ID, 120.5, 999999, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetComponentPosition(mB.ID, a.ID, 1, 1, t0); err != ErrNotFound {
+		t.Errorf("cross-model position = %v, want ErrNotFound", err)
+	}
+	comps, _ := s.Components(m.ID)
+	for _, c := range comps {
+		if c.ID == a.ID && (c.X != 120.5 || c.Y != 100000) {
+			t.Errorf("position not persisted/clamped: %v,%v", c.X, c.Y)
+		}
+	}
+
+	// Deleting a component removes its flows (FK cascade).
+	if err := s.DeleteComponent(m.ID, b.ID, t0); err != nil {
+		t.Fatal(err)
+	}
+	if flows, _ := s.Flows(m.ID); len(flows) != 0 {
+		t.Errorf("flow survived its component: %+v (flow %s)", flows, fl.ID)
+	}
+}

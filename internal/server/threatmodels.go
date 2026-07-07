@@ -41,6 +41,7 @@ type ThreatModelDetail struct {
 	Components []threatmodel.Component       `json:"components"`
 	Threats    []threatmodel.Threat          `json:"threats"`
 	Links      map[string][]threatmodel.Link `json:"links"`
+	Flows      []threatmodel.Flow            `json:"flows"`
 }
 
 func (s *Server) handleThreatModels(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +108,8 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		if links == nil {
 			links = map[string][]threatmodel.Link{}
 		}
-		writeJSON(w, http.StatusOK, ThreatModelDetail{Model: m, Components: comps, Threats: threats, Links: links})
+		flows, _ := s.threats.Flows(id)
+		writeJSON(w, http.StatusOK, ThreatModelDetail{Model: m, Components: comps, Threats: threats, Links: links, Flows: flows})
 
 	case sub == "" && r.Method == http.MethodDelete:
 		if err := s.threats.DeleteModel(id); err != nil {
@@ -191,6 +193,56 @@ func (s *Server) handleThreatModelByID(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "add-threat", "source": source})
 		writeJSON(w, http.StatusCreated, t)
+
+	case sub == "positions" && r.Method == http.MethodPost:
+		// Batch layout save (drag end). Presentation state only: never touches
+		// enumeration, status, or the gate. Unknown component ids are skipped.
+		var req struct {
+			Positions []struct {
+				ComponentID string
+				X, Y        float64
+			}
+		}
+		if err := decodeBody(w, r, &req, 1<<20); err != nil {
+			return
+		}
+		if len(req.Positions) > 500 {
+			writeErr(w, http.StatusBadRequest, "too many positions")
+			return
+		}
+		saved := 0
+		for _, p := range req.Positions {
+			if err := s.threats.SetComponentPosition(id, p.ComponentID, p.X, p.Y, now); err == nil {
+				saved++
+			}
+		}
+		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "layout", "nodes": itoa(saved)})
+		writeJSON(w, http.StatusOK, map[string]int{"saved": saved})
+
+	case sub == "flows" && r.Method == http.MethodPost:
+		var req struct {
+			FromID, ToID, Label, FlowID string
+			Remove                      bool
+		}
+		if err := decodeBody(w, r, &req, 8192); err != nil {
+			return
+		}
+		if req.Remove {
+			if err := s.threats.DeleteFlow(id, req.FlowID, now); err != nil {
+				s.writeThreatErr(w, err)
+				return
+			}
+			s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "remove-flow"})
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+			return
+		}
+		fl, err := s.threats.AddFlow(id, req.FromID, req.ToID, req.Label, now)
+		if err != nil {
+			s.writeThreatErr(w, err)
+			return
+		}
+		s.audit(audit.EventThreatUpdate, actor, map[string]string{"model": id, "action": "add-flow"})
+		writeJSON(w, http.StatusCreated, fl)
 
 	case sub == "suggest" && r.Method == http.MethodPost:
 		s.suggestThreats(w, r, id)

@@ -5,6 +5,7 @@ import {
 import { Panel, Loading, EmptyState } from "../components";
 import { useToast, useConfirm } from "../toast";
 import { exportThreatsCSV, exportThreatsJSON } from "../export";
+import { ThreatCanvas } from "./ThreatCanvas";
 
 const STRIDE: { key: StrideCategory; label: string }[] = [
   { key: "spoofing", label: "Spoofing" },
@@ -150,6 +151,17 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
     try { await opsApi.setThreatStatus(detail.id, threatId, status); onChange(); } catch (e) { onErr(e); }
   };
 
+  const [view, setView] = useState<"list" | "canvas">("list");
+  const savePositions = async (positions: { componentId: string; x: number; y: number }[]) => {
+    try { await opsApi.saveThreatPositions(detail.id, positions); } catch (e) { onErr(e); }
+  };
+  const addFlow = async (fromId: string, toId: string, label: string) => {
+    try { await opsApi.addThreatFlow(detail.id, { fromId, toId, label: label || undefined }); onChange(); } catch (e) { onErr(e); }
+  };
+  const removeFlow = async (flowId: string) => {
+    try { await opsApi.removeThreatFlow(detail.id, flowId); onChange(); } catch (e) { onErr(e); }
+  };
+
   const [suggestions, setSuggestions] = useState<ThreatSuggestion[] | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const suggest = async () => {
@@ -210,6 +222,13 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
       title={detail.id}
       right={
         <span className="flex items-center gap-2">
+          <span className="flex items-center rounded-md border border-gray-300 text-[11px] dark:border-gray-700">
+            {(["list", "canvas"] as const).map((v) => (
+              <button key={v} onClick={() => setView(v)} className={`px-2 py-0.5 font-medium capitalize ${view === v ? "bg-accent-600 text-white" : "hover:bg-gray-100 dark:hover:bg-gray-800"} ${v === "list" ? "rounded-l" : "rounded-r"}`}>
+                {v}
+              </button>
+            ))}
+          </span>
           {detail.threats.length > 0 && (
             <span className="flex items-center gap-1 text-[11px]">
               <span className="text-gray-400">Export</span>
@@ -224,6 +243,22 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
       <h3 className="text-base font-semibold">{detail.name}</h3>
       {detail.description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{detail.description}</p>}
 
+      {view === "canvas" && (
+        <div className="mt-4">
+          <ThreatCanvas
+            detail={detail}
+            canEdit={canEdit}
+            onSavePositions={savePositions}
+            onAddFlow={addFlow}
+            onRemoveFlow={removeFlow}
+          />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Drag components to arrange them; positions are saved per model. Dashed amber boxes are trust boundaries. The red badge counts a component's threats.
+          </p>
+        </div>
+      )}
+
+      <div className={view === "canvas" ? "hidden" : ""}>
       <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Components ({detail.components.length})</div>
@@ -336,6 +371,7 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
             ))}
           </div>
         )}
+      </div>
       </div>
     </Panel>
   );

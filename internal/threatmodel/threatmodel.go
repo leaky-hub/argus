@@ -60,6 +60,18 @@ type Component struct {
 	Tech    string `json:"tech,omitempty"`
 	Notes   string `json:"notes,omitempty"`
 	Source  string `json:"source"`
+	// Canvas position; -1/-1 = not placed (the canvas auto-lays it out).
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// Flow is a directed data flow between two components of the same model.
+type Flow struct {
+	ID      string `json:"id"`
+	ModelID string `json:"modelId"`
+	FromID  string `json:"fromId"`
+	ToID    string `json:"toId"`
+	Label   string `json:"label,omitempty"`
 }
 
 var componentSources = map[string]bool{"manual": true, "detected": true, "assisted": true}
@@ -187,7 +199,7 @@ func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, no
 		source = "manual"
 	}
 	c := Component{ID: newID("tc"), ModelID: modelID, Kind: kind, Name: bound(name, nameMax),
-		Tech: strings.ToLower(strings.TrimSpace(tech)), Notes: bound(notes, textMax), Source: source}
+		Tech: strings.ToLower(strings.TrimSpace(tech)), Notes: bound(notes, textMax), Source: source, X: -1, Y: -1}
 	_, err := s.db.Exec(`INSERT INTO threat_components (id, model_id, kind, name, tech, notes, source) VALUES (?,?,?,?,?,?,?)`,
 		c.ID, c.ModelID, c.Kind, c.Name, c.Tech, c.Notes, c.Source)
 	if err != nil {
@@ -198,7 +210,7 @@ func (s *Store) AddComponent(modelID, kind, name, tech, notes, source string, no
 }
 
 func (s *Store) Components(modelID string) ([]Component, error) {
-	rows, err := s.db.Query(`SELECT id, model_id, kind, name, tech, notes, source FROM threat_components WHERE model_id=? ORDER BY name`, modelID)
+	rows, err := s.db.Query(`SELECT id, model_id, kind, name, tech, notes, source, pos_x, pos_y FROM threat_components WHERE model_id=? ORDER BY name`, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("threatmodel: components: %w", err)
 	}
@@ -206,7 +218,7 @@ func (s *Store) Components(modelID string) ([]Component, error) {
 	out := []Component{}
 	for rows.Next() {
 		var c Component
-		if err := rows.Scan(&c.ID, &c.ModelID, &c.Kind, &c.Name, &c.Tech, &c.Notes, &c.Source); err != nil {
+		if err := rows.Scan(&c.ID, &c.ModelID, &c.Kind, &c.Name, &c.Tech, &c.Notes, &c.Source, &c.X, &c.Y); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -235,6 +247,87 @@ func (s *Store) DeleteComponent(modelID, id string, now time.Time) error {
 	}
 	touchModel(tx, modelID, now)
 	return tx.Commit()
+}
+
+// SetComponentPosition persists a node's canvas coordinates, scoped to the
+// model. Values clamp into [-1, 100000] — layout data, not free input.
+func (s *Store) SetComponentPosition(modelID, componentID string, x, y float64, now time.Time) error {
+	clamp := func(v float64) float64 {
+		if v < -1 || v != v { // NaN guards too
+			return -1
+		}
+		if v > 100000 {
+			return 100000
+		}
+		return v
+	}
+	res, err := s.db.Exec(`UPDATE threat_components SET pos_x=?, pos_y=? WHERE id=? AND model_id=?`,
+		clamp(x), clamp(y), componentID, modelID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	touchModel(s.db, modelID, now)
+	return nil
+}
+
+// --- Flows ---
+
+// AddFlow inserts a directed data flow; both endpoints must be components of
+// modelID (the same-model rule every mutation follows).
+func (s *Store) AddFlow(modelID, fromID, toID, label string, now time.Time) (Flow, error) {
+	if fromID == toID {
+		return Flow{}, errors.New("a flow needs two distinct components")
+	}
+	for _, cid := range []string{fromID, toID} {
+		var one int
+		err := s.db.QueryRow(`SELECT 1 FROM threat_components WHERE id=? AND model_id=?`, cid, modelID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Flow{}, fmt.Errorf("component %s is not in this model", cid)
+		}
+		if err != nil {
+			return Flow{}, err
+		}
+	}
+	f := Flow{ID: newID("tf"), ModelID: modelID, FromID: fromID, ToID: toID, Label: bound(strings.TrimSpace(label), nameMax)}
+	_, err := s.db.Exec(`INSERT INTO threat_flows (id, model_id, from_id, to_id, label) VALUES (?,?,?,?,?)`,
+		f.ID, f.ModelID, f.FromID, f.ToID, f.Label)
+	if err != nil {
+		return Flow{}, fmt.Errorf("threatmodel: add flow: %w", err)
+	}
+	touchModel(s.db, modelID, now)
+	return f, nil
+}
+
+func (s *Store) DeleteFlow(modelID, id string, now time.Time) error {
+	res, err := s.db.Exec(`DELETE FROM threat_flows WHERE id=? AND model_id=?`, id, modelID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	touchModel(s.db, modelID, now)
+	return nil
+}
+
+func (s *Store) Flows(modelID string) ([]Flow, error) {
+	rows, err := s.db.Query(`SELECT id, model_id, from_id, to_id, label FROM threat_flows WHERE model_id=? ORDER BY id`, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("threatmodel: flows: %w", err)
+	}
+	defer rows.Close()
+	out := []Flow{}
+	for rows.Next() {
+		var f Flow
+		if err := rows.Scan(&f.ID, &f.ModelID, &f.FromID, &f.ToID, &f.Label); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // --- Threats ---

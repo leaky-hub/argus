@@ -248,7 +248,7 @@ export interface ThreatModel {
   createdBy?: string;
   updatedAt: string;
 }
-export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; }
+export interface ThreatComponent { id: string; modelId: string; kind: string; name: string; tech?: string; notes?: string; source: string; x: number; y: number; }
 export interface Threat {
   id: string;
   modelId: string;
@@ -262,10 +262,12 @@ export interface Threat {
   createdAt: string;
 }
 export interface ThreatLink { kind: "finding" | "control" | "mitigation"; ref: string; targetId?: string; }
+export interface ThreatFlow { id: string; modelId: string; fromId: string; toId: string; label?: string; }
 export interface ThreatModelDetail extends ThreatModel {
   components: ThreatComponent[];
   threats: Threat[];
   links: Record<string, ThreatLink[]>;
+  flows: ThreatFlow[];
 }
 export interface LibraryComponent { tech: string; title: string; }
 
@@ -638,6 +640,12 @@ export const opsApi = {
     send<{ modelId: string; components: number; threats: number }>("POST", "api/threat-models/from-target", { targetId, name }),
   suggestThreats: (modelId: string): Promise<{ suggestions: ThreatSuggestion[]; model: string }> =>
     send<{ suggestions: ThreatSuggestion[]; model: string }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/suggest`, {}),
+  saveThreatPositions: (modelId: string, positions: { componentId: string; x: number; y: number }[]): Promise<{ saved: number }> =>
+    send<{ saved: number }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/positions`, { positions }),
+  addThreatFlow: (modelId: string, req: { fromId: string; toId: string; label?: string }): Promise<ThreatFlow> =>
+    send<ThreatFlow>("POST", `api/threat-models/${encodeURIComponent(modelId)}/flows`, req),
+  removeThreatFlow: (modelId: string, flowId: string): Promise<{ ok: boolean }> =>
+    send<{ ok: boolean }>("POST", `api/threat-models/${encodeURIComponent(modelId)}/flows`, { remove: true, flowId }),
   addThreat: (modelId: string, req: { category: StrideCategory; title: string; description?: string; componentId?: string; mitigation?: string; source?: string }): Promise<Threat> =>
     send<Threat>("POST", `api/threat-models/${encodeURIComponent(modelId)}/threats`, req),
 };

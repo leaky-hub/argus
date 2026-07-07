@@ -211,6 +211,8 @@ func TestAuthzMatrix(t *testing.T) {
 		{"POST", "/api/threat-models/tm-1/threats", 401, 403, pass, pass},
 		{"POST", "/api/threat-models/tm-1/threat-status", 401, 403, pass, pass},
 		{"POST", "/api/threat-models/tm-1/links", 401, 403, pass, pass},
+		{"POST", "/api/threat-models/tm-1/positions", 401, 403, pass, pass}, // canvas layout
+		{"POST", "/api/threat-models/tm-1/flows", 401, 403, pass, pass},     // data flows
 		{"POST", "/api/threat-models/tm-1/suggest", 401, 403, pass, pass},            // LLM seam (operator, like explain)
 		{"POST", "/api/threat-models/tm-1/suggest-components", 401, 403, pass, pass}, // LLM seam
 		{"DELETE", "/api/threat-models/tm-1", 401, 403, 403, pass},       // delete is admin-only

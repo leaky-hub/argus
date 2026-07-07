@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findingsToCSV, findingsToJSON } from "./export";
-import { Finding } from "./api";
+import { findingsToCSV, findingsToJSON, threatsToCSV, ThreatExportContext } from "./export";
+import { Finding, Threat } from "./api";
 
 // The CSV export renders hostile finding text into a file the user will open
 // in Excel/Sheets/Numbers. These tests pin the two safety properties: RFC 4180
@@ -69,6 +69,28 @@ describe("findingsToCSV", () => {
   it("renders resource-only locations (cloud findings)", () => {
     const r = row(mk({ location: { resource: "arn:aws:s3:::bucket" } } as Partial<Finding>));
     expect(r).toContain("arn:aws:s3:::bucket");
+  });
+});
+
+describe("threatsToCSV", () => {
+  const threat = {
+    id: "th-1", modelId: "tm-1", componentId: "tc-1", category: "tampering",
+    title: '=HYPERLINK("x"),evil', status: "open", source: "assisted",
+    mitigation: "sqli", description: "line1\nline2", createdAt: "2026-07-06",
+  } as unknown as Threat;
+  const ctx = {
+    components: [{ id: "tc-1", modelId: "tm-1", kind: "component", name: "DB", source: "manual" }],
+    links: { "th-1": [{ kind: "finding", ref: "fp" }, { kind: "control", ref: "ASVS:V1" }] },
+  } as unknown as ThreatExportContext;
+
+  it("defuses and quotes hostile threat titles, resolves component and links", () => {
+    const csv = threatsToCSV([threat], ctx);
+    const [header, row] = csv.split("\r\n");
+    expect(header).toBe("id,category,title,status,source,component,mitigation,linkedFindings,description");
+    expect(row).toContain("'=HYPERLINK"); // defused
+    expect(row).toContain(",DB,"); // component resolved by id
+    expect(row).toContain(",1,"); // only the finding link counts
+    expect(csv.split("\r\n")).toHaveLength(2); // newline stays inside its cell
   });
 });
 

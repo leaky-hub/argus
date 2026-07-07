@@ -41,7 +41,7 @@ const ALL_TARGETS = "@all";
 
 // UrlState is the app view encoded in the query string so a view is
 // shareable, reload-safe, and back/forward-navigable.
-type UrlState = { tab: Tab; target: string; run: string | null; fw: string; sev: string; status: string };
+type UrlState = { tab: Tab; target: string; run: string | null; fw: string; sev: string; status: string; item: string };
 
 function readUrlState(): UrlState {
   const p = new URLSearchParams(window.location.search);
@@ -55,6 +55,7 @@ function readUrlState(): UrlState {
     fw: p.get("fw") ?? "all",
     sev: p.get("sev") ?? "all",
     status: p.get("st") ?? "all",
+    item: p.get("item") ?? "",
   };
 }
 
@@ -66,6 +67,7 @@ function urlFromState(s: UrlState): string {
   if (s.fw !== "all") p.set("fw", s.fw);
   if (s.sev !== "all") p.set("sev", s.sev);
   if (s.status !== "all") p.set("st", s.status);
+  if (s.item) p.set("item", s.item);
   const qs = p.toString();
   return qs ? `?${qs}` : window.location.pathname;
 }
@@ -118,6 +120,10 @@ export function App() {
   const [findingsFramework, setFindingsFramework] = useState<string>(initial.fw);
   const [findingsSeverity, setFindingsSeverity] = useState<string>(initial.sev);
   const [findingsStatus, setFindingsStatus] = useState<string>(initial.status);
+  // The open side-pane item (a finding fingerprint or ticket id), in the URL
+  // so a pane deep-links: shareable and reload-safe. Incidental for history
+  // purposes (replaceState), like the filters.
+  const [openItem, setOpenItem] = useState<string>(initial.item);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Keep the URL in lockstep with the view: pushState on navigation-significant
@@ -125,7 +131,7 @@ export function App() {
   // tweaks. A popstate re-applies the URL without re-pushing (navKey guard).
   const navKeyRef = useRef(`${initial.tab}|${initial.target}|${initial.run ?? ""}`);
   useEffect(() => {
-    const s: UrlState = { tab, target: activeTarget, run: selectedRun, fw: findingsFramework, sev: findingsSeverity, status: findingsStatus };
+    const s: UrlState = { tab, target: activeTarget, run: selectedRun, fw: findingsFramework, sev: findingsSeverity, status: findingsStatus, item: openItem };
     const url = urlFromState(s);
     const navKey = `${tab}|${activeTarget}|${selectedRun ?? ""}`;
     if (navKey !== navKeyRef.current) {
@@ -134,7 +140,7 @@ export function App() {
     } else {
       window.history.replaceState(null, "", url);
     }
-  }, [tab, activeTarget, selectedRun, findingsFramework, findingsSeverity, findingsStatus]);
+  }, [tab, activeTarget, selectedRun, findingsFramework, findingsSeverity, findingsStatus, openItem]);
 
   useEffect(() => {
     const onPop = () => {
@@ -147,6 +153,7 @@ export function App() {
       setFindingsFramework(s.fw);
       setFindingsSeverity(s.sev);
       setFindingsStatus(s.status);
+      setOpenItem(s.item);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -585,6 +592,8 @@ export function App() {
               onSeverityChange={setFindingsSeverity}
               status={findingsStatus}
               onStatusChange={setFindingsStatus}
+              openItem={openItem}
+              onOpenItemChange={setOpenItem}
             />
           ) : (
             <EmptyState title="No findings yet" hint="Save a scan (argus scan --save, or the Operate tab) to populate this view." />
@@ -628,7 +637,7 @@ export function App() {
               onDeleteRun={handleDeleteRun}
             />
           ))}
-        {activeTab === "tickets" && <Tickets canEdit={canLaunch} canDelete={role === "admin"} />}
+        {activeTab === "tickets" && <Tickets canEdit={canLaunch} canDelete={role === "admin"} openItem={openItem} onOpenItemChange={setOpenItem} />}
         {activeTab === "threats" && <Threats canEdit={canLaunch} canDelete={role === "admin"} target={activeTarget === ALL_TARGETS ? "" : activeTarget} />}
         {activeTab === "operate" && opsEnabled && <Operate canLaunch={canLaunch} onOpenRun={openRun} />}
         {activeTab === "admin" && role === "admin" && <Admin selfUsername={user?.username ?? ""} />}

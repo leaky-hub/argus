@@ -1,4 +1,4 @@
-import { Finding } from "./api";
+import { Finding, Threat, ThreatComponent, ThreatLink } from "./api";
 
 // Client-side finding export to CSV and JSON. The findings are already in the
 // browser, so exporting a single finding or a bulk selection is a local Blob
@@ -73,4 +73,44 @@ export function exportFindingsCSV(findings: Finding[], base = "argus-findings"):
 }
 export function exportFindingsJSON(findings: Finding[], base = "argus-findings"): void {
   download(`${base}-${stamp()}.json`, "application/json", findingsToJSON(findings));
+}
+
+// --- Threat-model export (parity with the finding export) ---
+
+// ThreatExportRow flattens a threat with its component name and link counts,
+// so the CSV stands alone without the model detail open.
+export interface ThreatExportContext {
+  components: ThreatComponent[];
+  links: Record<string, ThreatLink[]>;
+}
+
+const THREAT_COLUMNS: { header: string; get: (t: Threat, ctx: ThreatExportContext) => string }[] = [
+  { header: "id", get: (t) => t.id },
+  { header: "category", get: (t) => t.category },
+  { header: "title", get: (t) => t.title },
+  { header: "status", get: (t) => t.status },
+  { header: "source", get: (t) => t.source },
+  {
+    header: "component",
+    get: (t, ctx) => ctx.components.find((c) => c.id === t.componentId)?.name ?? "",
+  },
+  { header: "mitigation", get: (t) => t.mitigation ?? "" },
+  {
+    header: "linkedFindings",
+    get: (t, ctx) => String((ctx.links[t.id] ?? []).filter((l) => l.kind === "finding").length),
+  },
+  { header: "description", get: (t) => t.description ?? "" },
+];
+
+export function threatsToCSV(threats: Threat[], ctx: ThreatExportContext): string {
+  const rows = [THREAT_COLUMNS.map((c) => c.header).join(",")];
+  for (const t of threats) rows.push(THREAT_COLUMNS.map((c) => csvCell(c.get(t, ctx))).join(","));
+  return rows.join("\r\n");
+}
+
+export function exportThreatsCSV(threats: Threat[], ctx: ThreatExportContext, base = "argus-threats"): void {
+  download(`${base}-${stamp()}.csv`, "text/csv;charset=utf-8", threatsToCSV(threats, ctx));
+}
+export function exportThreatsJSON(threats: Threat[], base = "argus-threats"): void {
+  download(`${base}-${stamp()}.json`, "application/json", JSON.stringify(threats, null, 2));
 }

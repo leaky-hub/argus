@@ -183,6 +183,8 @@ export function Findings({
   onSeverityChange,
   status,
   onStatusChange,
+  openItem,
+  onOpenItemChange,
 }: {
   detail: RunDetail;
   origin?: {
@@ -201,6 +203,11 @@ export function Findings({
   onSeverityChange: (v: string) => void;
   status: string;
   onStatusChange: (v: string) => void;
+  // When provided, the open pane item is controlled by App and lives in the
+  // URL (?item=…) so a pane is shareable and reload-safe. Absent (e.g. inside
+  // RunDetailView) the pane state stays local and ephemeral.
+  openItem?: string;
+  onOpenItemChange?: (v: string) => void;
 }) {
   const [q, setQ] = useState("");
   const sev = severity, setSev = onSeverityChange;
@@ -209,7 +216,12 @@ export function Findings({
   const [verdict, setVerdict] = useState<string>("all");
   const setStatus = onStatusChange;
   const [minRisk, setMinRisk] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [localItem, setLocalItem] = useState<string | null>(null);
+  const selectedId = openItem !== undefined ? openItem || null : localItem;
+  const setSelectedId = (id: string | null) => {
+    if (onOpenItemChange) onOpenItemChange(id ?? "");
+    else setLocalItem(id);
+  };
 
   // A "clear filters" affordance — especially useful after deep-linking in
   // from an Overview stat, which sets a filter for you.
@@ -629,6 +641,16 @@ export function Findings({
         open={!!selected}
         onClose={() => setSelectedId(null)}
         title={null}
+        onPrev={(() => {
+          const idx = filtered.findIndex((f) => f.id === selected?.id);
+          if (idx <= 0) return null;
+          return () => { setSelectedId(filtered[idx - 1].id); listRef.current?.scrollToItem(idx - 1, "smart"); };
+        })()}
+        onNext={(() => {
+          const idx = filtered.findIndex((f) => f.id === selected?.id);
+          if (idx < 0 || idx >= filtered.length - 1) return null;
+          return () => { setSelectedId(filtered[idx + 1].id); listRef.current?.scrollToItem(idx + 1, "smart"); };
+        })()}
         actions={selected ? (
           <span className="flex items-center gap-1 text-[11px]">
             <span className="text-gray-400">Export</span>

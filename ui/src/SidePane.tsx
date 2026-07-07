@@ -11,12 +11,18 @@ export function SidePane({
   title,
   children,
   actions,
+  onPrev,
+  onNext,
 }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
+  // Prev/next move through the underlying list without closing the pane.
+  // undefined hides the control; null renders it disabled (at either end).
+  onPrev?: (() => void) | null;
+  onNext?: (() => void) | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,6 +50,32 @@ export function SidePane({
     >
       <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-2.5 dark:border-gray-800">
         <div className="min-w-0 flex-1">{title}</div>
+        {onPrev !== undefined && onNext !== undefined && (
+          <div className="flex shrink-0 items-center">
+            <button
+              onClick={onPrev ?? undefined}
+              disabled={!onPrev}
+              aria-label="Previous item"
+              title="Previous"
+              className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M12 5l-5 5 5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              onClick={onNext ?? undefined}
+              disabled={!onNext}
+              aria-label="Next item"
+              title="Next"
+              className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M8 5l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+        )}
         {actions}
         <button
           onClick={onClose}

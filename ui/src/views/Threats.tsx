@@ -4,6 +4,7 @@ import {
 } from "../api";
 import { Panel, Loading, EmptyState } from "../components";
 import { useToast, useConfirm } from "../toast";
+import { exportThreatsCSV, exportThreatsJSON } from "../export";
 
 const STRIDE: { key: StrideCategory; label: string }[] = [
   { key: "spoofing", label: "Spoofing" },
@@ -205,7 +206,21 @@ function ModelDetail({ detail, library, canEdit, canDelete, onChange, onDelete, 
   };
 
   return (
-    <Panel title={detail.id} right={canDelete ? <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button> : undefined}>
+    <Panel
+      title={detail.id}
+      right={
+        <span className="flex items-center gap-2">
+          {detail.threats.length > 0 && (
+            <span className="flex items-center gap-1 text-[11px]">
+              <span className="text-gray-400">Export</span>
+              <button onClick={() => exportThreatsCSV(detail.threats, { components: detail.components, links: detail.links })} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">CSV</button>
+              <button onClick={() => exportThreatsJSON(detail.threats)} className="rounded border border-gray-300 px-1.5 py-0.5 font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">JSON</button>
+            </span>
+          )}
+          {canDelete && <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 dark:hover:text-red-400">Delete</button>}
+        </span>
+      }
+    >
       <h3 className="text-base font-semibold">{detail.name}</h3>
       {detail.description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{detail.description}</p>}
 

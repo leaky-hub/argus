@@ -44,11 +44,23 @@ function PriorityTag({ priority }: { priority: TicketPriority }) {
   );
 }
 
-export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: boolean }) {
+export function Tickets({ canEdit, canDelete, openItem, onOpenItemChange }: {
+  canEdit: boolean;
+  canDelete: boolean;
+  // Controlled by App: the open pane's ticket id lives in the URL (?item=…)
+  // so a ticket pane is shareable and reload-safe.
+  openItem?: string;
+  onOpenItemChange?: (v: string) => void;
+}) {
   const [tickets, setTickets] = useState<TicketView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [localItem, setLocalItem] = useState<string | null>(null);
+  const selectedId = openItem !== undefined ? openItem || null : localItem;
+  const setSelectedId = (id: string | null) => {
+    if (onOpenItemChange) onOpenItemChange(id ?? "");
+    else setLocalItem(id);
+  };
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -205,7 +217,23 @@ export function Tickets({ canEdit, canDelete }: { canEdit: boolean; canDelete: b
         </Panel>
       </div>
 
-      <SidePane open={!!selected} onClose={() => setSelectedId(null)} title={null}>
+      <SidePane
+        open={!!selected}
+        onClose={() => setSelectedId(null)}
+        title={null}
+        onPrev={(() => {
+          if (!tickets || !selected) return null;
+          const idx = tickets.findIndex((t) => t.id === selected.id);
+          if (idx <= 0) return null;
+          return () => setSelectedId(tickets[idx - 1].id);
+        })()}
+        onNext={(() => {
+          if (!tickets || !selected) return null;
+          const idx = tickets.findIndex((t) => t.id === selected.id);
+          if (idx < 0 || idx >= tickets.length - 1) return null;
+          return () => setSelectedId(tickets[idx + 1].id);
+        })()}
+      >
         {selected && detail && (
           <div className="p-3">
             <Detail

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThreatModelDetail, LibraryComponent } from "../api";
 
-const NODE_W = 160;
-const NODE_H = 54;
-const BND_W = 300;
-const BND_H = 220;
-const BND_MIN_W = 140;
-const BND_MIN_H = 90;
-const CANVAS_W = 1200;
-const CANVAS_H = 640;
+const NODE_W = 190;
+const NODE_H = 64;
+const BND_W = 380;
+const BND_H = 300;
+const BND_MIN_W = 180;
+const BND_MIN_H = 120;
+const CANVAS_W = 1600;
+const CANVAS_H = 1000;
 const KINDS: { kind: string; label: string }[] = [
   { kind: "component", label: "Component" },
   { kind: "asset", label: "Asset" },
@@ -80,12 +80,12 @@ export function ThreatCanvas({
     });
     let bi = 0;
     detail.components.filter((c) => c.kind === "boundary" && !next[c.id]).forEach((c) => {
-      next[c.id] = { x: 40 + bi * 340, y: 40, w: c.w > 0 ? c.w : BND_W, h: c.h > 0 ? c.h : BND_H };
+      next[c.id] = { x: 48 + bi * 440, y: 48, w: c.w > 0 ? c.w : BND_W, h: c.h > 0 ? c.h : BND_H };
       bi++;
     });
     let ni = 0;
     detail.components.filter((c) => c.kind !== "boundary" && !next[c.id]).forEach((c) => {
-      next[c.id] = { x: 40 + (ni % 5) * 220, y: 320 + Math.floor(ni / 5) * 110, w: defW(c.kind), h: defH(c.kind) };
+      next[c.id] = { x: 48 + (ni % 5) * 290, y: 470 + Math.floor(ni / 5) * 150, w: defW(c.kind), h: defH(c.kind) };
       ni++;
     });
     setGeom(next);
@@ -216,20 +216,20 @@ export function ThreatCanvas({
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-950/40">
       {canEdit && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 p-2 text-xs dark:border-gray-800">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 p-2.5 text-sm dark:border-gray-800">
           <span className="text-gray-400">Add:</span>
           {KINDS.map((k) => (
             <button key={k.kind} onClick={() => { setAddMode(addMode === k.kind ? null : k.kind); setFlowMode(false); }}
-              className={`rounded px-2 py-1 ${addMode === k.kind ? "bg-accent-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>
+              className={`rounded px-2.5 py-1.5 ${addMode === k.kind ? "bg-accent-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>
               {k.label}
             </button>
           ))}
           <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
           <button onClick={() => { setFlowMode(!flowMode); setAddMode(null); setFlowFrom(null); }}
-            className={`rounded px-2 py-1 ${flowMode ? "bg-accent-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>Add flow</button>
+            className={`rounded px-2.5 py-1.5 ${flowMode ? "bg-accent-600 text-white" : "border border-gray-300 dark:border-gray-700"}`}>Add flow</button>
           {flowMode && (
             <input value={flowLabel} onChange={(e) => setFlowLabel(e.target.value)} placeholder="flow label (optional)"
-              className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-900" />
+              className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900" />
           )}
           <span className="text-gray-400">
             {addMode ? "click the canvas to place it" : flowMode ? (flowFrom ? "click the target node" : "click a source node") : "click a node to edit; drag to move"}
@@ -242,7 +242,7 @@ export function ThreatCanvas({
           ref={svgRef}
           viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
           className="w-full"
-          style={{ height: 560, cursor: addMode ? "crosshair" : "default" }}
+          style={{ height: "76vh", minHeight: 620, cursor: addMode ? "crosshair" : "default" }}
         >
           <defs>
             <marker id="tc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -264,12 +264,12 @@ export function ThreatCanvas({
             return (
               <g key={c.id} onPointerDown={(e) => startDrag(e, c.id)} onPointerMove={handleMove} onPointerUp={handleUp} style={{ cursor: canEdit ? "grab" : "default" }}>
                 <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={12} className={`fill-amber-500/5 ${sel ? "stroke-accent-500" : "stroke-amber-500/50"}`} strokeWidth={sel ? 2 : 1.5} strokeDasharray="6 4" />
-                <text x={b.x + 10} y={b.y + 18} className="fill-amber-600 dark:fill-amber-400" fontSize={11} fontWeight={600}>{c.name}</text>
+                <text x={b.x + 12} y={b.y + 23} className="fill-amber-600 dark:fill-amber-400" fontSize={14} fontWeight={600}>{c.name}</text>
                 {c.tech && (
-                  <text x={b.x + b.w - 10} y={b.y + 18} textAnchor="end" className="fill-amber-500 dark:fill-amber-500/90" fontSize={10} fontWeight={700} letterSpacing={0.5}>{boundaryTypeLabel(c.tech).toUpperCase()}</text>
+                  <text x={b.x + b.w - 12} y={b.y + 23} textAnchor="end" className="fill-amber-500 dark:fill-amber-500/90" fontSize={12} fontWeight={700} letterSpacing={0.5}>{boundaryTypeLabel(c.tech).toUpperCase()}</text>
                 )}
                 {canEdit && sel && (
-                  <rect x={b.x + b.w - 12} y={b.y + b.h - 12} width={12} height={12} className="fill-accent-500" style={{ cursor: "nwse-resize" }}
+                  <rect x={b.x + b.w - 16} y={b.y + b.h - 16} width={16} height={16} className="fill-accent-500" style={{ cursor: "nwse-resize" }}
                     onPointerDown={(e) => startResize(e, c.id)} onPointerMove={handleMove} onPointerUp={handleUp} />
                 )}
               </g>
@@ -310,12 +310,12 @@ export function ThreatCanvas({
                 <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={rx}
                   className={`fill-white dark:fill-gray-900 ${isFlowSource || sel ? "stroke-accent-500" : "stroke-gray-300 dark:stroke-gray-700"}`}
                   strokeWidth={isFlowSource || sel ? 2 : 1} strokeDasharray={dash} />
-                <text x={b.x + 10} y={b.y + 22} className="fill-gray-900 dark:fill-gray-100" fontSize={12} fontWeight={600}>{c.name.length > 20 ? c.name.slice(0, 20) + "…" : c.name}</text>
-                {c.tech && <text x={b.x + 10} y={b.y + 40} className="fill-gray-400" fontSize={10}>{c.tech}</text>}
+                <text x={b.x + 13} y={b.y + 27} className="fill-gray-900 dark:fill-gray-100" fontSize={14} fontWeight={600}>{c.name.length > 22 ? c.name.slice(0, 22) + "…" : c.name}</text>
+                {c.tech && <text x={b.x + 13} y={b.y + 47} className="fill-gray-400" fontSize={12}>{c.tech}</text>}
                 {threatCounts[c.id] ? (
                   <>
-                    <circle cx={b.x + b.w - 4} cy={b.y + 4} r={9} className="fill-red-600" />
-                    <text x={b.x + b.w - 4} y={b.y + 8} textAnchor="middle" className="fill-white" fontSize={10}>{threatCounts[c.id]}</text>
+                    <circle cx={b.x + b.w - 5} cy={b.y + 5} r={11} className="fill-red-600" />
+                    <text x={b.x + b.w - 5} y={b.y + 9} textAnchor="middle" className="fill-white" fontSize={12}>{threatCounts[c.id]}</text>
                   </>
                 ) : null}
               </g>
@@ -326,27 +326,27 @@ export function ThreatCanvas({
 
       {/* Edit bar for the selected node */}
       {canEdit && selected && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-gray-200 p-2 text-xs dark:border-gray-800">
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-200 p-2.5 text-sm dark:border-gray-800">
           <span className="text-gray-400">Selected</span>
           <input
             key={selected.id + "-name"}
             defaultValue={selected.name}
             onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== selected.name) onUpdateComponent(selected.id, { name: v, tech: selected.tech, kind: selected.kind }); }}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            className="w-40 rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-800" />
+            className="w-48 rounded-md border border-gray-300 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800" />
           <select value={selected.kind} onChange={(e) => onUpdateComponent(selected.id, { name: selected.name, tech: selected.tech, kind: e.target.value })}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-800">
+            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800">
             {KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
           </select>
           {selected.kind === "boundary" ? (
             <select value={selected.tech ?? ""} onChange={(e) => onUpdateComponent(selected.id, { name: selected.name, tech: e.target.value, kind: selected.kind })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-800" title="Zone type">
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800" title="Zone type">
               <option value="">zone type…</option>
               {BOUNDARY_TYPES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
             </select>
           ) : (
             <select value={selected.tech ?? ""} onChange={(e) => onUpdateComponent(selected.id, { name: selected.name, tech: e.target.value, kind: selected.kind })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-800" title="Technology">
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800" title="Technology">
               <option value="">tech…</option>
               {library.map((l) => <option key={l.tech} value={l.tech}>{l.title}</option>)}
             </select>

@@ -7,6 +7,18 @@ import { SSOConfigPanel } from "./SSOConfigPanel";
 import { ConsoleSettingsPanel } from "./ConsoleSettingsPanel";
 import { RuleAuthorPanel } from "./RuleAuthorPanel";
 
+// AdminTab groups the admin panels so the page reads as focused sections
+// instead of one long scroll.
+type AdminTab = "users" | "targets" | "integrations" | "rules" | "audit";
+
+const ADMIN_TABS: { id: AdminTab; label: string }[] = [
+  { id: "users", label: "Users & SSO" },
+  { id: "targets", label: "Targets" },
+  { id: "integrations", label: "Integrations & scanning" },
+  { id: "rules", label: "Rule authoring" },
+  { id: "audit", label: "Audit log" },
+];
+
 export function Admin({ selfUsername }: { selfUsername: string }) {
   const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
@@ -14,6 +26,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [subtab, setSubtab] = useState<AdminTab>("users");
 
   // Per-section errors
   const [userError, setUserError] = useState<string | null>(null);
@@ -92,7 +105,25 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Section 1: Users */}
+      <nav className="scroll-thin -mb-2 flex gap-1 overflow-x-auto border-b border-gray-200 pb-3 dark:border-gray-800">
+        {ADMIN_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubtab(t.id)}
+            className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              subtab === t.id
+                ? "bg-accent-100 text-accent-700 dark:bg-accent-500/15 dark:text-accent-200"
+                : "text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {subtab === "users" && (
+      <div className="space-y-6">
+      {/* Users */}
       <Panel title="Users">
         {userError && <div className="mb-3 text-xs text-red-600 dark:text-red-400">{userError}</div>}
         <div className="scroll-thin overflow-x-auto">
@@ -155,16 +186,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         </div>
       </Panel>
 
-      {/* Section 2: Single sign-on (authentication config) */}
+      {/* Single sign-on (authentication config) */}
       <SSOConfigPanel />
+      </div>
+      )}
 
-      {/* Section 2b: integrations & scanning config */}
-      <ConsoleSettingsPanel />
+      {subtab === "integrations" && <ConsoleSettingsPanel />}
 
-      {/* Section 2c: AI-assisted custom rule authoring */}
-      <RuleAuthorPanel />
+      {subtab === "rules" && <RuleAuthorPanel />}
 
-      {/* Section 3: Targets */}
+      {subtab === "targets" && (
       <Panel title="Targets">
         {targetError && <div className="mb-3 text-xs text-red-600 dark:text-red-400">{targetError}</div>}
         <div className="scroll-thin overflow-x-auto">
@@ -493,8 +524,9 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
           </div>
         )}
       </Panel>
+      )}
 
-      {/* Section 4: Audit */}
+      {subtab === "audit" && (
       <Panel title="Audit log" right={<span className="text-xs text-gray-500 dark:text-gray-400">{audit.length} entries</span>}>
         {audit.length === 0 ? (
           <EmptyState title="No audit entries" hint="Logins, user/target changes and scan launches land here." />
@@ -533,6 +565,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         </div>
         )}
       </Panel>
+      )}
     </div>
   );
 

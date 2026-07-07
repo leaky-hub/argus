@@ -60,6 +60,25 @@ argus ticket  → work items over findings: create | list | show | link | commen
 argus threats → threat models: list | show | STRIDE library | enumerate
 ```
 
+## Why Argus exists
+
+A good application-security program has mostly been a privilege of teams that
+could afford one. The scanners that matter sit behind enterprise sales calls and
+per-seat pricing; the ones that don't usually want your source uploaded to
+someone else's cloud before they'll tell you what's wrong with it. If you're a
+student, a two-person shop, or a team that can't send its code offsite, you've
+been priced or policied out of the thing everyone calls table stakes.
+
+That never sat right. Security is the baseline, not an upsell, and the people
+with the least budget are often the ones getting breached. So Argus runs on a
+stubborn premise: the core is free, and it works entirely on your machine. Your
+code, your findings, and the local model that triages them stay put; nothing
+phones home, nothing gets uploaded, and you start without an account. The pieces
+a bigger org needs later (SSO, roles, an audit trail) are layers you switch on,
+never a paywall in front of the scanner.
+
+Free and private aren't the compromise. They're the whole idea.
+
 ## Who it's for
 
 The same binary meets you where you are, and grows as you do:

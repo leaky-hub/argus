@@ -21,8 +21,17 @@ type Config struct {
 	TimeoutSec   int             `yaml:"timeout"`          // per-scanner timeout, seconds
 	Triage       TriageConfig    `yaml:"triage"`           // AI triage configuration
 	Cloud        CloudConfig     `yaml:"cloud"`            // cloud posture scan configuration
-	Ticketing    TicketingConfig `yaml:"ticketing"`        // external issue-tracker sync (off unless configured)
-	Auth         AuthConfig      `yaml:"auth"`             // console authentication (SSO; off unless configured)
+	Ticketing    TicketingConfig   `yaml:"ticketing"`      // external issue-tracker sync (off unless configured)
+	Auth         AuthConfig        `yaml:"auth"`           // console authentication (SSO; off unless configured)
+	Remediation  RemediationConfig `yaml:"remediation"`    // approved cloud remediation (off unless enabled)
+}
+
+// RemediationConfig gates approved cloud remediation. Off by default: a
+// deliberate opt-in, since applying runs changes against a cloud account. Even
+// when enabled, every apply is an explicit admin action over the CURATED
+// catalog with a validated write profile — never an LLM-authored command.
+type RemediationConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"` // allow executing curated remediations (dry-run + apply)
 }
 
 // AuthConfig configures console authentication. Absent means password-only

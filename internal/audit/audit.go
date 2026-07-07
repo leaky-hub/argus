@@ -45,6 +45,7 @@ const (
 	EventThreatModel    = "threat.model"   // create/delete a model
 	EventThreatUpdate   = "threat.update"  // add/enumerate/status/link a threat or component
 	EventConfigChange   = "config.change"  // admin edited console configuration (e.g. SSO)
+	EventCloudRemediate = "cloud.remediate" // admin dry-ran or applied a curated cloud fix
 )
 
 // Entry is one audit line.

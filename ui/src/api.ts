@@ -284,6 +284,9 @@ export interface RunDetail {
   delta: DeltaCounts;
   newIds: string[];
   resolvedIds: string[];
+  // The run the new/resolved delta was computed against: the previous run by
+  // default, or the run chosen as a baseline. Empty for the first run.
+  baselineId: string;
   findings: Finding[];
   coverage?: CoverageAccounting;
   // Per-finding workflow dispositions for findings present in this run,
@@ -314,12 +317,13 @@ export const api = {
     }
     return getJSON<RunsResponse>(base);
   },
-  run: (id: string, targetId?: string) => {
+  run: (id: string, targetId?: string, baselineId?: string) => {
     const base = `api/runs/${encodeURIComponent(id)}`;
-    if (targetId) {
-      return getJSON<RunDetail>(`${base}?target=${encodeURIComponent(targetId)}`);
-    }
-    return getJSON<RunDetail>(base);
+    const params = new URLSearchParams();
+    if (targetId) params.set("target", targetId);
+    if (baselineId) params.set("baseline", baselineId);
+    const qs = params.toString();
+    return getJSON<RunDetail>(qs ? `${base}?${qs}` : base);
   },
   // The download URL for a run export (SARIF or JSON). Server sets
   // Content-Disposition; the browser downloads. GET (viewer) — no CSRF.

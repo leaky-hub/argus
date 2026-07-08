@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/zer0d4y5/argus/internal/baseline"
 	"github.com/zer0d4y5/argus/internal/compliance"
 	"github.com/zer0d4y5/argus/internal/config"
 	"github.com/zer0d4y5/argus/internal/coverage"
@@ -40,6 +41,8 @@ func init() {
 	scanCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 	scanCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
 	scanCmd.Flags().String("frameworks", "", "Comma-separated compliance frameworks to focus on (narrows scanners to the relevant set; see `argus comply`)")
+	scanCmd.Flags().String("baseline", "", "Gate only on findings NEW since this baseline file; known findings stay in the report")
+	scanCmd.Flags().String("write-baseline", "", "Write the current findings' fingerprints to this baseline file and exit without gating")
 }
 
 var scanCmd = &cobra.Command{
@@ -116,16 +119,41 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	printSummary(findings)
 
+	// --write-baseline establishes a baseline from this run and exits without
+	// gating: recording the current backlog is a setup action, never a CI
+	// failure. It runs after the report/save so the user sees exactly what is
+	// being baselined.
+	if wb, _ := cmd.Flags().GetString("write-baseline"); wb != "" {
+		if bl, _ := cmd.Flags().GetString("baseline"); bl != "" {
+			return fmt.Errorf("use --baseline OR --write-baseline, not both")
+		}
+		bf := baseline.FromFindings(findings, target, time.Now())
+		if err := baseline.Write(wb, bf); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "==> wrote baseline: %d finding(s) to %s\n", bf.Count, wb)
+		return nil
+	}
+
 	// The gate decision comes last, after the report is safely written.
-	// Findings a human dispositioned accepted-risk or false-positive (in the
-	// scanned tree's .appsec/dispositions.json, e.g. via the console) are
-	// excluded from the gate by default — accepted risk stops failing CI but
-	// stays in the report. --strict-gate gates on everything.
+	// A baseline restricts the gate to findings NEW since it was written: known
+	// findings stay in the report but never fail CI, so a repo with a backlog
+	// can still block anything newly introduced. Baseline filtering happens
+	// before disposition exclusion so both narrowings compose.
 	gated := findings
+	if bl, _ := cmd.Flags().GetString("baseline"); bl != "" {
+		set, err := baseline.Load(bl)
+		if err != nil {
+			return err
+		}
+		newF, known := baseline.Partition(findings, set)
+		gated = newF
+		fmt.Fprintf(os.Stderr, "NOTE: baseline %s: %d new, %d known (gating on new only)\n", bl, len(newF), len(known))
+	}
 	strict, _ := cmd.Flags().GetBool("strict-gate")
 	if !strict {
 		var suppressed int
-		gated, suppressed = excludeDispositioned(scanRoot(target), findings)
+		gated, suppressed = excludeDispositioned(scanRoot(target), gated)
 		if suppressed > 0 {
 			fmt.Fprintf(os.Stderr, "NOTE: %d finding(s) excluded from the gate by disposition (accepted-risk/false-positive); --strict-gate to include them\n", suppressed)
 		}

@@ -26,6 +26,24 @@ argus scan . --fail-severity high        # fail CI on high or critical
 argus scan . --format sarif -o out.sarif # for GitHub code scanning
 ```
 
+## Gate only on new findings (baseline)
+
+A repository with a backlog of known issues should still be able to fail CI on
+anything *newly* introduced without drowning in pre-existing noise. Record a
+baseline once, then gate against it:
+
+```bash
+argus scan . --write-baseline .argus-baseline.json   # capture today's findings, no gate
+argus scan . --baseline .argus-baseline.json --fail-severity high
+```
+
+The second command reports every finding but only lets **new** ones (those whose
+stable fingerprint is not in the baseline) fail the gate; known findings are
+counted and shown (`N new, M known`) but never block the build. The baseline is
+a plain JSON list of fingerprints, safe to commit. It composes with dispositions
+and `--strict-gate`, and pairs naturally with a PR workflow: baseline `main`,
+gate the PR on what it adds.
+
 ## Add local AI triage
 
 Breadth raises false-positive volume on purpose. The answer is an LLM verdict on

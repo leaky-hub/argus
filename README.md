@@ -284,6 +284,18 @@ Prefer [Opengrep](https://github.com/opengrep/opengrep) (the community Semgrep
 fork)? It is a drop-in: install it and Argus uses it automatically, or set
 `ARGUS_SEMGREP_BINARY=opengrep`.
 
+**Air-gapped?** The registry packs are the one part that resolves over the
+network. Run `argus rules sync` once while online to cache them, then
+`argus scan --offline` (or `offline: true`) uses only local sources (the
+embedded curated rules, the cached packs, and any local BYO rules) and never
+touches the network. Even with an empty cache, an offline scan still runs the
+embedded curated rules.
+
+**Adoptable in CI:** a repo with a backlog can gate on only what a change
+*adds*. `argus scan --write-baseline .argus-baseline.json` records today's
+findings; `argus scan --baseline .argus-baseline.json` then reports everything
+but fails the build only on findings new since the baseline.
+
 The same bar applies to IaC: labeled misconfigured Terraform / Kubernetes /
 Dockerfile fixtures (`testdata/iac/`) with a coverage test asserting every
 planted misconfiguration is detected. IaC engines run whenever they are on
@@ -310,7 +322,11 @@ Every finding always gets a deterministic **risk score** (0–10; formula in
 **severity is banded from the deterministic part of that score** (canonical
 bands in the same doc), so "high" means the same thing on every finding from
 every tool, context signals included, LLM excluded. The tool's own opinion is
-preserved as `toolSeverity`. With `--triage` (or
+preserved as `toolSeverity`. For dependency CVEs the score is enriched with
+real-world exploitation evidence: membership in **CISA's KEV catalog** (embedded
+and version-pinned, so it works offline) and **FIRST EPSS** probability (an
+optional local file), so a known-exploited vulnerability outranks one that
+merely exists. With `--triage` (or
 `triage.enabled: true`), an LLM additionally reviews each finding with a
 bounded source snippet and records a verdict (`true-positive`,
 `false-positive`, or `uncertain`) plus a rationale, which reporters surface
@@ -365,6 +381,12 @@ auth:                   # console single sign-on (OIDC): off unless configured; 
     role_map: { argus-admins: admin }     # optional: group → console role
 remediation:            # approved cloud remediation: off by default
   enabled: false        # allow admins to dry-run/apply the curated catalog against a cloud account
+exploit:                # KEV/EPSS exploitation enrichment of risk scores: on by default
+  enabled: true         # CISA KEV is embedded (offline); set false to disable
+  epss_file: ""         # optional FIRST EPSS scores CSV (cve,epss,percentile) for probability weighting
+offline:                # air-gapped scanning: off by default (see `argus rules sync`)
+  enabled: false        # true = use only embedded curated + cached packs + local BYO rules, never the network
+  cache_dir: ""         # where `argus rules sync` stores packs; default <user-cache>/argus/rules
 ```
 
 Suppressed findings are counted on stderr: suppression is never silent. SSO

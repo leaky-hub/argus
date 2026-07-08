@@ -219,6 +219,7 @@ export function Findings({
   const [verdict, setVerdict] = useState<string>("all");
   const setStatus = onStatusChange;
   const [minRisk, setMinRisk] = useState(0);
+  const [newOnly, setNewOnly] = useState(false);
   const [localItem, setLocalItem] = useState<string | null>(null);
   const selectedId = openItem !== undefined ? openItem || null : localItem;
   const setSelectedId = (id: string | null) => {
@@ -228,11 +229,11 @@ export function Findings({
 
   // A "clear filters" affordance — especially useful after deep-linking in
   // from an Overview stat, which sets a filter for you.
-  const activeCount = [sev !== "all", cat !== "all", tool !== "all", verdict !== "all", status !== "all", framework !== "all", minRisk > 0, q.trim() !== ""].filter(Boolean).length;
+  const activeCount = [sev !== "all", cat !== "all", tool !== "all", verdict !== "all", status !== "all", framework !== "all", minRisk > 0, newOnly, q.trim() !== ""].filter(Boolean).length;
   const filtersActive = activeCount > 0;
   const clearFilters = () => {
     setQ(""); setSev("all"); setCat("all"); setTool("all"); setVerdict("all");
-    setStatus("all"); onFrameworkChange("all"); setMinRisk(0);
+    setStatus("all"); onFrameworkChange("all"); setMinRisk(0); setNewOnly(false);
   };
 
   // Local, optimistic overlay of finding dispositions seeded from the run
@@ -342,6 +343,7 @@ export function Findings({
       .filter((f) => tool === "all" || (f.tools ?? [f.tool]).includes(tool))
       .filter((f) => verdict === "all" || (verdict === "untriaged" ? !f.triage : f.triage?.verdict === verdict))
       .filter((f) => (f.riskScore ?? 0) >= minRisk)
+      .filter((f) => !newOnly || newSet.has(f.id))
       .filter((f) => framework === "all" || (f.complianceControls ?? []).some((c) => c.startsWith(framework + ":")))
       .filter((f) => {
         if (status === "all") return true;
@@ -361,7 +363,7 @@ export function Findings({
           (f.cwes ?? []).some((c) => c.toLowerCase().includes(needle)),
       )
       .sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0) || SEV_RANK[b.severity] - SEV_RANK[a.severity]);
-  }, [detail.findings, q, sev, cat, tool, verdict, minRisk, framework, status, dispositions]);
+  }, [detail.findings, q, sev, cat, tool, verdict, minRisk, newOnly, newSet, framework, status, dispositions]);
 
   // No first-row fallback: the detail pane is closed until a row is opened.
   const selected = filtered.find((f) => f.id === selectedId) ?? null;
@@ -516,6 +518,12 @@ export function Findings({
                 className="w-24"
               />
             </label>
+            {detail.baselineId !== "" && (
+              <label className="inline-flex items-center gap-1.5 self-center text-sm text-gray-600 dark:text-gray-300" title="Show only findings new since the baseline">
+                <input type="checkbox" checked={newOnly} onChange={(e) => setNewOnly(e.target.checked)} className="cursor-pointer" />
+                New only
+              </label>
+            )}
             {filtersActive && (
               <button
                 onClick={clearFilters}

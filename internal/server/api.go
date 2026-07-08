@@ -139,8 +139,12 @@ type RunDetail struct {
 	Gate        GateInfo                      `json:"gate"`
 	Verdicts    VerdictCounts                 `json:"verdicts"`
 	Delta       runstore.Counts               `json:"delta"`
-	NewIDs      []string                      `json:"newIds"`      // finding IDs new vs previous run
-	ResolvedIDs []string                      `json:"resolvedIds"` // IDs resolved since previous run
+	NewIDs      []string                      `json:"newIds"`      // finding IDs new vs the baseline run
+	ResolvedIDs []string                      `json:"resolvedIds"` // IDs resolved since the baseline run
+	// BaselineID is the run the delta/newIds/resolvedIds were computed against:
+	// the immediately-previous run by default, or the run named by ?baseline=.
+	// Empty when there is nothing earlier to compare to (the first run).
+	BaselineID string `json:"baselineId"`
 	Findings    []model.Finding               `json:"findings"`
 	// Coverage is the run's skip accounting (schema 2.0.0): what the scan
 	// did not look at. Absent for runs saved before 2.0.0; the UI
@@ -414,14 +418,17 @@ func (s *Server) buildRuns(store runstore.Store) (RunsResponse, error) {
 	return out, nil
 }
 
-// buildRunDetail returns one run's findings plus its delta vs the previous run.
-func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, error) {
+// buildRunDetail returns one run's findings plus its delta vs a baseline run.
+// baselineID selects the comparison base: empty means the immediately-previous
+// run (the historical default); any other run id compares against that run.
+// This is how the console surfaces "findings new since <a chosen baseline>".
+func (s *Server) buildRunDetail(store runstore.Store, id, baselineID string) (RunDetail, error) {
 	doc, err := store.Load(id)
 	if err != nil {
 		return RunDetail{}, err
 	}
-	prev := previousDoc(store, id)
-	delta := runstore.ComputeDelta(prev, doc)
+	base, baseID := s.baselineDoc(store, id, baselineID)
+	delta := runstore.ComputeDelta(base, doc)
 
 	// Enrich at read time so runs saved before schema 1.2.0 still show control
 	// chips. Deterministic and idempotent; the stored file is untouched.
@@ -461,6 +468,7 @@ func (s *Server) buildRunDetail(store runstore.Store, id string) (RunDetail, err
 		Delta:        delta.Counts(),
 		NewIDs:       findingIDs(delta.New),
 		ResolvedIDs:  findingIDs(delta.Resolved),
+		BaselineID:   baseID,
 		Findings:     doc.Findings,
 		Coverage:     doc.Coverage,
 		Dispositions: dispositions,
@@ -487,11 +495,36 @@ func dispositionStore(store runstore.Store) *disposition.Store {
 	return disposition.At(filepath.Dir(store.Dir))
 }
 
-// previousDoc returns the run immediately before id chronologically, or nil.
-func previousDoc(store runstore.Store, id string) *report.Document {
+// baselineDoc resolves the run a detail view compares against, returning the
+// loaded document and its id (empty when there is nothing to compare to). A
+// requested baseline id (from ?baseline=) selects that specific run, but never
+// the run itself, which would report zero new; an empty request falls back to
+// the immediately-previous run, preserving the historical default. A requested
+// run that fails to load yields a nil base (all findings read as new) rather
+// than silently comparing against the wrong run.
+func (s *Server) baselineDoc(store runstore.Store, runID, requested string) (*report.Document, string) {
+	if requested != "" && requested != runID {
+		if doc, err := store.Load(requested); err == nil {
+			return &doc, requested
+		}
+		return nil, ""
+	}
+	prevID := previousID(store, runID)
+	if prevID == "" {
+		return nil, ""
+	}
+	if doc, err := store.Load(prevID); err == nil {
+		return &doc, prevID
+	}
+	return nil, ""
+}
+
+// previousID returns the id of the run immediately before id chronologically,
+// or "" if id is the first run (or unknown).
+func previousID(store runstore.Store, id string) string {
 	runs, err := store.List()
 	if err != nil {
-		return nil
+		return ""
 	}
 	var prevID string
 	for _, r := range runs {
@@ -500,6 +533,12 @@ func previousDoc(store runstore.Store, id string) *report.Document {
 		}
 		prevID = r.ID
 	}
+	return prevID
+}
+
+// previousDoc returns the run immediately before id chronologically, or nil.
+func previousDoc(store runstore.Store, id string) *report.Document {
+	prevID := previousID(store, id)
 	if prevID == "" {
 		return nil
 	}

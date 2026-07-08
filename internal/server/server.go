@@ -346,7 +346,7 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 	case sub == "export" && r.Method == http.MethodGet:
 		s.handleRunExport(w, r, store, id)
 	case sub == "" && r.Method == http.MethodGet:
-		detail, err := s.buildRunDetail(store, id)
+		detail, err := s.buildRunDetail(store, id, r.URL.Query().Get("baseline"))
 		if err != nil {
 			// Load validates the id and confines the path; a failure here is a
 			// missing/invalid run, not a server fault.

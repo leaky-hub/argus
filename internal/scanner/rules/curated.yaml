@@ -378,15 +378,17 @@ rules:
       category: security
       confidence: MEDIUM
     patterns:
+      # net/http package functions only. A bare `$CLIENT.Get($URL)` would match
+      # every `.Get()` method in a codebase (map/store/registry accessors), so it
+      # is deliberately excluded: this rule targets http.Get/Post/Head, not any
+      # receiver that happens to have a Get method.
       - pattern-either:
           - pattern: http.Get($URL)
           - pattern: http.Post($URL, ...)
-          - pattern: $CLIENT.Get($URL)
-          - pattern: $CLIENT.Post($URL, ...)
+          - pattern: http.Head($URL)
       - pattern-not: http.Get("...")
       - pattern-not: http.Post("...", ...)
-      - pattern-not: $CLIENT.Get("...")
-      - pattern-not: $CLIENT.Post("...", ...)
+      - pattern-not: http.Head("...")
   - id: argus-curated-go-path-traversal-join-input
     languages: [go]
     severity: ERROR
@@ -406,6 +408,11 @@ rules:
       - pattern-not: os.Open(filepath.Join(..., filepath.Base(...)))
       - pattern-not: os.ReadFile(filepath.Join(..., filepath.Base(...)))
       - pattern-not: ioutil.ReadFile(filepath.Join(..., filepath.Base(...)))
+      # A constant filename joined to a base is not traversal (no untrusted
+      # component), e.g. filepath.Join(outDir, "scan.json").
+      - pattern-not: os.Open(filepath.Join(..., "..."))
+      - pattern-not: os.ReadFile(filepath.Join(..., "..."))
+      - pattern-not: ioutil.ReadFile(filepath.Join(..., "..."))
   - id: argus-curated-go-tls-insecure-skip-verify
     languages: [go]
     severity: ERROR

@@ -29,7 +29,7 @@ jobs:
       # red check. Bump the pins deliberately, one PR at a time.
       - name: Install scanners
         env:
-          SEMGREP_VERSION: 1.169.0
+          SEMGREP_VERSION: 1.168.0
           TRIVY_VERSION: 0.72.0
           GITLEAKS_VERSION: 8.30.1
         run: |

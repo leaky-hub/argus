@@ -37,7 +37,7 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
         run: |
           go install github.com/zer0d4y5/argus/cmd/argus@latest
-          pipx install semgrep==1.169.0
+          pipx install semgrep==1.168.0
           curl -sSfL --retry 3 "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin gitleaks
 

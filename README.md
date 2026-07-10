@@ -31,7 +31,9 @@ Swift), secrets, dependencies (SCA), **IaC misconfiguration**
 Pulumi for architecture detection), **cloud security posture** (prowler:
 AWS, Azure, GCP), and **DAST** (nuclei: `argus dast <url>` against a running
 target, see [docs/dast.md](docs/dast.md)) all flow through the same banded
-severity, risk signals, and compliance mapping.
+severity, risk signals, and compliance mapping. Plus **SBOM generation**
+(`argus sbom` in CycloneDX or SPDX, see [docs/sbom.md](docs/sbom.md)) from the
+same dependency inventory.
 
 **Findings become audit evidence.** Every finding is mapped (deterministically,
 no LLM) to the framework controls it violates (**OWASP ASVS 4.0**,

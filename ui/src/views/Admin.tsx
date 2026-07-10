@@ -90,6 +90,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     ignoreRules: string;
     // DAST-target options (shown only for dast targets)
     dastFuzzing: boolean;
+    dastCrawl: boolean;
     dastTags: string;
     dastSeverities: string;
     dastRateLimit: number | undefined;
@@ -105,6 +106,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     ignorePaths: "",
     ignoreRules: "",
     dastFuzzing: false,
+    dastCrawl: false,
     dastTags: "",
     dastSeverities: "",
     dastRateLimit: undefined,
@@ -614,6 +616,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
               <div className="mb-4 rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900/40 dark:bg-amber-900/10">
                 <h4 className="mb-2 text-xs font-semibold text-amber-800 dark:text-amber-300">DAST scan options</h4>
 
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={configForm.dastCrawl}
+                    onChange={(e) => setConfigForm({ ...configForm, dastCrawl: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>Crawl: discover the app's endpoints and forms (authenticated), then fuzz all of them</span>
+                </label>
+
                 <label className="mb-3 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
@@ -621,7 +633,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                     onChange={(e) => setConfigForm({ ...configForm, dastFuzzing: e.target.checked })}
                     className="rounded border-gray-300 dark:border-gray-600"
                   />
-                  <span>Active fuzzing (nuclei -dast): probe parameters for injection (SQLi, XSS)</span>
+                  <span>Active fuzzing (nuclei -dast): probe parameters for injection (SQLi, XSS, LFI, RFI)</span>
                 </label>
 
                 <div className="mb-3 grid gap-2 md:grid-cols-3">
@@ -921,6 +933,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       ignorePaths: t.config?.ignorePaths?.join("\n") || "",
       ignoreRules: t.config?.ignoreRules?.join("\n") || "",
       dastFuzzing: d?.fuzzing ?? false,
+      dastCrawl: d?.crawl ?? false,
       dastTags: d?.tags?.join(", ") || "",
       dastSeverities: d?.severities?.join(", ") || "",
       dastRateLimit: d?.rateLimit,
@@ -950,6 +963,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         const splitList = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
         const dast: DastConfig = {};
         if (configForm.dastFuzzing) dast.fuzzing = true;
+        if (configForm.dastCrawl) dast.crawl = true;
         const tags = splitList(configForm.dastTags);
         const sevs = splitList(configForm.dastSeverities);
         if (tags.length > 0) dast.tags = tags;

@@ -26,6 +26,9 @@ func init() {
 	dastCmd.Flags().Int("rate-limit", 0, "Max requests per second (0 = nuclei default)")
 	dastCmd.Flags().Int("timeout", 0, "Whole-scan timeout in seconds (0 = no limit)")
 	dastCmd.Flags().Bool("dast", false, "Enable active fuzzing (nuclei -dast templates): probes parameters for injection")
+	dastCmd.Flags().Bool("crawl", false, "Crawl the target (authenticated) to discover endpoints and forms, then fuzz all of them")
+	dastCmd.Flags().Int("crawl-depth", 0, "Crawl link-follow depth (0 = default 3)")
+	dastCmd.Flags().Int("crawl-pages", 0, "Max pages to crawl (0 = default 150)")
 	dastCmd.Flags().Bool("auth-auto", false, "Authenticate before scanning: detect the login form and try built-in default credentials")
 	dastCmd.Flags().String("auth-user-env", "", "Name of an env var holding the login username (value never stored)")
 	dastCmd.Flags().String("auth-pass-env", "", "Name of an env var holding the login password (value never stored)")
@@ -81,6 +84,9 @@ func runDAST(cmd *cobra.Command, args []string) error {
 	timeoutSec, _ := cmd.Flags().GetInt("timeout")
 	rateLimit, _ := cmd.Flags().GetInt("rate-limit")
 	fuzzing, _ := cmd.Flags().GetBool("dast")
+	crawl, _ := cmd.Flags().GetBool("crawl")
+	crawlDepth, _ := cmd.Flags().GetInt("crawl-depth")
+	crawlPages, _ := cmd.Flags().GetInt("crawl-pages")
 	auth, err := dastAuthFromFlags(cmd)
 	if err != nil {
 		return err
@@ -93,6 +99,9 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		RateLimit:  rateLimit,
 		TimeoutSec: timeoutSec,
 		Fuzzing:    fuzzing,
+		Crawl:      crawl,
+		CrawlDepth: crawlDepth,
+		CrawlPages: crawlPages,
 		Auth:       auth,
 		Config:     cfg,
 	}, func(line string) { fmt.Fprint(os.Stderr, line) })

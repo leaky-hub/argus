@@ -44,6 +44,12 @@ type Options struct {
 	Severities []string // nuclei -severity filter; empty = all
 	RateLimit  int      // max requests/sec; 0 = nuclei default
 	TimeoutSec int      // whole-scan timeout; 0 = caller's context governs
+	Fuzzing    bool     // enable nuclei -dast (active fuzzing templates)
+	// Headers are extra request headers (e.g. "Cookie: SESS=..."), sent on
+	// every request so a scan can run authenticated. Values may be live
+	// session credentials: they are passed to nuclei but NEVER logged, printed,
+	// or written to a finding.
+	Headers []string
 }
 
 // Result is a completed DAST run.
@@ -108,27 +114,7 @@ func Scan(ctx context.Context, opts Options, progress func(string)) (Result, err
 	out.Close()
 	defer os.Remove(outPath)
 
-	args := []string{
-		"-target", opts.URL,
-		"-jsonl", "-o", outPath,
-		"-disable-update-check", // no network callout for a newer nuclei/templates
-		"-no-interactsh",        // no OOB callout server; scan touches only the target
-		"-no-color", "-silent",
-	}
-	for _, t := range opts.Templates {
-		if t = strings.TrimSpace(t); t != "" {
-			args = append(args, "-t", t)
-		}
-	}
-	if len(opts.Tags) > 0 {
-		args = append(args, "-tags", strings.Join(opts.Tags, ","))
-	}
-	if len(opts.Severities) > 0 {
-		args = append(args, "-severity", strings.Join(opts.Severities, ","))
-	}
-	if opts.RateLimit > 0 {
-		args = append(args, "-rate-limit", strconv.Itoa(opts.RateLimit))
-	}
+	args := buildArgs(opts, outPath)
 
 	progress(fmt.Sprintf("==> running nuclei (DAST) against %s\n", opts.URL))
 	cmd := exec.CommandContext(ctx, "nuclei", args...)
@@ -182,6 +168,43 @@ func probeTarget(ctx context.Context, target string) error {
 	}
 	conn.Close()
 	return nil
+}
+
+// buildArgs assembles the nuclei argv for one scan. Split out from Scan so the
+// flag construction (fuzzing, auth headers, filters) is unit-testable without
+// invoking the binary. Header VALUES may be live session credentials; they go
+// into the argv nuclei needs but are never logged by Argus.
+func buildArgs(opts Options, outPath string) []string {
+	args := []string{
+		"-target", opts.URL,
+		"-jsonl", "-o", outPath,
+		"-disable-update-check", // no network callout for a newer nuclei/templates
+		"-no-interactsh",        // no OOB callout server; scan touches only the target
+		"-no-color", "-silent",
+	}
+	if opts.Fuzzing {
+		args = append(args, "-dast") // load active fuzzing templates
+	}
+	for _, h := range opts.Headers {
+		if h = strings.TrimSpace(h); h != "" {
+			args = append(args, "-H", h)
+		}
+	}
+	for _, t := range opts.Templates {
+		if t = strings.TrimSpace(t); t != "" {
+			args = append(args, "-t", t)
+		}
+	}
+	if len(opts.Tags) > 0 {
+		args = append(args, "-tags", strings.Join(opts.Tags, ","))
+	}
+	if len(opts.Severities) > 0 {
+		args = append(args, "-severity", strings.Join(opts.Severities, ","))
+	}
+	if opts.RateLimit > 0 {
+		args = append(args, "-rate-limit", strconv.Itoa(opts.RateLimit))
+	}
+	return args
 }
 
 // toolVersion best-effort records the nuclei release for run provenance.

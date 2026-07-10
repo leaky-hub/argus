@@ -354,18 +354,27 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                 </div>
               )}
 
-              {/* Launch Button */}
-              <div className="md:col-span-2 flex items-end justify-start gap-3">
+              {/* Primary action: launch a scan. The SBOM export is a separate
+                  action, grouped and labelled below so the format selector is
+                  never mistaken for a scan option. */}
+              <div className="md:col-span-2">
                 <button
                   onClick={handleLaunch}
                   disabled={!selectedTargetId || launching}
-                  className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+                  className="rounded-lg bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
                 >
                   {launching ? "Launching..." : "Launch Scan"}
                 </button>
-                {/* SBOM download: an artifact (component inventory), not a
-                    gated run, offered only for filesystem targets. */}
-                {isFilesystemTarget(selectedTarget) && (
+              </div>
+
+              {/* SBOM export: an artifact (component inventory), not a gated
+                  run, so it lives in its own labelled row and only for
+                  filesystem targets (cloud/DAST/image have no component tree). */}
+              {isFilesystemTarget(selectedTarget) && (
+                <div className="md:col-span-2 mt-1 border-t border-gray-100 pt-3 dark:border-gray-800">
+                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                    Software bill of materials
+                  </label>
                   <div className="flex items-center gap-2">
                     <select
                       value={sbomFormat}
@@ -383,9 +392,12 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                     >
                       {sbomBusy ? "Generating..." : "Download SBOM"}
                     </button>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      component inventory, not a gated scan
+                    </span>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
           {launchError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{launchError}</p>}

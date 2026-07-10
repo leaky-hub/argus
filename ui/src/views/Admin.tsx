@@ -8,6 +8,31 @@ import { ConsoleSettingsPanel } from "./ConsoleSettingsPanel";
 import { RuleAuthorPanel } from "./RuleAuthorPanel";
 import { RulePacksPanel } from "./RulePacksPanel";
 
+// targetTypeChip renders a target's kind as a colour-coded chip, so the
+// targets table is scannable by kind at a glance.
+function targetTypeChip(t: Target): { label: string; cls: string } {
+  switch (t.type) {
+    case "git": return { label: "git", cls: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300" };
+    case "cloud": return { label: `cloud · ${t.provider}`, cls: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300" };
+    case "dast": return { label: "dast", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" };
+    case "image": return { label: "image", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" };
+    default: return { label: "dir", cls: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300" };
+  }
+}
+
+// targetLocator is what a target points at, for the PATH / URL column: a
+// path, a git URL, a cloud profile, a DAST URL, or an image reference. Every
+// kind shows something; a blank cell would leave image/DAST targets illegible.
+function targetLocator(t: Target): string {
+  switch (t.type) {
+    case "git": return t.url || "";
+    case "cloud": return `profile: ${t.profileName}${t.regions && t.regions.length ? ` · ${t.regions.join(",")}` : ""}`;
+    case "dast": return t.url || "";
+    case "image": return t.ref || "";
+    default: return t.path || "";
+  }
+}
+
 // AdminTab groups the admin panels so the page reads as focused sections
 // instead of one long scroll.
 type AdminTab = "users" | "targets" | "integrations" | "rules" | "audit";
@@ -222,12 +247,12 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
               <tr key={t.id} className="border-t border-gray-100 dark:border-gray-800">
                 <td className="py-2 pr-3 font-medium">{t.name}</td>
                 <td className="py-2 pr-3 text-xs">
-                  <span className={`rounded px-1.5 py-0.5 ${t.type === 'git' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : t.type === 'cloud' ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
-                    {t.type === 'cloud' ? `cloud · ${t.provider}` : (t.type || "dir")}
+                  <span className={`rounded px-1.5 py-0.5 ${targetTypeChip(t).cls}`}>
+                    {targetTypeChip(t).label}
                   </span>
                 </td>
                 <td className="py-2 pr-3 font-mono text-xs text-gray-600 dark:text-gray-400">
-                  {t.type === 'git' ? t.url : t.type === 'cloud' ? `profile: ${t.profileName}${t.regions && t.regions.length ? ` · ${t.regions.join(",")}` : ""}` : t.path}
+                  {targetLocator(t)}
                   {t.type === 'git' && t.branch && <span className="text-blue-600 dark:text-blue-400 ml-1">@{t.branch}</span>}
                 </td>
                 <td className="py-2 pr-3 text-xs">
@@ -371,7 +396,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                     onChange={(e) => setCloudProfileName(e.target.value)}
                     className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
                   >
-                    <option value="">— select a local profile —</option>
+                    <option value="">select a local profile</option>
                     {cloudProfileChoices.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
@@ -398,10 +423,10 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
               {cloudProfileError && <p className="text-xs text-red-600 dark:text-red-400">{cloudProfileError}</p>}
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {cloudProvider === "aws"
-                  ? "The profile is a NAME from this host's cloud config (~/.aws) — never a key. Point it at a read-only security-audit principal."
+                  ? "The profile is a NAME from this host's cloud config (~/.aws): never a key. Point it at a read-only security-audit principal."
                   : cloudProvider === "azure"
-                  ? "The subscription id is a reference — never a key. Provide a service principal (AZURE_CLIENT_ID/SECRET/TENANT) with the Reader role in the serve process's environment."
-                  : "The project id is a reference — never a key. Provide Application Default Credentials with the Viewer role in the serve process's environment."}
+                  ? "The subscription id is a reference: never a key. Provide a service principal (AZURE_CLIENT_ID/SECRET/TENANT) with the Reader role in the serve process's environment."
+                  : "The project id is a reference: never a key. Provide Application Default Credentials with the Viewer role in the serve process's environment."}
               </p>
             </div>
           )}
@@ -459,7 +484,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Paths are validated server-side: absolute, existing directory, never /. Git URLs must be accessible.
-          Cloud profiles are validated against this host's local config — a raw key is never accepted.
+          Cloud profiles are validated against this host's local config; a raw key is never accepted.
         </p>
 
         {/* Configure Drawer */}

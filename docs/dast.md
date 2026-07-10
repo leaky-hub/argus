@@ -115,14 +115,19 @@ same crawl-discovered endpoints and merge into the same findings.
   data-exfiltration flags: it only answers "is this parameter injectable?".
 - `--dalfox` runs **dalfox** to actively test for XSS (reflected, stored, and
   DOM) on GET and POST forms, confirming by DOM execution.
+- `--cmdi` runs Argus's built-in **OS command-injection** detector on GET and
+  POST parameters. It confirms injection with benign, self-verifying probes
+  only: an arithmetic expression whose product (absent from the payload) must
+  appear in the response, plus a differential-timing check. It never runs an
+  attacker-controlled command or writes to the target.
 
 ```bash
-argus dast http://target/ --auth-auto --crawl --dast --sqlmap --dalfox
+argus dast http://target/ --auth-auto --crawl --dast --sqlmap --dalfox --cmdi
 ```
 
-Both are opt-in and both are slower than nuclei (sqlmap tests each endpoint
-thoroughly), so enable them when you want depth. Command injection and file
-upload are not yet covered by any engine (a future addition).
+These engines are opt-in and slower than nuclei (sqlmap especially tests each
+endpoint thoroughly), so enable them when you want depth. File upload is the
+remaining class no engine covers yet.
 
 > Active fuzzing sends real payloads and will exercise state-changing
 > endpoints. Run it against targets you own and treat as disposable (a test or

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zer0d4y5/argus/internal/cmdiscan"
 	"github.com/zer0d4y5/argus/internal/config"
 	"github.com/zer0d4y5/argus/internal/dalfoxscan"
 	"github.com/zer0d4y5/argus/internal/dastauth"
@@ -33,6 +34,7 @@ type DASTOptions struct {
 	Evidence   bool // capture redacted request/response on each finding (opt-in)
 	Dalfox     bool // also run dalfox (active XSS, GET+POST forms)
 	Sqlmap     bool // also run sqlmap (SQL injection incl. blind, GET+POST)
+	Cmdi       bool // also run the native command-injection detector (GET+POST)
 	Config     config.Config
 }
 
@@ -132,6 +134,11 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 			raw = append(raw, fs...)
 		}
 	}
+	if opts.Cmdi && len(targets) > 0 {
+		if fs := runCmdi(ctx, targets, headers, progress); len(fs) > 0 {
+			raw = append(raw, fs...)
+		}
+	}
 
 	findings := Enrich(ctx, opts.Config, "", raw, progress)
 	return DASTResult{Findings: findings, ToolVersion: scan.ToolVersion}, nil
@@ -186,6 +193,16 @@ func runSqlmap(ctx context.Context, eps []dastcrawl.Endpoint, cookie string, pro
 	fs, err := sqlmapscan.Scan(ctx, sqlmapscan.Options{Cookie: cookie, Endpoints: eps}, progress)
 	if err != nil {
 		progress(fmt.Sprintf("WARN: sqlmap failed: %v\n", err))
+	}
+	return fs
+}
+
+func runCmdi(ctx context.Context, eps []dastcrawl.Endpoint, headers []string, progress Progress) []model.RawFinding {
+	progress(fmt.Sprintf("==> testing %d endpoint(s) for command injection\n", len(eps)))
+	client := &http.Client{Timeout: 30 * time.Second}
+	fs, err := cmdiscan.Scan(ctx, client, cmdiscan.Options{Endpoints: eps, Headers: headers, Timing: true}, progress)
+	if err != nil {
+		progress(fmt.Sprintf("WARN: command-injection scan failed: %v\n", err))
 	}
 	return fs
 }

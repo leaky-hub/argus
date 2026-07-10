@@ -82,6 +82,7 @@ type DastConfig struct {
 	Evidence   bool     `json:"evidence,omitempty"`   // capture redacted request/response on findings
 	Dalfox     bool     `json:"dalfox,omitempty"`     // also run dalfox (active XSS, GET+POST)
 	Sqlmap     bool     `json:"sqlmap,omitempty"`     // also run sqlmap (SQLi incl. blind, GET+POST)
+	Cmdi       bool     `json:"cmdi,omitempty"`       // also test for OS command injection (GET+POST)
 	CrawlDepth int      `json:"crawlDepth,omitempty"` // crawl depth; 0 = default
 	CrawlPages int      `json:"crawlPages,omitempty"` // crawl page cap; 0 = default
 	Templates  []string `json:"templates,omitempty"`  // nuclei -t selectors

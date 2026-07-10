@@ -515,6 +515,7 @@ export interface DastConfig {
   evidence?: boolean;
   dalfox?: boolean;
   sqlmap?: boolean;
+  cmdi?: boolean;
   crawlDepth?: number;
   crawlPages?: number;
   templates?: string[];

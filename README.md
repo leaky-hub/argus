@@ -452,8 +452,17 @@ repo and adjust the gate.
 - [Risk scoring](docs/risk-scoring.md): the 0–10 formula and the bounded LLM adjustment
 - [Compliance](docs/compliance.md): frameworks, mapping philosophy, adding a framework
 - [Console & pillars](docs/console-ops.md): authz model, ticketing, threat modeling, audit
+- [Verifying releases](docs/verifying-releases.md): cosign signature, SLSA provenance, and per-archive SBOM on every release
 - [Roadmap](docs/roadmap.md): what's next: DAST, more cloud providers, IAST
 - [Platform evolution](docs/roadmap-platform.md): SSO, approved cloud remediation, and the "for everyone" thesis
+
+## Releases
+
+Releases are built by a public workflow and ship **signed and provenanced**:
+multi-platform binaries, a keyless [cosign](https://www.sigstore.dev/)
+signature over the checksums, an SLSA build-provenance attestation, and a
+CycloneDX SBOM per archive. Argus dogfoods its own supply-chain story; verify
+a download with [docs/verifying-releases.md](docs/verifying-releases.md).
 
 ## Development
 

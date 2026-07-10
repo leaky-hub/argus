@@ -1,0 +1,55 @@
+# Signed, provenanced releases. Pushing a tag like v1.2.3 builds the
+# multi-platform binaries, generates checksums and a CycloneDX SBOM per
+# archive, signs the checksums with keyless cosign (Sigstore/OIDC, no private
+# key), publishes the GitHub Release, and attaches an SLSA build-provenance
+# attestation. A security tool must ship verifiable artifacts; this dogfoods
+# that. Verification: docs/verifying-releases.md.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the GitHub Release and upload assets
+  id-token: write # keyless cosign signing + provenance, via the OIDC token
+  attestations: write # store the SLSA build-provenance attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the changelog can be built
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # syft produces the per-archive SBOM; cosign signs the checksums.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # cosign reads these to run keyless and skip the prompt.
+          COSIGN_YES: "true"
+
+      # SLSA build provenance over the published archives: a signed statement,
+      # verifiable with `gh attestation verify`, that ties each artifact to
+      # this repository, workflow, and commit.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "dist/*.tar.gz"

@@ -49,6 +49,7 @@ nav:
   - CI integration: ci.md
   - PR review comments: pr-comments.md
   - DAST: dast.md
+  - SBOM: sbom.md
   - Reference:
       - Architecture: architecture.md
       - Findings model: findings-model.md

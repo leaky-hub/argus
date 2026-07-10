@@ -99,7 +99,8 @@ still catching runtime issues.
 - **Phase 9: Server/platform:** hosted API server, multi-repo dashboards,
   shared historical trends, triage workflow, SSO/RBAC, ticketing integrations,
   and policy-as-code gates across pipelines: the commercial team layer.
-- **Cross-cutting:** offensive/pentest checks (Nuclei templates,
-  exploitability probes), SBOM generation (syft/CycloneDX), and first-class
-  support for GitLab CI, Jenkins, CircleCI, Azure DevOps, and pre-commit hooks
-  alongside the GitHub Action.
+- **Cross-cutting:** offensive/pentest checks (Nuclei templates via
+  `argus dast`, shipped), SBOM generation (`argus sbom`, CycloneDX/SPDX,
+  shipped, see [SBOM](sbom.md)), and first-class support for GitLab CI,
+  Jenkins, CircleCI, Azure DevOps, and pre-commit hooks alongside the GitHub
+  Action.

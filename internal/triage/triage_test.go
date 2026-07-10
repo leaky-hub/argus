@@ -144,6 +144,39 @@ func TestInjectionEchoDegradesToUncertain(t *testing.T) {
 	}
 }
 
+// A DAST finding must be framed as a confirmed live observation, not a
+// static finding with a missing snippet: the endpoint is surfaced, the
+// dynamic-confirmed language is present, and the prompt does NOT tell the
+// model to lean uncertain for lack of source. This is what moved DAST
+// findings off a blanket "uncertain" verdict.
+func TestDASTPromptFramedAsConfirmedObservation(t *testing.T) {
+	f := mkFinding(1, model.CategoryDAST)
+	f.Tool, f.Tools = "nuclei", []string{"nuclei"}
+	f.RuleID = "http-missing-security-headers:strict-transport-security"
+	f.Title = "HTTP Missing Security Headers (strict-transport-security)"
+	f.Location = model.Location{URL: "https://app.example/login"}
+
+	var captured string
+	fake := &llm.Fake{IsLocal: true, Respond: func(req llm.Request) (string, error) {
+		captured = req.User
+		return verdictJSON("true-positive", 0.8), nil
+	}}
+	tr := NewLLM(fake, Options{Root: t.TempDir()})
+	if _, err := tr.Triage(context.Background(), []model.Finding{f}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(captured, "https://app.example/login") {
+		t.Error("endpoint URL not surfaced to the model")
+	}
+	if !strings.Contains(captured, "CONFIRMED PRESENT") {
+		t.Error("DAST finding not framed as a confirmed observation")
+	}
+	if strings.Contains(captured, "lean toward \"uncertain\"") {
+		t.Error("DAST prompt still carries the static missing-snippet lean-uncertain instruction")
+	}
+}
+
 // --- contract: never drop, never reorder, error passthrough ---------------
 
 func TestNeverDropNeverReorder(t *testing.T) {

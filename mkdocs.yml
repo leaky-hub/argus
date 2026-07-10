@@ -59,6 +59,7 @@ nav:
       - Coverage: coverage.md
       - Console and pillars: console-ops.md
   - Project:
+      - Verifying releases: verifying-releases.md
       - Roadmap: roadmap.md
       - Platform evolution: roadmap-platform.md
       - One-page pitch: pitch.md

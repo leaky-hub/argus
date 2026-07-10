@@ -94,6 +94,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastEvidence: boolean;
     dastDalfox: boolean;
     dastSqlmap: boolean;
+    dastCmdi: boolean;
     dastTags: string;
     dastSeverities: string;
     dastRateLimit: number | undefined;
@@ -113,6 +114,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastEvidence: false,
     dastDalfox: false,
     dastSqlmap: false,
+    dastCmdi: false,
     dastTags: "",
     dastSeverities: "",
     dastRateLimit: undefined,
@@ -662,6 +664,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                   <span>dalfox: active XSS testing of GET and POST forms (reflected, stored, DOM)</span>
                 </label>
 
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={configForm.dastCmdi}
+                    onChange={(e) => setConfigForm({ ...configForm, dastCmdi: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>Command injection: test GET and POST parameters with benign arithmetic/timing probes</span>
+                </label>
+
                 <label className="mb-3 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
@@ -973,6 +985,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastEvidence: d?.evidence ?? false,
       dastDalfox: d?.dalfox ?? false,
       dastSqlmap: d?.sqlmap ?? false,
+      dastCmdi: d?.cmdi ?? false,
       dastTags: d?.tags?.join(", ") || "",
       dastSeverities: d?.severities?.join(", ") || "",
       dastRateLimit: d?.rateLimit,
@@ -1006,6 +1019,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastEvidence) dast.evidence = true;
         if (configForm.dastDalfox) dast.dalfox = true;
         if (configForm.dastSqlmap) dast.sqlmap = true;
+        if (configForm.dastCmdi) dast.cmdi = true;
         const tags = splitList(configForm.dastTags);
         const sevs = splitList(configForm.dastSeverities);
         if (tags.length > 0) dast.tags = tags;

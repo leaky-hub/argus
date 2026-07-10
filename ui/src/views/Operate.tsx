@@ -3,6 +3,25 @@ import { opsApi, Target, Job, JobOptions, ApiError, KNOWN_SCANNERS, PROFILES, Fr
 import { Panel, Loading, ErrorNote, EmptyState } from "../components";
 import { fmtTime } from "../theme";
 
+// isFilesystemTarget reports whether a target scans a source tree (dir/git),
+// so the scanner/profile/scope/framework knobs apply. Cloud, DAST, and image
+// targets scan an account, a URL, or an image: their only knob is triage.
+function isFilesystemTarget(t: Target | undefined): boolean {
+  const kind = t?.type || "dir";
+  return kind === "dir" || kind === "git";
+}
+
+// targetKindLabel renders a target's kind suffix for the picker.
+function targetKindLabel(t: Target): string {
+  switch (t.type) {
+    case "git": return `${t.name} (git)`;
+    case "cloud": return `${t.name} (cloud)`;
+    case "dast": return `${t.name} (dast)`;
+    case "image": return `${t.name} (image)`;
+    default: return t.name;
+  }
+}
+
 export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRun: (runId: string, targetId?: string, commit?: string) => void }) {
   const [targets, setTargets] = useState<Target[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -101,16 +120,16 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
     setLaunching(true);
     setLaunchError(null);
     try {
-      // Cloud posture targets take only the triage toggle — the filesystem
-      // knobs are hidden and the server rejects them, so never send stale
-      // scanner/profile/scope state left over from a code target.
-      const isCloud = selectedTarget?.type === "cloud";
+      // Cloud, DAST, and image targets take only the triage toggle: the
+      // filesystem knobs are hidden and the server rejects them, so never
+      // send stale scanner/profile/scope state left over from a code target.
+      const fsTarget = isFilesystemTarget(selectedTarget);
       const options: JobOptions = {};
-      if (!isCloud && scanners.size > 0) options.scanners = Array.from(scanners);
-      if (!isCloud && profile) options.profile = profile;
+      if (fsTarget && scanners.size > 0) options.scanners = Array.from(scanners);
+      if (fsTarget && profile) options.profile = profile;
       if (triage !== "default") options.triage = triage === "on";
-      if (!isCloud && scope.trim()) options.scope = scope.trim();
-      if (!isCloud && selectedFrameworks.size > 0) options.frameworks = Array.from(selectedFrameworks);
+      if (fsTarget && scope.trim()) options.scope = scope.trim();
+      if (fsTarget && selectedFrameworks.size > 0) options.frameworks = Array.from(selectedFrameworks);
 
       const job = await opsApi.launchScan(selectedTargetId, options);
       setJobs((prev) => [job, ...prev]);
@@ -177,7 +196,7 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                   className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
                 >
                   {targets.map((t) => (
-                    <option key={t.id} value={t.id}>{t.type === "git" ? `${t.name} (git)` : t.type === "cloud" ? `${t.name} (cloud)` : t.name}</option>
+                    <option key={t.id} value={t.id}>{targetKindLabel(t)}</option>
                   ))}
                 </select>
                 {selectedTarget?.type === "git" && selectedTarget.url && (
@@ -189,14 +208,26 @@ export function Operate({ canLaunch, onOpenRun }: { canLaunch: boolean; onOpenRu
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     cloud · {selectedTarget.provider} · profile {selectedTarget.profileName}
                     {selectedTarget.regions && selectedTarget.regions.length ? ` · ${selectedTarget.regions.join(",")}` : ""}
-                    <br />prowler posture scan — scanner/profile/scope options do not apply
+                    <br />prowler posture scan · scanner/profile/scope options do not apply
+                  </p>
+                )}
+                {selectedTarget?.type === "dast" && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    dast · {selectedTarget.url}
+                    <br />nuclei dynamic scan · scanner/profile/scope options do not apply
+                  </p>
+                )}
+                {selectedTarget?.type === "image" && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    image · {selectedTarget.ref}
+                    <br />trivy image scan · scanner/profile/scope options do not apply
                   </p>
                 )}
               </div>
 
-              {/* Filesystem scan options — hidden for cloud posture targets,
-                  whose only knob is the AI-triage toggle below. */}
-              {selectedTarget?.type !== "cloud" && (<>
+              {/* Filesystem scan options: hidden for cloud/dast/image
+                  targets, whose only knob is the AI-triage toggle below. */}
+              {isFilesystemTarget(selectedTarget) && (<>
               {/* Scanners Checkboxes */}
               <div className="md:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Scanners</label>

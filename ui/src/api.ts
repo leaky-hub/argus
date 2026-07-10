@@ -493,12 +493,16 @@ export interface TargetConfig {
 
 export interface Target {
   id: string; name: string;
-  type?: "dir" | "git" | "cloud";
+  type?: "dir" | "git" | "cloud" | "dast" | "image";
   path?: string;
   url?: string; branch?: string;
   // Cloud targets (schema 2.1.0): a provider + a profile NAME (never a key)
   // and an optional region filter.
   provider?: string; profileName?: string; regions?: string[];
+  // DAST targets reuse url (a running http/https target). Image targets
+  // (schema 2.2.0) carry a container image reference. Neither stores a
+  // credential.
+  ref?: string;
   scanners?: string[]; profile?: string;
   config?: TargetConfig;
   createdAt: string;
@@ -651,7 +655,7 @@ export const opsApi = {
   targets: (): Promise<TargetsResponse> => 
     send<TargetsResponse>("GET", "api/targets"),
   
-  createTarget: (t: { name: string; path?: string; url?: string; branch?: string; provider?: string; profileName?: string; account?: string; regions?: string[]; scanners?: string[]; profile?: string }): Promise<Target> =>
+  createTarget: (t: { name: string; type?: "dast" | "image"; path?: string; url?: string; branch?: string; ref?: string; provider?: string; profileName?: string; account?: string; regions?: string[]; scanners?: string[]; profile?: string }): Promise<Target> =>
     send<Target>("POST", "api/targets", t),
 
   cloudProfiles: (): Promise<CloudProfilesResponse> =>

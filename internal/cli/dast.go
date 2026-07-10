@@ -25,6 +25,11 @@ func init() {
 	dastCmd.Flags().String("severity", "", "Comma-separated nuclei severity filter (info,low,medium,high,critical)")
 	dastCmd.Flags().Int("rate-limit", 0, "Max requests per second (0 = nuclei default)")
 	dastCmd.Flags().Int("timeout", 0, "Whole-scan timeout in seconds (0 = no limit)")
+	dastCmd.Flags().Bool("dast", false, "Enable active fuzzing (nuclei -dast templates): probes parameters for injection")
+	dastCmd.Flags().Bool("auth-auto", false, "Authenticate before scanning: detect the login form and try built-in default credentials")
+	dastCmd.Flags().String("auth-user-env", "", "Name of an env var holding the login username (value never stored)")
+	dastCmd.Flags().String("auth-pass-env", "", "Name of an env var holding the login password (value never stored)")
+	dastCmd.Flags().String("login-url", "", "Login page URL (default: the scan target)")
 	dastCmd.Flags().Bool("triage", false, "Enable AI triage of findings (config: triage.enabled)")
 	dastCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 	dastCmd.Flags().Bool("save", false, "Save the run under .appsec/dast/<target>/runs for the console")
@@ -44,9 +49,15 @@ callout server and update check disabled, so a scan performs no network
 callouts beyond requests to the target itself. Findings carry the weakness
 identity and the matched URL, never the target's response bodies.
 
+Use --dast to enable active fuzzing (probe parameters for injection), and
+--auth-auto (or --auth-user-env/--auth-pass-env) to log in first so the scan
+reaches pages behind authentication. Credentials are referenced by env-var
+name, never passed as literal flags, and the session is never stored or logged.
+
   argus dast https://staging.example.com
   argus dast https://staging.example.com --tags misconfig,exposure --severity medium,high,critical
-  argus dast https://staging.example.com --templates cves/ --rate-limit 50 --fail-severity high`,
+  argus dast "https://staging.example.com/item?id=1" --dast --fail-severity high
+  argus dast https://staging.example.com --auth-auto --dast`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDAST,
 }
@@ -69,6 +80,11 @@ func runDAST(cmd *cobra.Command, args []string) error {
 
 	timeoutSec, _ := cmd.Flags().GetInt("timeout")
 	rateLimit, _ := cmd.Flags().GetInt("rate-limit")
+	fuzzing, _ := cmd.Flags().GetBool("dast")
+	auth, err := dastAuthFromFlags(cmd)
+	if err != nil {
+		return err
+	}
 	res, err := pipeline.RunDAST(cmd.Context(), pipeline.DASTOptions{
 		URL:        target,
 		Templates:  splitCSV(cmd, "templates"),
@@ -76,6 +92,8 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		Severities: splitCSV(cmd, "severity"),
 		RateLimit:  rateLimit,
 		TimeoutSec: timeoutSec,
+		Fuzzing:    fuzzing,
+		Auth:       auth,
 		Config:     cfg,
 	}, func(line string) { fmt.Fprint(os.Stderr, line) })
 	if err != nil {
@@ -118,6 +136,42 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		return errGateFailed
 	}
 	return nil
+}
+
+// dastAuthFromFlags builds the pre-scan auth config, or nil when no auth flag
+// is set. Credentials are read from the NAMED env vars only: a username or
+// password never appears as a literal flag (it would land in shell history and
+// the process table), and the resolved value is used in memory and never
+// stored. Naming an env var that is unset is a clear error, not a silent
+// fall-through to an unauthenticated scan.
+func dastAuthFromFlags(cmd *cobra.Command) (*pipeline.DASTAuth, error) {
+	auto, _ := cmd.Flags().GetBool("auth-auto")
+	userEnv, _ := cmd.Flags().GetString("auth-user-env")
+	passEnv, _ := cmd.Flags().GetString("auth-pass-env")
+	loginURL, _ := cmd.Flags().GetString("login-url")
+	if !auto && userEnv == "" && passEnv == "" && loginURL == "" {
+		return nil, nil
+	}
+
+	a := &pipeline.DASTAuth{LoginURL: loginURL, TryDefaults: auto}
+	if userEnv != "" {
+		v, ok := os.LookupEnv(userEnv)
+		if !ok {
+			return nil, fmt.Errorf("--auth-user-env: environment variable %q is not set", userEnv)
+		}
+		a.Username = v
+	}
+	if passEnv != "" {
+		v, ok := os.LookupEnv(passEnv)
+		if !ok {
+			return nil, fmt.Errorf("--auth-pass-env: environment variable %q is not set", passEnv)
+		}
+		a.Password = v
+	}
+	if a.Username == "" && a.Password == "" && !auto {
+		return nil, fmt.Errorf("authentication requested but no credentials: set --auth-auto or --auth-user-env/--auth-pass-env")
+	}
+	return a, nil
 }
 
 // splitCSV reads a comma-separated flag into a trimmed, non-empty slice.

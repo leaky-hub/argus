@@ -47,6 +47,56 @@ nuclei also runs with its OOB interaction server and its update check
 disabled, so a scan performs no network callouts beyond the requests to the
 target itself.
 
+## Active fuzzing
+
+By default nuclei runs its known-issue templates (CVEs, misconfigurations,
+exposures, tech detection): it confirms things that are *present*, but it does
+not probe parameters for injection. `--dast` turns on nuclei's active fuzzing
+templates, which mutate request parameters and diff the responses to surface
+SQL injection, reflected XSS, and similar input-driven weaknesses on the live
+surface.
+
+```bash
+argus dast "https://staging.example.com/item?id=1" --dast --fail-severity high
+```
+
+Fuzzing needs parameterized endpoints to work on. Point `--dast` at a URL that
+carries query or form parameters (an authenticated crawl that discovers these
+automatically is on the roadmap).
+
+## Authenticated scanning
+
+Most of an app lives behind a login, and an unauthenticated scan only ever
+sees the front door. `argus dast` can log in first, then scan with that
+session:
+
+```bash
+# Detect the login form and try a short list of well-known default credentials:
+argus dast http://target/ --auth-auto --dast
+
+# Supply your own credentials by ENV-VAR NAME (never as a literal flag):
+APP_USER=admin APP_PASS='s3cret' \
+  argus dast http://target/ --auth-user-env APP_USER --auth-pass-env APP_PASS --dast
+
+# Point at an explicit login page if it is not the scan URL:
+argus dast http://target/app/ --auth-auto --login-url http://target/login
+```
+
+How it works: Argus fetches the login page, finds the form, carries any CSRF
+token, submits the credentials, and verifies the resulting session is
+authenticated before scanning. The session is then sent on every scan request.
+
+Credential handling follows the same rule as every other secret in Argus:
+**credentials are referenced, never stored.** Your username and password are
+read from the environment variables you name (`--auth-user-env` /
+`--auth-pass-env`), never taken as literal flag values (which would land in
+shell history and the process table). The `--auth-auto` default-credential
+list is public vendor-default knowledge, not secrets; it is a bounded
+first-guess convenience for authorized testing of your own target, not a
+brute-forcer. The obtained session cookie is held in memory for the one scan
+and is never written to a finding, a saved run, a log, or a progress line
+(you will see `authenticated as "admin"`, never the cookie).
+
 ## Scope and tuning
 
 - `--templates`: comma-separated nuclei templates (files, directories, or
@@ -56,6 +106,9 @@ target itself.
 - `--severity`: nuclei severity filter, e.g. `medium,high,critical`.
 - `--rate-limit`: max requests per second (be a considerate guest).
 - `--timeout`: whole-scan timeout in seconds.
+- `--dast`: enable active fuzzing (see above).
+- `--auth-auto` / `--auth-user-env` / `--auth-pass-env` / `--login-url`:
+  authenticate before scanning (see above).
 
 ## Gate, save, and dispositions
 

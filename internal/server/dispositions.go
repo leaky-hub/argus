@@ -11,7 +11,6 @@ import (
 	"github.com/zer0d4y5/argus/internal/audit"
 	"github.com/zer0d4y5/argus/internal/disposition"
 	"github.com/zer0d4y5/argus/internal/runstore"
-	"github.com/zer0d4y5/argus/internal/targets"
 )
 
 // Finding-workflow disposition endpoints (operator+). A disposition is durable
@@ -168,8 +167,8 @@ func (s *Server) dispositionStoreFor(w http.ResponseWriter, _ *http.Request, tar
 		writeErr(w, http.StatusNotFound, "target not found")
 		return nil, false
 	}
-	if t.Kind() == targets.TypeCloud {
-		return disposition.At(filepath.Dir(s.targets.CloudRunStore(t))), true
+	if dir, ok := s.targets.NonFSRunStore(t); ok {
+		return disposition.At(filepath.Dir(dir)), true
 	}
 	return dispositionStore(runstore.ForRepo(s.targets.Root(t))), true
 }

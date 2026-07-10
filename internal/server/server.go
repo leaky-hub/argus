@@ -268,8 +268,8 @@ func (s *Server) storesForAggregate() []runstore.Store {
 		return stores
 	}
 	for _, t := range ts {
-		if t.Kind() == targets.TypeCloud {
-			stores = append(stores, runstore.Store{Dir: s.targets.CloudRunStore(t)})
+		if dir, ok := s.targets.NonFSRunStore(t); ok {
+			stores = append(stores, runstore.Store{Dir: dir})
 		} else {
 			stores = append(stores, runstore.ForRepo(s.targets.Root(t)))
 		}
@@ -475,10 +475,10 @@ func (s *Server) runStoreFor(w http.ResponseWriter, r *http.Request) (runstore.S
 		writeErr(w, http.StatusNotFound, "target not found")
 		return runstore.Store{}, false
 	}
-	// Cloud targets have no filesystem root; their history lives in the
-	// per-target cloud store (locked decision 9).
-	if t.Kind() == targets.TypeCloud {
-		return runstore.Store{Dir: s.targets.CloudRunStore(t)}, true
+	// Cloud, DAST, and image targets have no filesystem root; their history
+	// lives in a per-target store (locked decision 9, extended in 2.2.0).
+	if dir, ok := s.targets.NonFSRunStore(t); ok {
+		return runstore.Store{Dir: dir}, true
 	}
 	return runstore.ForRepo(s.targets.Root(t)), true
 }

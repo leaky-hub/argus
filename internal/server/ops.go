@@ -216,9 +216,11 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		}
 		var req struct {
 			Name     string   `json:"name"`
+			Type     string   `json:"type"` // explicit kind: "dast" | "image" (dir/git/cloud still inferred from fields)
 			Path     string   `json:"path"`
 			URL      string   `json:"url"`
 			Branch   string   `json:"branch"`
+			Ref      string   `json:"ref"` // image targets: the container image reference
 			Scanners []string `json:"scanners"`
 			Profile  string   `json:"profile"`
 			// Cloud target fields (schema 2.1.0). ProfileName is a NAME from the
@@ -240,6 +242,13 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		var t targets.Target
 		var err error
 		switch {
+		case req.Type == targets.TypeDAST:
+			// A DAST target is a running URL scanned with nuclei. AddDAST
+			// validates the URL (http/https, host, no credentials).
+			t, err = s.targets.AddDAST(req.Name, req.URL)
+		case req.Type == targets.TypeImage:
+			// An image target is a container reference scanned with trivy.
+			t, err = s.targets.AddImage(req.Name, req.Ref)
 		case req.Provider != "" && (req.Path != "" || req.URL != ""):
 			writeErr(w, http.StatusBadRequest, "a cloud target (provider) takes neither path nor url")
 			return
@@ -277,6 +286,10 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 			// credential). No key material exists to leak.
 			details["provider"] = t.Provider
 			details["profileName"] = t.ProfileName
+		case targets.TypeDAST:
+			details["url"] = t.URL
+		case targets.TypeImage:
+			details["ref"] = t.Ref
 		default:
 			details["path"] = t.Path
 		}
@@ -423,14 +436,16 @@ func (s *Server) handleScanLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cloud targets run prowler over an account: the filesystem launch knobs
-	// (scanner subset, semgrep profile, path scope, framework focus) do not
-	// apply, so reject them rather than silently ignore — an accepted-but-inert
-	// option is a lie about what the scan will do. Only the triage toggle
-	// carries over.
-	if t.Kind() == targets.TypeCloud {
+	// Cloud, DAST, and image targets scan something other than a source tree
+	// (an account, a URL, an image): the filesystem launch knobs (scanner
+	// subset, semgrep profile, path scope, framework focus) do not apply, so
+	// reject them rather than silently ignore (an accepted-but-inert option
+	// is a lie about what the scan will do). Only the triage toggle carries
+	// over.
+	switch t.Kind() {
+	case targets.TypeCloud, targets.TypeDAST, targets.TypeImage:
 		if len(req.Options.Scanners) > 0 || req.Options.Profile != "" || req.Options.Scope != "" || len(req.Options.Frameworks) > 0 {
-			writeErr(w, http.StatusBadRequest, "cloud targets take no scanner/profile/scope/framework options — only the triage toggle applies")
+			writeErr(w, http.StatusBadRequest, t.Kind()+" targets take no scanner/profile/scope/framework options; only the triage toggle applies")
 			return
 		}
 		actor := actorFrom(r)

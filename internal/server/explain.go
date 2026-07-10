@@ -123,11 +123,11 @@ func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "target not found")
 			return
 		}
-		if t.Kind() == targets.TypeCloud {
-			store = runstore.Store{Dir: s.targets.CloudRunStore(t)}
-			// Cloud findings have no source tree (snippet resolution is moot —
-			// Location.File is empty); config for the LLM provider comes from
-			// the served repo, so keep root = s.dir.
+		if dir, ok := s.targets.NonFSRunStore(t); ok {
+			store = runstore.Store{Dir: dir}
+			// Cloud/DAST/image findings have no source tree (snippet resolution
+			// is moot: Location.File is empty); config for the LLM provider
+			// comes from the served repo, so keep root = s.dir.
 		} else {
 			root = s.targets.Root(t)
 			store = runstore.ForRepo(root)

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/zer0d4y5/argus/internal/cloudscan"
+	"github.com/zer0d4y5/argus/internal/dastscan"
 	"github.com/zer0d4y5/argus/internal/scanner"
 	"github.com/zer0d4y5/argus/internal/snippet"
 )
@@ -48,6 +49,8 @@ const (
 	TypeDir   = "dir"
 	TypeGit   = "git"
 	TypeCloud = "cloud" // schema 2.1.0: a cloud account referenced by profile name
+	TypeDAST  = "dast"  // schema 2.2.0: a running URL scanned with nuclei
+	TypeImage = "image" // schema 2.2.0: a container image reference scanned with trivy
 )
 
 // regionRe bounds a cloud region filter entry — the same closed grammar the
@@ -83,6 +86,12 @@ type Target struct {
 	ProfileName string   `json:"profileName,omitempty"` // AWS: a name from the local cloud config's closed list
 	Account     string   `json:"account,omitempty"`     // Azure subscription id / GCP project id (the account reference)
 	Regions     []string `json:"regions,omitempty"`     // AWS optional region filter
+
+	// DAST targets reuse URL (a validated http/https target). Image targets
+	// (schema 2.2.0) carry a container image reference. Neither stores any
+	// credential: a private registry image uses the ambient docker config, a
+	// DAST scan sends only requests to the URL.
+	Ref string `json:"ref,omitempty"` // image targets: the container image reference
 
 	Scanners  []string  `json:"scanners,omitempty"` // allowed subset; empty = all
 	Profile   string    `json:"profile,omitempty"`  // default profile; empty = standard
@@ -215,6 +224,37 @@ func (r *Registry) Root(t Target) string {
 // join. The returned dir is the runstore.Store.Dir a caller uses.
 func (r *Registry) CloudRunStore(t Target) string {
 	return filepath.Join(filepath.Dir(r.path), "cloud", t.ID, "runs")
+}
+
+// DASTRunStore and ImageRunStore resolve the run-history directories for the
+// non-filesystem scan kinds, exactly like CloudRunStore: there is no source
+// tree to own the history, so runs live under the served repo's
+// .appsec/<kind>/<targetID>/runs. The ID is always server-generated hex,
+// never request input, so the path is safe to join.
+func (r *Registry) DASTRunStore(t Target) string {
+	return filepath.Join(filepath.Dir(r.path), "dast", t.ID, "runs")
+}
+
+func (r *Registry) ImageRunStore(t Target) string {
+	return filepath.Join(filepath.Dir(r.path), "image", t.ID, "runs")
+}
+
+// NonFSRunStore returns the per-target run-history directory for the scan
+// kinds that have no filesystem tree (cloud, DAST, image), and ok=false for
+// dir/git targets whose history lives under their source root. It is the one
+// place that maps a non-filesystem kind to its store, so every reader
+// (run listing, dispositions, explain) resolves it identically. Callers that
+// want the disposition base take filepath.Dir of the returned runs dir.
+func (r *Registry) NonFSRunStore(t Target) (string, bool) {
+	switch t.Kind() {
+	case TypeCloud:
+		return r.CloudRunStore(t), true
+	case TypeDAST:
+		return r.DASTRunStore(t), true
+	case TypeImage:
+		return r.ImageRunStore(t), true
+	}
+	return "", false
 }
 
 // ResolveScope confines a per-launch scan scope (docs/console-ops.md S2) and
@@ -400,6 +440,74 @@ func (r *Registry) AddCloud(name, provider, profileName, account string, regions
 	}
 	t := Target{ID: newID(), Name: name, Type: TypeCloud, Provider: provider, ProfileName: profileName,
 		Account: account, Regions: regions, Scanners: scannerNames, Profile: profile, CreatedAt: time.Now().UTC()}
+	r.targets = append(r.targets, t)
+	if err := r.save(); err != nil {
+		r.loaded = false
+		return Target{}, err
+	}
+	return t, nil
+}
+
+// AddDAST registers a running URL to scan dynamically with nuclei (schema
+// 2.2.0). The URL is validated by the one owner of the DAST target contract
+// (dastscan.ValidateURL: http/https, host present, no embedded credentials),
+// so a file:// or credentialed URL never registers. A DAST scan sends only
+// requests to the URL; nothing is stored but the URL itself.
+func (r *Registry) AddDAST(name, rawURL string) (Target, error) {
+	if !nameRe.MatchString(name) {
+		return Target{}, fmt.Errorf("invalid target name (letters, digits, space, . _ / -; max 80)")
+	}
+	if err := dastscan.ValidateURL(rawURL); err != nil {
+		return Target{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.refresh(); err != nil {
+		return Target{}, err
+	}
+	for _, t := range r.targets {
+		if t.Name == name {
+			return Target{}, fmt.Errorf("target name %q already exists", name)
+		}
+		if t.Kind() == TypeDAST && t.URL == rawURL {
+			return Target{}, fmt.Errorf("URL already registered as %q (%s)", t.Name, t.ID)
+		}
+	}
+	t := Target{ID: newID(), Name: name, Type: TypeDAST, URL: rawURL, CreatedAt: time.Now().UTC()}
+	r.targets = append(r.targets, t)
+	if err := r.save(); err != nil {
+		r.loaded = false
+		return Target{}, err
+	}
+	return t, nil
+}
+
+// AddImage registers a container image reference to scan with trivy (schema
+// 2.2.0). The reference is validated by the one owner of the image contract
+// (scanner.ValidateImageRef: a conservative OCI-reference grammar, no leading
+// dash or shell metacharacters). Registry credentials are never stored: a
+// private image uses the ambient docker config at scan time.
+func (r *Registry) AddImage(name, ref string) (Target, error) {
+	if !nameRe.MatchString(name) {
+		return Target{}, fmt.Errorf("invalid target name (letters, digits, space, . _ / -; max 80)")
+	}
+	if err := scanner.ValidateImageRef(ref); err != nil {
+		return Target{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.refresh(); err != nil {
+		return Target{}, err
+	}
+	for _, t := range r.targets {
+		if t.Name == name {
+			return Target{}, fmt.Errorf("target name %q already exists", name)
+		}
+		if t.Kind() == TypeImage && t.Ref == ref {
+			return Target{}, fmt.Errorf("image already registered as %q (%s)", t.Name, t.ID)
+		}
+	}
+	t := Target{ID: newID(), Name: name, Type: TypeImage, Ref: ref, CreatedAt: time.Now().UTC()}
 	r.targets = append(r.targets, t)
 	if err := r.save(); err != nil {
 		r.loaded = false

@@ -66,9 +66,16 @@ func execScan(ctx context.Context, reg *targets.Registry, git gitws.Syncer, job 
 
 	// Cloud posture targets run a different pipeline (prowler, no filesystem
 	// tree) and save to their own per-target store — split out so the
-	// path/git machinery below never touches a credential reference.
-	if t.Kind() == targets.TypeCloud {
+	// path/git machinery below never touches a credential reference. DAST
+	// (nuclei against a URL) and image (trivy against a reference) are the
+	// same shape: no source tree, their own per-target store.
+	switch t.Kind() {
+	case targets.TypeCloud:
 		return execCloudScan(ctx, reg, t, job, progress)
+	case targets.TypeDAST:
+		return execDASTScan(ctx, reg, t, job, progress)
+	case targets.TypeImage:
+		return execImageScan(ctx, reg, t, job, progress)
 	}
 
 	root := reg.Root(t)
@@ -169,6 +176,73 @@ func execCloudScan(ctx context.Context, reg *targets.Registry, t targets.Target,
 	meta, err := store.SaveWithTools(res.Findings, tools, time.Now())
 	if err != nil {
 		return out, fmt.Errorf("save cloud run: %w", err)
+	}
+	progress(fmt.Sprintf("==> saved run %s\n", meta.ID))
+	out.RunID = meta.ID
+	return out, nil
+}
+
+// consoleEnrichConfig builds the config for the non-filesystem scan kinds
+// (cloud, DAST, image): the served repo's own appsec.yml provides the
+// enrichment settings (triage on/off, timeouts), with the launch-time triage
+// toggle and the registry entry's triage default layered on. It never carries
+// a filesystem scanner set or scope: those knobs do not apply to these kinds
+// (rejected at the launch boundary), and no credential ever reaches config.
+func consoleEnrichConfig(t targets.Target, job jobs.Job) (config.Config, error) {
+	cfg := config.Default()
+	if job.Options.Triage != nil {
+		cfg.Triage.Enabled = *job.Options.Triage
+	} else if c := t.Config; c != nil && c.Triage != nil {
+		cfg.Triage.Enabled = *c.Triage
+	}
+	return cfg, cfg.Validate()
+}
+
+// execDASTScan runs a registered DAST target through nuclei and the shared
+// enrichment pipeline, saving to the target's own per-target store. The URL
+// was validated at registration; nuclei sends only requests to it.
+func execDASTScan(ctx context.Context, reg *targets.Registry, t targets.Target, job jobs.Job, progress func(line string)) (jobs.Result, error) {
+	var out jobs.Result
+	cfg, err := consoleEnrichConfig(t, job)
+	if err != nil {
+		return out, err
+	}
+	res, err := pipeline.RunDAST(ctx, pipeline.DASTOptions{URL: t.URL, Config: cfg}, progress)
+	if err != nil {
+		return out, err
+	}
+	store := runstore.Store{Dir: reg.DASTRunStore(t)}
+	var tools map[string]string
+	if res.ToolVersion != "" {
+		tools = map[string]string{"nuclei": res.ToolVersion}
+	}
+	meta, err := store.SaveWithTools(res.Findings, tools, time.Now())
+	if err != nil {
+		return out, fmt.Errorf("save dast run: %w", err)
+	}
+	progress(fmt.Sprintf("==> saved run %s\n", meta.ID))
+	out.RunID = meta.ID
+	return out, nil
+}
+
+// execImageScan runs a registered image target through trivy and the shared
+// enrichment pipeline, saving to the target's own per-target store. The image
+// reference was validated at registration; registry credentials come from the
+// ambient container config, never from Argus.
+func execImageScan(ctx context.Context, reg *targets.Registry, t targets.Target, job jobs.Job, progress func(line string)) (jobs.Result, error) {
+	var out jobs.Result
+	cfg, err := consoleEnrichConfig(t, job)
+	if err != nil {
+		return out, err
+	}
+	res, err := pipeline.RunImage(ctx, pipeline.ImageOptions{Ref: t.Ref, Config: cfg}, progress)
+	if err != nil {
+		return out, err
+	}
+	store := runstore.Store{Dir: reg.ImageRunStore(t)}
+	meta, err := store.Save(res.Findings, time.Now())
+	if err != nil {
+		return out, fmt.Errorf("save image run: %w", err)
 	}
 	progress(fmt.Sprintf("==> saved run %s\n", meta.ID))
 	out.RunID = meta.ID

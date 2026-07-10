@@ -37,11 +37,12 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "viewer" });
   
   // New Target Add Form State
-  const [newTargetType, setNewTargetType] = useState<"dir" | "git" | "cloud">("dir");
+  const [newTargetType, setNewTargetType] = useState<"dir" | "git" | "cloud" | "dast" | "image">("dir");
   const [newTargetName, setNewTargetName] = useState("");
   const [newTargetPath, setNewTargetPath] = useState("");
   const [newTargetUrl, setNewTargetUrl] = useState("");
   const [newTargetBranch, setNewTargetBranch] = useState("");
+  const [newTargetImageRef, setNewTargetImageRef] = useState(""); // image targets: the container reference (dast reuses the url field)
   const [newTargetProfile, setNewTargetProfile] = useState("");
   const [newTargetScanners, setNewTargetScanners] = useState<Set<string>>(new Set());
   // Cloud target form: a provider and a profile NAME chosen from the
@@ -275,6 +276,18 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
             >
               Cloud
             </button>
+            <button
+              onClick={() => setNewTargetType("dast")}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'dast' ? 'bg-accent-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+            >
+              DAST (URL)
+            </button>
+            <button
+              onClick={() => setNewTargetType("image")}
+              className={`rounded px-2 py-1 text-xs ${newTargetType === 'image' ? 'bg-accent-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+            >
+              Image
+            </button>
           </div>
 
           <input
@@ -310,6 +323,34 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 onChange={(e) => setNewTargetBranch(e.target.value)}
                 className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
               />
+            </div>
+          )}
+          {newTargetType === "dast" && (
+            <div className="space-y-1">
+              <input
+                type="text"
+                placeholder="https://staging.example.com"
+                value={newTargetUrl}
+                onChange={(e) => setNewTargetUrl(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                A running URL to scan with nuclei. Only scan targets you are authorized to test. The scan sends only requests to this URL.
+              </p>
+            </div>
+          )}
+          {newTargetType === "image" && (
+            <div className="space-y-1">
+              <input
+                type="text"
+                placeholder="nginx:1.27-alpine or registry.example.com/team/app:v1"
+                value={newTargetImageRef}
+                onChange={(e) => setNewTargetImageRef(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                A container image reference to scan with trivy. Private-registry images use the serve host's ambient docker config; no credential is stored.
+              </p>
             </div>
           )}
           {newTargetType === "cloud" && (
@@ -365,7 +406,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
             </div>
           )}
 
-          {newTargetType !== "cloud" && (
+          {(newTargetType === "dir" || newTargetType === "git") && (
             <>
               <select
                 value={newTargetProfile}
@@ -404,7 +445,12 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
 
           <button
             onClick={handleAddTarget}
-            disabled={!newTargetName || (newTargetType === "dir" ? !newTargetPath : newTargetType === "git" ? !newTargetUrl : cloudProvider === "aws" ? !cloudProfileName : !cloudAccount)}
+            disabled={!newTargetName || (
+              newTargetType === "dir" ? !newTargetPath :
+              newTargetType === "git" ? !newTargetUrl :
+              newTargetType === "dast" ? !newTargetUrl :
+              newTargetType === "image" ? !newTargetImageRef :
+              cloudProvider === "aws" ? !cloudProfileName : !cloudAccount)}
             className="rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Register target
@@ -643,7 +689,13 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     try {
       const selected = Array.from(newTargetScanners);
 
-      if (newTargetType === "git") {
+      if (newTargetType === "dast") {
+        if (!newTargetUrl) return;
+        await opsApi.createTarget({ name: newTargetName, type: "dast", url: newTargetUrl });
+      } else if (newTargetType === "image") {
+        if (!newTargetImageRef) return;
+        await opsApi.createTarget({ name: newTargetName, type: "image", ref: newTargetImageRef.trim() });
+      } else if (newTargetType === "git") {
         if (!newTargetUrl) return;
         await opsApi.createTarget({
           name: newTargetName,
@@ -676,6 +728,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       setNewTargetPath("");
       setNewTargetUrl("");
       setNewTargetBranch("");
+      setNewTargetImageRef("");
       setNewTargetProfile("");
       setNewTargetScanners(new Set());
       setCloudProfileName("");

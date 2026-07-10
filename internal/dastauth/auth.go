@@ -82,6 +82,16 @@ type Session struct {
 	User string // the username that authenticated (safe to log; never the password)
 }
 
+// Client returns an http.Client that carries this session's cookies, borrowing
+// base's transport and timeout. A crawler uses it to fetch pages as the
+// logged-in user without re-sending the login each request.
+func (s *Session) Client(base *http.Client) *http.Client {
+	if s == nil {
+		return base
+	}
+	return withJar(base, s.jar)
+}
+
 // CookieHeader renders the session's cookies for the base URL as a single
 // Cookie header value ("a=1; b=2"), or "" if the session carries none. This is
 // the value an active scanner sends to stay authenticated.

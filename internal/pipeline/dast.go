@@ -8,6 +8,7 @@ import (
 
 	"github.com/zer0d4y5/argus/internal/config"
 	"github.com/zer0d4y5/argus/internal/dastauth"
+	"github.com/zer0d4y5/argus/internal/dastcrawl"
 	"github.com/zer0d4y5/argus/internal/dastscan"
 	"github.com/zer0d4y5/argus/internal/model"
 )
@@ -23,6 +24,9 @@ type DASTOptions struct {
 	Fuzzing    bool     // enable nuclei -dast active fuzzing
 	Headers    []string // extra request headers (sent to nuclei, never logged)
 	Auth       *DASTAuth
+	Crawl      bool // discover endpoints (authenticated) and fuzz all of them
+	CrawlDepth int  // crawl depth (0 = default)
+	CrawlPages int  // crawl page cap (0 = default)
 	Config     config.Config
 }
 
@@ -59,18 +63,36 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	// the request headers so the scan runs logged in. Auth failure is fatal to
 	// the run: silently scanning the login page is worse than a clear error.
 	headers := opts.Headers
+	var session *dastauth.Session
 	if opts.Auth != nil {
-		cookie, err := authenticate(ctx, opts, progress)
+		sess, err := authenticate(ctx, opts, progress)
 		if err != nil {
 			return DASTResult{}, err
 		}
-		if cookie != "" {
+		session = sess
+		if cookie := sess.CookieHeader(); cookie != "" {
 			headers = append(append([]string{}, headers...), "Cookie: "+cookie)
+		}
+	}
+
+	// When crawling is on, discover the app's fuzzable endpoints (authenticated,
+	// reusing the login session) and fuzz all of them, so pointing at a base URL
+	// finds injection across the whole app rather than only the one page.
+	var discovered []string
+	if opts.Crawl {
+		urls, err := crawlEndpoints(ctx, opts, session, headers, progress)
+		if err != nil {
+			return DASTResult{}, err
+		}
+		discovered = urls
+		if len(discovered) == 0 {
+			progress("==> crawl found no parameterized endpoints; scanning the base URL only\n")
 		}
 	}
 
 	scan, err := dastscan.Scan(ctx, dastscan.Options{
 		URL:        opts.URL,
+		URLs:       discovered,
 		Templates:  opts.Templates,
 		Tags:       opts.Tags,
 		Severities: opts.Severities,
@@ -87,10 +109,9 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	return DASTResult{Findings: findings, ToolVersion: scan.ToolVersion}, nil
 }
 
-// authenticate runs the pre-scan login and returns the session's Cookie header
-// value (never logged). An empty return with nil error means the session
-// carried no cookies (unusual but not fatal); the scan proceeds unauthenticated.
-func authenticate(ctx context.Context, opts DASTOptions, progress Progress) (string, error) {
+// authenticate runs the pre-scan login and returns the session (cookies held
+// in memory, never logged).
+func authenticate(ctx context.Context, opts DASTOptions, progress Progress) (*dastauth.Session, error) {
 	a := opts.Auth
 	cfg := dastauth.Config{LoginURL: a.LoginURL, TryDefaults: a.TryDefaults}
 	if a.Username != "" || a.Password != "" {
@@ -100,7 +121,26 @@ func authenticate(ctx context.Context, opts DASTOptions, progress Progress) (str
 	progress(fmt.Sprintf("==> authenticating to %s before scan\n", opts.URL))
 	sess, err := dastauth.Authenticate(ctx, client, opts.URL, cfg, progress)
 	if err != nil {
-		return "", fmt.Errorf("dast auth: %w", err)
+		return nil, fmt.Errorf("dast auth: %w", err)
 	}
-	return sess.CookieHeader(), nil
+	return sess, nil
+}
+
+// crawlEndpoints walks the target (reusing the auth session when present) and
+// returns the fuzzable endpoints to scan.
+func crawlEndpoints(ctx context.Context, opts DASTOptions, session *dastauth.Session, headers []string, progress Progress) ([]string, error) {
+	progress(fmt.Sprintf("==> crawling %s to discover endpoints\n", opts.URL))
+	client := &http.Client{Timeout: 20 * time.Second}
+	if session != nil {
+		client = session.Client(client)
+	}
+	urls, err := dastcrawl.Crawl(ctx, client, opts.URL, dastcrawl.Options{
+		MaxDepth: opts.CrawlDepth,
+		MaxPages: opts.CrawlPages,
+		Headers:  headers,
+	}, progress)
+	if err != nil {
+		return nil, fmt.Errorf("dast crawl: %w", err)
+	}
+	return urls, nil
 }

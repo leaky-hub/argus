@@ -176,6 +176,7 @@ func TestValidateDastConfig(t *testing.T) {
 	ok := []*Config{
 		{Dast: &DastConfig{Fuzzing: true}},
 		{Dast: &DastConfig{Severities: []string{"high", "Critical"}, RateLimit: 50}},
+		{Dast: &DastConfig{Crawl: true, CrawlDepth: 3, CrawlPages: 200}},
 		{Dast: &DastConfig{Auth: &DastAuthConfig{TryDefaults: true}}},
 		{Dast: &DastConfig{Auth: &DastAuthConfig{UsernameEnv: "APP_USER", PasswordEnv: "APP_PASS", LoginURL: "http://t/login"}}},
 	}
@@ -186,6 +187,8 @@ func TestValidateDastConfig(t *testing.T) {
 	}
 	bad := []*Config{
 		{Dast: &DastConfig{RateLimit: -1}},
+		{Dast: &DastConfig{CrawlDepth: 99}},  // over the depth cap
+		{Dast: &DastConfig{CrawlPages: 99999}}, // over the page cap
 		{Dast: &DastConfig{Severities: []string{"catastrophic"}}},                    // not a nuclei severity
 		{Dast: &DastConfig{Auth: &DastAuthConfig{UsernameEnv: "bad name"}}},           // space in env name
 		{Dast: &DastConfig{Auth: &DastAuthConfig{PasswordEnv: "PASS;rm -rf"}}},        // injection-shaped env name

@@ -240,6 +240,9 @@ func applyDastConfig(opts *pipeline.DASTOptions, t targets.Target, progress func
 	}
 	d := t.Config.Dast
 	opts.Fuzzing = d.Fuzzing
+	opts.Crawl = d.Crawl
+	opts.CrawlDepth = d.CrawlDepth
+	opts.CrawlPages = d.CrawlPages
 	opts.Templates = d.Templates
 	opts.Tags = d.Tags
 	opts.Severities = d.Severities

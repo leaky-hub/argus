@@ -29,7 +29,7 @@ func TestBuildArgsFuzzingAndHeaders(t *testing.T) {
 		URL:     "http://t/",
 		Fuzzing: true,
 		Headers: []string{"Cookie: SESS=abc", "  ", "Authorization: Bearer x"},
-	}, "/tmp/out.jsonl")
+	}, "/tmp/out.jsonl", "")
 
 	if !hasArg(args, "-dast") {
 		t.Error("fuzzing did not add -dast")
@@ -50,7 +50,7 @@ func TestBuildArgsFuzzingAndHeaders(t *testing.T) {
 }
 
 func TestBuildArgsDefaultsNoFuzzNoHeaders(t *testing.T) {
-	args := buildArgs(Options{URL: "http://t/"}, "/tmp/out.jsonl")
+	args := buildArgs(Options{URL: "http://t/"}, "/tmp/out.jsonl", "")
 	if hasArg(args, "-dast") {
 		t.Error("-dast present without Fuzzing")
 	}
@@ -74,7 +74,7 @@ func TestBuildArgsFiltersAndRateLimit(t *testing.T) {
 		Tags:       []string{"sqli", "xss"},
 		Severities: []string{"high", "critical"},
 		RateLimit:  50,
-	}, "/tmp/out.jsonl")
+	}, "/tmp/out.jsonl", "")
 	if argAfter(args, "-tags") != "sqli,xss" {
 		t.Errorf("tags: %v", args)
 	}
@@ -92,7 +92,7 @@ func TestBuildArgsFiltersAndRateLimit(t *testing.T) {
 func TestHeaderValueNotInProgressContract(t *testing.T) {
 	// The only progress string dastscan emits about a run names the URL, never
 	// headers. Assert the source does not format any Header value.
-	args := buildArgs(Options{URL: "http://t/", Headers: []string{"Cookie: SECRET=leakme"}}, "/o")
+	args := buildArgs(Options{URL: "http://t/", Headers: []string{"Cookie: SECRET=leakme"}}, "/o", "")
 	if !strings.Contains(strings.Join(args, " "), "SECRET=leakme") {
 		t.Fatal("header should be in argv (nuclei needs it)")
 	}

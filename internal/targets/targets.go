@@ -78,6 +78,9 @@ type Config struct {
 // TryDefaults.
 type DastConfig struct {
 	Fuzzing    bool     `json:"fuzzing,omitempty"`    // enable nuclei -dast active fuzzing
+	Crawl      bool     `json:"crawl,omitempty"`      // crawl to discover endpoints, then fuzz all of them
+	CrawlDepth int      `json:"crawlDepth,omitempty"` // crawl depth; 0 = default
+	CrawlPages int      `json:"crawlPages,omitempty"` // crawl page cap; 0 = default
 	Templates  []string `json:"templates,omitempty"`  // nuclei -t selectors
 	Tags       []string `json:"tags,omitempty"`       // nuclei -tags filter
 	Severities []string `json:"severities,omitempty"` // nuclei -severity filter
@@ -585,6 +588,12 @@ func validateDastConfig(d *DastConfig) error {
 	}
 	if d.RateLimit < 0 || d.RateLimit > 100000 {
 		return fmt.Errorf("dast rateLimit must be between 0 and 100000")
+	}
+	if d.CrawlDepth < 0 || d.CrawlDepth > 20 {
+		return fmt.Errorf("dast crawlDepth must be between 0 and 20")
+	}
+	if d.CrawlPages < 0 || d.CrawlPages > 5000 {
+		return fmt.Errorf("dast crawlPages must be between 0 and 5000")
 	}
 	if err := validateIgnoreList("dast.templates", d.Templates); err != nil {
 		return err

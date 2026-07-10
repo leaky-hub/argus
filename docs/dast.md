@@ -60,9 +60,34 @@ surface.
 argus dast "https://staging.example.com/item?id=1" --dast --fail-severity high
 ```
 
-Fuzzing needs parameterized endpoints to work on. Point `--dast` at a URL that
-carries query or form parameters (an authenticated crawl that discovers these
-automatically is on the roadmap).
+Fuzzing needs parameterized endpoints to work on. Either point `--dast` at a URL
+that already carries parameters, or add `--crawl` (below) to discover them
+automatically.
+
+## Automatic discovery (crawl)
+
+`--crawl` walks the target first, discovers every endpoint and form, and fuzzes
+all of them: point it at a base URL and it finds injection across the whole app
+instead of only the one page you named.
+
+```bash
+argus dast http://target/ --auth-auto --crawl --dast --fail-severity high
+```
+
+The crawl is a bounded, same-host, breadth-first walk (default depth 3, 150
+pages; tune with `--crawl-depth` / `--crawl-pages`). It runs with the
+authenticated session, so it reaches pages behind the login. It reads HTML
+only, synthesizes fuzzable URLs from GET forms, and deliberately never follows
+logout/login pages (which would drop the session) and never synthesizes a
+password-change form (which would lock the scan out of its own account).
+
+Combined, `--auth-auto --crawl --dast` is the full loop: log in, map the app,
+and actively fuzz every discovered parameter for SQL injection, XSS, file
+inclusion (LFI/RFI), and the rest of nuclei's fuzzing coverage.
+
+> Active fuzzing sends real payloads and will exercise state-changing
+> endpoints. Run it against targets you own and treat as disposable (a test or
+> staging instance), never production.
 
 ## Authenticated scanning
 

@@ -45,6 +45,10 @@ type Options struct {
 	RateLimit  int      // max requests/sec; 0 = nuclei default
 	TimeoutSec int      // whole-scan timeout; 0 = caller's context governs
 	Fuzzing    bool     // enable nuclei -dast (active fuzzing templates)
+	// URLs, when non-empty, is an explicit list of endpoints to scan (nuclei
+	// -l) instead of just URL: the endpoints a crawl discovered. URL is still
+	// used as the scan's identity/label.
+	URLs []string
 	// Headers are extra request headers (e.g. "Cookie: SESS=..."), sent on
 	// every request so a scan can run authenticated. Values may be live
 	// session credentials: they are passed to nuclei but NEVER logged, printed,
@@ -114,9 +118,26 @@ func Scan(ctx context.Context, opts Options, progress func(string)) (Result, err
 	out.Close()
 	defer os.Remove(outPath)
 
-	args := buildArgs(opts, outPath)
+	// A crawl-discovered endpoint list is passed to nuclei via a temp file
+	// (-l); a single-URL scan uses -target. The list is scan input, not
+	// secret, but the temp file is cleaned up regardless.
+	listPath := ""
+	if len(opts.URLs) > 0 {
+		lp, cleanup, err := writeURLList(opts.URLs)
+		if err != nil {
+			return Result{}, err
+		}
+		defer cleanup()
+		listPath = lp
+	}
 
-	progress(fmt.Sprintf("==> running nuclei (DAST) against %s\n", opts.URL))
+	args := buildArgs(opts, outPath, listPath)
+
+	if listPath != "" {
+		progress(fmt.Sprintf("==> running nuclei (DAST) against %d discovered endpoint(s)\n", len(opts.URLs)))
+	} else {
+		progress(fmt.Sprintf("==> running nuclei (DAST) against %s\n", opts.URL))
+	}
 	cmd := exec.CommandContext(ctx, "nuclei", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -174,13 +195,17 @@ func probeTarget(ctx context.Context, target string) error {
 // flag construction (fuzzing, auth headers, filters) is unit-testable without
 // invoking the binary. Header VALUES may be live session credentials; they go
 // into the argv nuclei needs but are never logged by Argus.
-func buildArgs(opts Options, outPath string) []string {
+func buildArgs(opts Options, outPath, listPath string) []string {
 	args := []string{
-		"-target", opts.URL,
 		"-jsonl", "-o", outPath,
 		"-disable-update-check", // no network callout for a newer nuclei/templates
 		"-no-interactsh",        // no OOB callout server; scan touches only the target
 		"-no-color", "-silent",
+	}
+	if listPath != "" {
+		args = append(args, "-l", listPath)
+	} else {
+		args = append(args, "-target", opts.URL)
 	}
 	if opts.Fuzzing {
 		args = append(args, "-dast") // load active fuzzing templates
@@ -205,6 +230,25 @@ func buildArgs(opts Options, outPath string) []string {
 		args = append(args, "-rate-limit", strconv.Itoa(opts.RateLimit))
 	}
 	return args
+}
+
+// writeURLList writes the endpoint list to a temp file for nuclei -l and
+// returns the path plus a cleanup func.
+func writeURLList(urls []string) (string, func(), error) {
+	f, err := os.CreateTemp("", "argus-nuclei-urls-*.txt")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("dast: url list temp file: %w", err)
+	}
+	if _, err := f.WriteString(strings.Join(urls, "\n") + "\n"); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", func() {}, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", func() {}, err
+	}
+	return f.Name(), func() { os.Remove(f.Name()) }, nil
 }
 
 // toolVersion best-effort records the nuclei release for run provenance.

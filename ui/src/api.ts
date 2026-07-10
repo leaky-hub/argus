@@ -502,6 +502,9 @@ export interface TargetConfig {
 // the server at scan time.
 export interface DastConfig {
   fuzzing?: boolean;
+  crawl?: boolean;
+  crawlDepth?: number;
+  crawlPages?: number;
   templates?: string[];
   tags?: string[];
   severities?: string[];

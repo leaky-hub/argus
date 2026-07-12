@@ -32,6 +32,7 @@ func init() {
 	dastCmd.Flags().Bool("dalfox", false, "Also run dalfox: active XSS testing of GET and POST forms (reflected, stored, DOM)")
 	dastCmd.Flags().Bool("sqlmap", false, "Also run sqlmap: SQL injection testing incl. boolean/time-based blind, GET and POST")
 	dastCmd.Flags().Bool("cmdi", false, "Also test for OS command injection (GET and POST) with benign arithmetic/timing probes")
+	dastCmd.Flags().Bool("js-recon", false, "Reverse-engineer the target's client-side JavaScript: recover endpoints/API routes (fed to the fuzzers) and report secrets exposed in served bundles")
 	dastCmd.Flags().Int("crawl-depth", 0, "Crawl link-follow depth (0 = default 3)")
 	dastCmd.Flags().Int("crawl-pages", 0, "Max pages to crawl (0 = default 150)")
 	dastCmd.Flags().Bool("auth-auto", false, "Authenticate before scanning: detect the login form and try built-in default credentials")
@@ -98,6 +99,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 	dalfox, _ := cmd.Flags().GetBool("dalfox")
 	sqlmap, _ := cmd.Flags().GetBool("sqlmap")
 	cmdi, _ := cmd.Flags().GetBool("cmdi")
+	recon, _ := cmd.Flags().GetBool("js-recon")
 	auth, err := dastAuthFromFlags(cmd)
 	if err != nil {
 		return err
@@ -122,6 +124,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		Dalfox:     dalfox,
 		Sqlmap:     sqlmap,
 		Cmdi:       cmdi,
+		Recon:      recon,
 		Auth:       auth,
 		Config:     cfg,
 	}, func(line string) { fmt.Fprint(os.Stderr, line) })

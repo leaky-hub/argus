@@ -279,6 +279,7 @@ func applyDastConfig(opts *pipeline.DASTOptions, t targets.Target, progress func
 	opts.Dalfox = d.Dalfox
 	opts.Sqlmap = d.Sqlmap
 	opts.Cmdi = d.Cmdi
+	opts.Recon = d.Recon
 	opts.Templates = d.Templates
 	opts.Tags = d.Tags
 	opts.Severities = d.Severities

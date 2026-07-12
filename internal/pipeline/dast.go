@@ -14,6 +14,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/dastcrawl"
 	"github.com/zer0d4y5/argus/internal/dastscan"
 	"github.com/zer0d4y5/argus/internal/engagement"
+	"github.com/zer0d4y5/argus/internal/jsrecon"
 	"github.com/zer0d4y5/argus/internal/model"
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
 )
@@ -36,6 +37,7 @@ type DASTOptions struct {
 	Dalfox     bool // also run dalfox (active XSS, GET+POST forms)
 	Sqlmap     bool // also run sqlmap (SQL injection incl. blind, GET+POST)
 	Cmdi       bool // also run the native command-injection detector (GET+POST)
+	Recon      bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Config     config.Config
 
 	// Governor is the engagement enforcement plane. It is REQUIRED: a nil
@@ -142,6 +144,26 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		}
 	}
 
+	// Client-side reverse-engineering: recover endpoints the crawler's
+	// link-following never sees (fetch/XHR routes, minified references, sourcemap
+	// originals) and report secrets exposed in served JavaScript. Recovered
+	// endpoints are scope-filtered and merged into the fuzz set; findings are
+	// appended before enrichment. Recon fetches through the governed client, so
+	// it is scope-gated, budgeted, and audited like every other active step.
+	var reconFindings []model.RawFinding
+	if opts.Recon {
+		authed := governed
+		if session != nil {
+			authed = session.Client(governed)
+		}
+		reconEps, rf := runJSRecon(ctx, authed, opts, eng, progress)
+		reconFindings = rf
+		if merged := mergeEndpoints(endpoints, reconEps); len(merged) > len(endpoints) {
+			progress(fmt.Sprintf("==> jsrecon added %d endpoint(s) to the fuzz set\n", len(merged)-len(endpoints)))
+			endpoints = merged
+		}
+	}
+
 	// nuclei is a subprocess (its HTTP is out of our process), so it is gated at
 	// DISPATCH: every URL is scope- and budget-checked here, out-of-scope URLs
 	// are dropped and audited, and the engagement rate ceiling is passed to
@@ -213,6 +235,8 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		}
 	}
 
+	raw = append(raw, reconFindings...)
+
 	gov.Event(engagement.EventScanFinish, map[string]string{
 		"target":          opts.URL,
 		"rawFindings":     fmt.Sprintf("%d", len(raw)),
@@ -237,6 +261,37 @@ func scanEndpoints(opts DASTOptions, discovered []dastcrawl.Endpoint) []dastcraw
 		return discovered[:maxToolEndpoints]
 	}
 	return discovered
+}
+
+// runJSRecon reverse-engineers the target's client-side JavaScript and returns
+// the scope-filtered endpoints it recovered plus any findings (exposed secrets,
+// sensitive surfaces). Recon failure is non-fatal: the scan still proceeds.
+func runJSRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng *engagement.Engagement, progress Progress) ([]dastcrawl.Endpoint, []model.RawFinding) {
+	progress("==> reverse-engineering client-side JavaScript for endpoints and secrets\n")
+	res, err := jsrecon.Analyze(ctx, client, opts.URL, jsrecon.Options{Headers: opts.Headers}, progress)
+	if err != nil {
+		progress(fmt.Sprintf("WARN: jsrecon failed: %v\n", err))
+		return nil, nil
+	}
+	return filterEndpointsInScope(eng, res.Endpoints), res.Findings
+}
+
+// mergeEndpoints appends the endpoints in b that are not already in a,
+// deduplicating on method+URL+body.
+func mergeEndpoints(a, b []dastcrawl.Endpoint) []dastcrawl.Endpoint {
+	seen := make(map[string]bool, len(a))
+	for _, e := range a {
+		seen[e.Method+" "+e.URL+" "+e.Body] = true
+	}
+	out := a
+	for _, e := range b {
+		k := e.Method + " " + e.URL + " " + e.Body
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // filterEndpointsInScope drops endpoints whose URL is outside the engagement

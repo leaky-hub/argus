@@ -77,20 +77,21 @@ type Config struct {
 // GitHub token env). The built-in default-credential list is opt-in via
 // TryDefaults.
 type DastConfig struct {
-	Fuzzing    bool            `json:"fuzzing,omitempty"`    // enable nuclei -dast active fuzzing
-	Crawl      bool            `json:"crawl,omitempty"`      // crawl to discover endpoints, then fuzz all of them
-	Evidence   bool            `json:"evidence,omitempty"`   // capture redacted request/response on findings
-	Dalfox     bool            `json:"dalfox,omitempty"`     // also run dalfox (active XSS, GET+POST)
-	Sqlmap     bool            `json:"sqlmap,omitempty"`     // also run sqlmap (SQLi incl. blind, GET+POST)
-	Cmdi       bool            `json:"cmdi,omitempty"`       // also test for OS command injection (GET+POST)
-	Recon      bool            `json:"recon,omitempty"`      // reverse-engineer client-side JS for endpoints + exposed secrets
-	CrawlDepth int             `json:"crawlDepth,omitempty"` // crawl depth; 0 = default
-	CrawlPages int             `json:"crawlPages,omitempty"` // crawl page cap; 0 = default
-	Templates  []string        `json:"templates,omitempty"`  // nuclei -t selectors
-	Tags       []string        `json:"tags,omitempty"`       // nuclei -tags filter
-	Severities []string        `json:"severities,omitempty"` // nuclei -severity filter
-	RateLimit  int             `json:"rateLimit,omitempty"`  // max requests/sec; 0 = nuclei default
-	Auth       *DastAuthConfig `json:"auth,omitempty"`
+	Fuzzing     bool            `json:"fuzzing,omitempty"`     // enable nuclei -dast active fuzzing
+	Crawl       bool            `json:"crawl,omitempty"`       // crawl to discover endpoints, then fuzz all of them
+	Evidence    bool            `json:"evidence,omitempty"`    // capture redacted request/response on findings
+	Dalfox      bool            `json:"dalfox,omitempty"`      // also run dalfox (active XSS, GET+POST)
+	Sqlmap      bool            `json:"sqlmap,omitempty"`      // also run sqlmap (SQLi incl. blind, GET+POST)
+	Cmdi        bool            `json:"cmdi,omitempty"`        // also test for OS command injection (GET+POST)
+	Recon       bool            `json:"recon,omitempty"`       // reverse-engineer client-side JS for endpoints + exposed secrets
+	Fingerprint bool            `json:"fingerprint,omitempty"` // identify the tech stack + correlate to known-exploited software
+	CrawlDepth  int             `json:"crawlDepth,omitempty"`  // crawl depth; 0 = default
+	CrawlPages  int             `json:"crawlPages,omitempty"`  // crawl page cap; 0 = default
+	Templates   []string        `json:"templates,omitempty"`   // nuclei -t selectors
+	Tags        []string        `json:"tags,omitempty"`        // nuclei -tags filter
+	Severities  []string        `json:"severities,omitempty"`  // nuclei -severity filter
+	RateLimit   int             `json:"rateLimit,omitempty"`   // max requests/sec; 0 = nuclei default
+	Auth        *DastAuthConfig `json:"auth,omitempty"`
 }
 
 // DastAuthConfig configures pre-scan authentication for a DAST target. Values

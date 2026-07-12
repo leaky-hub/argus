@@ -165,6 +165,35 @@ Recon fetches through the engagement's governed client, so it is scope-gated,
 budgeted, and audited exactly like the crawl: a third-party CDN bundle is off-scope
 and is never fetched.
 
+## Stack fingerprinting (`--fingerprint`)
+
+Understand the target before attacking it. `--fingerprint` identifies the
+technology stack from what the target itself discloses, in a single governed
+request.
+
+```bash
+argus dast http://target/ --fingerprint
+```
+
+It reads the response headers (`Server`, `X-Powered-By`, `X-AspNet-Version`,
+`X-Generator`), the session-cookie names (`PHPSESSID`, `JSESSIONID`,
+`laravel_session`, ...), the HTML `generator` meta tag, and versioned library
+banners, and produces:
+
+- **Version-disclosure findings** for each component whose exact version is
+  exposed. Leaking precise versions to anonymous clients lets an attacker match
+  your stack to known vulnerabilities, so it is reported (informational) with the
+  disclosing source.
+- **Known-exploited correlation**: for CMS families that CISA's Known Exploited
+  Vulnerabilities catalog tracks (WordPress, Drupal, Joomla), a finding noting how
+  many KEV-listed vulnerabilities affect that product, with example CVEs. The KEV
+  catalog carries no version ranges, so this is a product-level flag to verify,
+  never a claim that your version is vulnerable, and it never inflates its own
+  score by asserting a CVE it cannot confirm.
+
+The identified stack is also printed to the scan log, and it is the recon profile
+the reporting and (future) attack-path reasoning build on.
+
 > Active fuzzing sends real payloads and will exercise state-changing
 > endpoints. Run it against targets you own and treat as disposable (a test or
 > staging instance), never production.

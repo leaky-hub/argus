@@ -280,6 +280,7 @@ func applyDastConfig(opts *pipeline.DASTOptions, t targets.Target, progress func
 	opts.Sqlmap = d.Sqlmap
 	opts.Cmdi = d.Cmdi
 	opts.Recon = d.Recon
+	opts.Fingerprint = d.Fingerprint
 	opts.Templates = d.Templates
 	opts.Tags = d.Tags
 	opts.Severities = d.Severities

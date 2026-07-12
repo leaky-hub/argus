@@ -14,6 +14,8 @@ import (
 	"github.com/zer0d4y5/argus/internal/dastcrawl"
 	"github.com/zer0d4y5/argus/internal/dastscan"
 	"github.com/zer0d4y5/argus/internal/engagement"
+	"github.com/zer0d4y5/argus/internal/exploit"
+	"github.com/zer0d4y5/argus/internal/fingerprint"
 	"github.com/zer0d4y5/argus/internal/jsrecon"
 	"github.com/zer0d4y5/argus/internal/model"
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
@@ -21,24 +23,25 @@ import (
 
 // DASTOptions configure one dynamic scan.
 type DASTOptions struct {
-	URL        string
-	Templates  []string
-	Tags       []string
-	Severities []string
-	RateLimit  int
-	TimeoutSec int
-	Fuzzing    bool     // enable nuclei -dast active fuzzing
-	Headers    []string // extra request headers (sent to nuclei, never logged)
-	Auth       *DASTAuth
-	Crawl      bool // discover endpoints (authenticated) and fuzz all of them
-	CrawlDepth int  // crawl depth (0 = default)
-	CrawlPages int  // crawl page cap (0 = default)
-	Evidence   bool // capture redacted request/response on each finding (opt-in)
-	Dalfox     bool // also run dalfox (active XSS, GET+POST forms)
-	Sqlmap     bool // also run sqlmap (SQL injection incl. blind, GET+POST)
-	Cmdi       bool // also run the native command-injection detector (GET+POST)
-	Recon      bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
-	Config     config.Config
+	URL         string
+	Templates   []string
+	Tags        []string
+	Severities  []string
+	RateLimit   int
+	TimeoutSec  int
+	Fuzzing     bool     // enable nuclei -dast active fuzzing
+	Headers     []string // extra request headers (sent to nuclei, never logged)
+	Auth        *DASTAuth
+	Crawl       bool // discover endpoints (authenticated) and fuzz all of them
+	CrawlDepth  int  // crawl depth (0 = default)
+	CrawlPages  int  // crawl page cap (0 = default)
+	Evidence    bool // capture redacted request/response on each finding (opt-in)
+	Dalfox      bool // also run dalfox (active XSS, GET+POST forms)
+	Sqlmap      bool // also run sqlmap (SQL injection incl. blind, GET+POST)
+	Cmdi        bool // also run the native command-injection detector (GET+POST)
+	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
+	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
+	Config      config.Config
 
 	// Governor is the engagement enforcement plane. It is REQUIRED: a nil
 	// Governor means no active engagement, and RunDAST refuses to send any
@@ -152,16 +155,20 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	// it is scope-gated, budgeted, and audited like every other active step.
 	var reconFindings []model.RawFinding
 	if opts.Recon {
-		authed := governed
-		if session != nil {
-			authed = session.Client(governed)
-		}
-		reconEps, rf := runJSRecon(ctx, authed, opts, eng, progress)
+		reconEps, rf := runJSRecon(ctx, authedClient(governed, session), opts, eng, progress)
 		reconFindings = rf
 		if merged := mergeEndpoints(endpoints, reconEps); len(merged) > len(endpoints) {
 			progress(fmt.Sprintf("==> jsrecon added %d endpoint(s) to the fuzz set\n", len(merged)-len(endpoints)))
 			endpoints = merged
 		}
+	}
+
+	// Stack fingerprinting: identify the target's technologies and versions from
+	// what it discloses, emit version-disclosure findings, and correlate CMS
+	// families against the known-exploited catalog. One governed GET.
+	var fingerprintFindings []model.RawFinding
+	if opts.Fingerprint {
+		fingerprintFindings = runFingerprint(ctx, authedClient(governed, session), opts, progress)
 	}
 
 	// nuclei is a subprocess (its HTTP is out of our process), so it is gated at
@@ -236,6 +243,7 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	}
 
 	raw = append(raw, reconFindings...)
+	raw = append(raw, fingerprintFindings...)
 
 	gov.Event(engagement.EventScanFinish, map[string]string{
 		"target":          opts.URL,
@@ -274,6 +282,33 @@ func runJSRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng 
 		return nil, nil
 	}
 	return filterEndpointsInScope(eng, res.Endpoints), res.Findings
+}
+
+// authedClient returns the governed client wrapped with the auth session when
+// one exists (preserving the governed transport), so the recon steps fetch as
+// the logged-in user while staying scope-gated, budgeted, and audited.
+func authedClient(governed *http.Client, session *dastauth.Session) *http.Client {
+	if session != nil {
+		return session.Client(governed)
+	}
+	return governed
+}
+
+// runFingerprint identifies the target's technology stack and returns its
+// findings (version disclosure + KEV-family correlation). Non-fatal on failure.
+func runFingerprint(ctx context.Context, client *http.Client, opts DASTOptions, progress Progress) []model.RawFinding {
+	progress("==> fingerprinting the target technology stack\n")
+	cat, err := exploit.Load("") // KEV-only: product correlation needs no EPSS
+	if err != nil {
+		progress(fmt.Sprintf("WARN: fingerprint: KEV catalog unavailable (%v); reporting version disclosure only\n", err))
+		cat = nil
+	}
+	res, err := fingerprint.Analyze(ctx, client, opts.URL, cat, fingerprint.Options{Headers: opts.Headers}, progress)
+	if err != nil {
+		progress(fmt.Sprintf("WARN: fingerprint failed: %v\n", err))
+		return nil
+	}
+	return res.Findings
 }
 
 // mergeEndpoints appends the endpoints in b that are not already in a,

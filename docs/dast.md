@@ -137,6 +137,34 @@ These engines are opt-in and slower than nuclei (sqlmap especially tests each
 endpoint thoroughly), so enable them when you want depth. File upload is the
 remaining class no engine covers yet.
 
+## Client-side reverse-engineering (`--js-recon`)
+
+Link-following only finds the surface the app links to. Most of a modern app's
+real attack surface lives in its JavaScript: `fetch`/XHR routes, API paths,
+feature flags, and admin screens that are never linked from a page. `--js-recon`
+recovers it.
+
+```bash
+argus dast http://target/ --auth-auto --js-recon --dast --sqlmap --dalfox
+```
+
+It fetches the target's HTML, pulls the referenced same-host script bundles (and
+their sourcemaps, whose original sources reveal more than the minified code), and
+extracts:
+
+- **Endpoints and API routes**, which are scope-filtered and merged into the fuzz
+  set, so the active engines test surface the crawler never saw. This alone
+  typically expands discovered surface substantially.
+- **Exposed secrets**: high-confidence provider credentials (AWS, Google, Slack,
+  Stripe, GitHub, JWTs) hardcoded into bundles served to the browser. A finding
+  carries a redacted preview only, never the raw value.
+- **Sensitive surfaces** (admin, debug, actuator, GraphQL, API docs) referenced in
+  the client code, reported for the operator to confirm they enforce authorization.
+
+Recon fetches through the engagement's governed client, so it is scope-gated,
+budgeted, and audited exactly like the crawl: a third-party CDN bundle is off-scope
+and is never fetched.
+
 > Active fuzzing sends real payloads and will exercise state-changing
 > endpoints. Run it against targets you own and treat as disposable (a test or
 > staging instance), never production.

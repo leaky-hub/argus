@@ -189,6 +189,21 @@ the engine family it matched and is CWE-1336.
 argus dast https://target/ --auth-auto --crawl --ssti
 ```
 
+## Unrestricted file upload (`--file-upload`)
+
+`--file-upload` tests the upload forms the crawl discovers. It uploads a benign
+marker file whose type should be rejected (a `.php` name sent with an image
+content-type, the classic content-type bypass), refreshing any per-request CSRF
+token first, then tries to fetch the file back from the path the response
+reveals or from common upload directories. A file that is both accepted and
+retrievable proves the type restriction can be bypassed. The marker file
+contains no executable code, so this confirms the weakness (CWE-434) without
+planting a web shell. Needs `--crawl` to find the forms.
+
+```bash
+argus dast https://target/ --auth-auto --crawl --file-upload
+```
+
 ## Client-side reverse-engineering (`--js-recon`)
 
 Link-following only finds the surface the app links to. Most of a modern app's

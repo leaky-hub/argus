@@ -293,6 +293,7 @@ func applyDastConfig(opts *pipeline.DASTOptions, t targets.Target, progress func
 	opts.Cmdi = d.Cmdi
 	opts.SSRF = d.SSRF
 	opts.SSTI = d.SSTI
+	opts.FileUpload = d.FileUpload
 	opts.Recon = d.Recon
 	opts.Fingerprint = d.Fingerprint
 	opts.APIRecon = d.APIRecon

@@ -85,6 +85,7 @@ type DastConfig struct {
 	Cmdi        bool            `json:"cmdi,omitempty"`        // also test for OS command injection (GET+POST)
 	SSRF        bool            `json:"ssrf,omitempty"`        // also test for server-side request forgery (local OOB listener + cloud metadata)
 	SSTI        bool            `json:"ssti,omitempty"`        // also test for server-side template injection (GET+POST)
+	FileUpload  bool            `json:"fileUpload,omitempty"`  // also test discovered upload forms for unrestricted file upload
 	Recon       bool            `json:"recon,omitempty"`       // reverse-engineer client-side JS for endpoints + exposed secrets
 	Fingerprint bool            `json:"fingerprint,omitempty"` // identify the tech stack + correlate to known-exploited software
 	APIRecon    bool            `json:"apiRecon,omitempty"`    // reconstruct the API surface from served schemas and fuzz it

@@ -546,6 +546,7 @@ export interface DastConfig {
   cmdi?: boolean;
   ssrf?: boolean;
   ssti?: boolean;
+  fileUpload?: boolean;
   recon?: boolean;
   fingerprint?: boolean;
   apiRecon?: boolean;

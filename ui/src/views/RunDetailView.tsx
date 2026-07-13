@@ -24,6 +24,7 @@ export function RunDetailView({
   onSelectFramework,
   canExplain,
   canRemediate,
+  canConfirm,
   canSuppress,
   onSuppress,
   framework,
@@ -41,6 +42,7 @@ export function RunDetailView({
   onSelectFramework?: (id: string) => void;
   canExplain?: boolean;
   canRemediate?: boolean;
+  canConfirm?: boolean;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   framework: string;
@@ -167,6 +169,7 @@ export function RunDetailView({
         origin={origin}
         canExplain={canExplain}
         canRemediate={canRemediate}
+        canConfirm={canConfirm}
         canSuppress={canSuppress}
         onSuppress={onSuppress}
         framework={framework}

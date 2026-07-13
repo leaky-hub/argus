@@ -93,6 +93,14 @@ export interface ImpactProof {
   detail?: string;
 }
 
+// ConfirmImpactResponse is the result of a live bounded-confirmation probe run
+// from the console (admin, interlocked). Not persisted to the run.
+export interface ConfirmImpactResponse {
+  confirmed: boolean;
+  impact?: ImpactProof;
+  message?: string;
+}
+
 export interface OwaspCategory {
   id: string;
   title: string;
@@ -815,6 +823,9 @@ export const opsApi = {
 
   validate: (req: { targetId?: string; runId: string; findingId: string }): Promise<ValidationResponse> =>
     send<ValidationResponse>("POST", "api/validate", req),
+
+  confirmImpact: (req: { targetId: string; runId: string; findingId: string }): Promise<ConfirmImpactResponse> =>
+    send<ConfirmImpactResponse>("POST", "api/confirm-impact", { ...req, confirm: true }),
 
   setDisposition: (req: { targetId?: string; findingId: string; status: DispositionStatus; note?: string }): Promise<Disposition> =>
     send<Disposition>("POST", "api/dispositions", req),

@@ -243,6 +243,16 @@ func execDASTScan(ctx context.Context, reg *targets.Registry, t targets.Target, 
 // for a console-launched DAST scan. No active engagement is a hard, explanatory
 // job failure: active modules never run without authorization.
 func consoleDASTGovernor(reg *targets.Registry, progress func(string)) (*engagement.Governor, error) {
+	// A scan-launch job never arms the destructive or confirmation second latch;
+	// bounded confirmation from the console is a separate, explicit action.
+	return consoleGovernor(reg, false, progress)
+}
+
+// consoleGovernor resolves the served repo's active engagement and builds the
+// enforcement plane. confirmArmed sets the confirmation interlock's per-run
+// (second) latch: the caller has taken an explicit, admin-gated confirmation
+// action, and the engagement's Confirm flag is still the first latch.
+func consoleGovernor(reg *targets.Registry, confirmArmed bool, progress func(string)) (*engagement.Governor, error) {
 	store := &engagement.Store{Dir: reg.EngagementStoreDir()}
 	eng, err := store.Active()
 	if err != nil {
@@ -256,9 +266,7 @@ func consoleDASTGovernor(reg *targets.Registry, progress func(string)) (*engagem
 		return nil, err
 	}
 	progress(fmt.Sprintf("==> engagement %q (%s), authorization %s\n", eng.Name, eng.ID, eng.AuthorizationRef))
-	// A scan-launch job never arms the destructive or confirmation second latch;
-	// bounded confirmation from the console is a separate, explicit action.
-	return engagement.NewGovernor(eng, auditLog, false, false), nil
+	return engagement.NewGovernor(eng, auditLog, false, confirmArmed), nil
 }
 
 // applyDastConfig folds a DAST target's console-set scan configuration

@@ -244,6 +244,9 @@ func finding(ep dastcrawl.Endpoint, base url.Values, param string, c confirmatio
 		CWEs:        []string{"CWE-78"},
 		Meta:        map[string]string{"param": param, "method": method, "technique": c.technique},
 	}
+	if method == http.MethodPost && ep.Body != "" {
+		f.Meta["body"] = ep.Body
+	}
 	f.Proof = poc.Build("cmdi", poc.Request{
 		Method:        method,
 		URL:           u,

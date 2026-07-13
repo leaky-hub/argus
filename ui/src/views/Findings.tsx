@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FixedSizeList, ListChildComponentProps } from "react-window";
-import { api, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
+import { api, ConfirmImpactResponse, CoverageAccounting, Disposition, DispositionStatus, ExplainResponse, Finding, locationLabel, Mitigation, opsApi, RemediationArtifact, RemediationResponse, RiskSignal, RunDetail, Severity, SEVERITIES, ValidationResponse } from "../api";
 import { Panel, SeverityBadge, CategoryBadge, EmptyState } from "../components";
 import { SidePane } from "../SidePane";
 import { CloudRemediationPanel } from "./CloudRemediationPanel";
@@ -29,6 +29,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 type ExplainState = { loading: boolean; data?: ExplainResponse; error?: string };
 type RemediateState = { loading: boolean; data?: RemediationResponse; error?: string };
 type ValidateState = { loading: boolean; data?: ValidationResponse; error?: string };
+type ConfirmState = { loading: boolean; data?: ConfirmImpactResponse; error?: string };
 
 // CoverageStrip renders the run's skip accounting (schema 2.0.0): what the
 // scan did NOT look at. "No findings" over a tree of unscanned binaries is a
@@ -177,6 +178,7 @@ export function Findings({
   origin,
   canExplain,
   canRemediate,
+  canConfirm,
   canSuppress,
   onSuppress,
   framework,
@@ -196,6 +198,7 @@ export function Findings({
   };
   canExplain?: boolean;
   canRemediate?: boolean;
+  canConfirm?: boolean;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   // These filters are controlled by App so the Overview panels can deep-link
@@ -310,6 +313,7 @@ export function Findings({
   const [explainState, setExplainState] = useState<Record<string, ExplainState>>({});
   const [remediateState, setRemediateState] = useState<Record<string, RemediateState>>({});
   const [validateState, setValidateState] = useState<Record<string, ValidateState>>({});
+  const [confirmState, setConfirmState] = useState<Record<string, ConfirmState>>({});
 
   const newSet = useMemo(() => new Set(detail.newIds), [detail.newIds]);
   const tools = useMemo(
@@ -452,6 +456,18 @@ export function Findings({
     } catch (err) {
       const msg = err instanceof Error ? err.message : "validation failed";
       setValidateState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
+    }
+  };
+
+  const handleConfirm = async (f: Finding) => {
+    if (!canConfirm || !origin?.targetId) return; // admin, and a concrete target
+    setConfirmState((prev) => ({ ...prev, [f.id]: { loading: true, data: prev[f.id]?.data } }));
+    try {
+      const res = await opsApi.confirmImpact({ targetId: origin.targetId, runId: detail.id, findingId: f.id });
+      setConfirmState((prev) => ({ ...prev, [f.id]: { loading: false, data: res } }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "confirmation failed";
+      setConfirmState((prev) => ({ ...prev, [f.id]: { loading: false, error: msg } }));
     }
   };
 
@@ -672,7 +688,7 @@ export function Findings({
       >
         {selected && (
           <div className="p-4">
-            <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} runId={detail.id} canRemediate={canRemediate} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} />
+            <Detail f={selected} isNew={newSet.has(selected.id)} origin={origin} runId={detail.id} canRemediate={canRemediate} canExplain={canExplain} explainState={explainState[selected.id]} onExplain={() => handleExplain(selected)} remediateState={remediateState[selected.id]} onRemediate={() => handleRemediate(selected)} validateState={validateState[selected.id]} onValidate={() => handleValidate(selected)} canConfirm={canConfirm} confirmState={confirmState[selected.id]} onConfirm={() => handleConfirm(selected)} canSuppress={canSuppress} onSuppress={onSuppress} disposition={dispositions[selected.id]} canDispose={canDispose} onDispose={(s, n) => setDisposition(selected.id, s, n)} onClearDispose={() => clearDisposition(selected.id)} />
           </div>
         )}
       </SidePane>
@@ -680,7 +696,7 @@ export function Findings({
   );
 }
 
-function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainState, onExplain, remediateState, onRemediate, validateState, onValidate, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
+function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainState, onExplain, remediateState, onRemediate, validateState, onValidate, canConfirm, confirmState, onConfirm, canSuppress, onSuppress, disposition, canDispose, onDispose, onClearDispose }: {
   f: Finding;
   isNew: boolean;
   origin?: { targetId?: string; gitUrl?: string; commit?: string };
@@ -693,6 +709,9 @@ function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainStat
   onRemediate: () => void;
   validateState?: ValidateState;
   onValidate: () => void;
+  canConfirm?: boolean;
+  confirmState?: ConfirmState;
+  onConfirm: () => void;
   canSuppress?: boolean;
   onSuppress?: (ruleId: string) => void;
   disposition?: Disposition;
@@ -734,6 +753,12 @@ function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainStat
       // Invalid URL, ignore
     }
   }
+
+  // Bounded impact confirmation: the saved proof's impact, or one probed live
+  // from the console this session. Only SQLi/command-injection have a probe.
+  const confirmable = (f.cwes ?? []).some((c) => c === "CWE-78" || c === "CWE-89");
+  const liveImpact = confirmState?.data?.impact;
+  const shownImpact = f.proof?.impact ?? liveImpact;
 
   // Group compliance controls by framework
   const groupedControls: Record<string, string[]> = {};
@@ -878,7 +903,7 @@ function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainStat
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="mb-2 flex items-center gap-2">
                 <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Proof of concept</span>
-                {f.proof.impact && (
+                {shownImpact && (
                   <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">impact confirmed</span>
                 )}
               </div>
@@ -901,20 +926,39 @@ function Detail({ f, isNew, origin, runId, canRemediate, canExplain, explainStat
                 </div>
               )}
               {f.proof.observed && (
-                <div className={f.proof.impact ? "mb-2" : ""}>
+                <div className={shownImpact ? "mb-2" : ""}>
                   <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">Observed</div>
                   <p className="whitespace-pre-wrap break-words text-[12px] text-gray-700 dark:text-gray-300">{f.proof.observed}</p>
                 </div>
               )}
-              {f.proof.impact && (
+              {shownImpact && (
                 <div className="rounded border border-rose-200 bg-rose-50 p-2 dark:border-rose-900/50 dark:bg-rose-950/30">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-300">Bounded confirmation ({f.proof.impact.kind})</div>
-                  <p className="break-words text-[12px] text-gray-800 dark:text-gray-200">{f.proof.impact.summary}</p>
-                  {f.proof.impact.command && (
-                    <p className="mt-1 text-[11px] text-gray-500">probe: <code>{f.proof.impact.command}</code></p>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-300">Bounded confirmation ({shownImpact.kind})</div>
+                  <p className="break-words text-[12px] text-gray-800 dark:text-gray-200">{shownImpact.summary}</p>
+                  {shownImpact.command && (
+                    <p className="mt-1 text-[11px] text-gray-500">probe: <code>{shownImpact.command}</code></p>
                   )}
-                  {f.proof.impact.detail && (
-                    <pre className="mt-1 max-h-40 overflow-auto rounded bg-white p-2 text-[11px] leading-snug text-gray-800 dark:bg-gray-900 dark:text-gray-200">{f.proof.impact.detail}</pre>
+                  {shownImpact.detail && (
+                    <pre className="mt-1 max-h-40 overflow-auto rounded bg-white p-2 text-[11px] leading-snug text-gray-800 dark:bg-gray-900 dark:text-gray-200">{shownImpact.detail}</pre>
+                  )}
+                </div>
+              )}
+              {canConfirm && confirmable && !shownImpact && (
+                <div className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-800">
+                  <button
+                    type="button"
+                    disabled={confirmState?.loading}
+                    onClick={onConfirm}
+                    className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    {confirmState?.loading ? "Confirming impact…" : "Confirm impact"}
+                  </button>
+                  <span className="ml-2 text-[10px] text-gray-400">active probe, minimum proof only; needs an armed engagement</span>
+                  {confirmState?.error && (
+                    <p className="mt-1 break-words text-[11px] text-rose-600 dark:text-rose-400">{confirmState.error}</p>
+                  )}
+                  {confirmState?.data && !confirmState.data.confirmed && (
+                    <p className="mt-1 text-[11px] text-gray-500">{confirmState.data.message || "The probe did not confirm impact this run."}</p>
                   )}
                 </div>
               )}

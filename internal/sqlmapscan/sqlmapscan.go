@@ -141,6 +141,10 @@ func parseSqlmap(stdout []byte, ep dastcrawl.Endpoint) []model.RawFinding {
 		if dbms != "" {
 			desc += " Back-end DBMS: " + dbms + "."
 		}
+		meta := map[string]string{"param": curParam, "place": curPlace, "dbms": dbms}
+		if ep.Method == "POST" && ep.Body != "" {
+			meta["body"] = ep.Body
+		}
 		out = append(out, model.RawFinding{
 			Tool:        "sqlmap",
 			Category:    model.CategoryDAST,
@@ -150,7 +154,7 @@ func parseSqlmap(stdout []byte, ep dastcrawl.Endpoint) []model.RawFinding {
 			RawSeverity: "critical", // a confirmed injection point is critical
 			URL:         ep.URL,
 			CWEs:        []string{"CWE-89"},
-			Meta:        map[string]string{"param": curParam, "place": curPlace, "dbms": dbms},
+			Meta:        meta,
 		})
 		curParam, curPlace, techniques = "", "", nil
 	}

@@ -256,7 +256,9 @@ func consoleDASTGovernor(reg *targets.Registry, progress func(string)) (*engagem
 		return nil, err
 	}
 	progress(fmt.Sprintf("==> engagement %q (%s), authorization %s\n", eng.Name, eng.ID, eng.AuthorizationRef))
-	return engagement.NewGovernor(eng, auditLog, false), nil
+	// A scan-launch job never arms the destructive or confirmation second latch;
+	// bounded confirmation from the console is a separate, explicit action.
+	return engagement.NewGovernor(eng, auditLog, false, false), nil
 }
 
 // applyDastConfig folds a DAST target's console-set scan configuration

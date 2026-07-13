@@ -70,8 +70,15 @@ type Engagement struct {
 	// interlock. Off by default: an engagement proves impact non-destructively.
 	// A destructive action additionally needs a per-run confirmation (the second
 	// latch), and the hard limits refuse regardless.
-	Destructive bool      `json:"destructive"`
-	CreatedAt   time.Time `json:"createdAt"`
+	Destructive bool `json:"destructive"`
+	// Confirm is the engagement-level (first) latch of the confirmation
+	// interlock. Off by default: a scan reports without actively exploiting.
+	// Bounded impact confirmation (read a DB banner, run a benign `id`)
+	// additionally needs a per-run confirmation (the second latch). It is a
+	// separate, lesser latch than Destructive: an operator can arm confirmation
+	// without arming destructive writes.
+	Confirm   bool      `json:"confirm"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Scope is the in/out-of-scope declaration the gate enforces. Entries may be a
@@ -151,6 +158,7 @@ func New(name string, scope Scope, opts Options) (*Engagement, error) {
 		Window:           opts.Window,
 		Intensity:        opts.Intensity,
 		Destructive:      opts.Destructive,
+		Confirm:          opts.Confirm,
 		CreatedAt:        time.Now().UTC(),
 	}, nil
 }
@@ -162,6 +170,7 @@ type Options struct {
 	Window           Window
 	Intensity        Intensity
 	Destructive      bool
+	Confirm          bool
 }
 
 // WindowOpen reports whether now falls within the testing window.

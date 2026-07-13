@@ -39,7 +39,7 @@ func TestRunDASTRefusesOutOfScopeTarget(t *testing.T) {
 		Name:  "scoped",
 		Scope: engagement.Scope{InScope: []string{"in.example.com"}},
 	}
-	gov := engagement.NewGovernor(eng, audit, false)
+	gov := engagement.NewGovernor(eng, audit, false, false)
 
 	_, err = RunDAST(context.Background(), DASTOptions{
 		URL:      "http://out.example.com/secret",

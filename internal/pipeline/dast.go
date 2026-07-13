@@ -9,6 +9,7 @@ import (
 
 	"github.com/zer0d4y5/argus/internal/cmdiscan"
 	"github.com/zer0d4y5/argus/internal/config"
+	"github.com/zer0d4y5/argus/internal/confirm"
 	"github.com/zer0d4y5/argus/internal/dalfoxscan"
 	"github.com/zer0d4y5/argus/internal/dastauth"
 	"github.com/zer0d4y5/argus/internal/dastcrawl"
@@ -251,7 +252,20 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	// cmdi builds its own from the exact request it sent). This renders what the
 	// engines observed into a request, a curl, and a plain-English reason. It
 	// sends no traffic.
-	poc.AttachToRaw(raw, pocBodies(endpoints), cookie != "")
+	bodies := pocBodies(endpoints)
+	poc.AttachToRaw(raw, bodies, cookie != "")
+
+	// Bounded impact confirmation: only when the operator armed the confirmation
+	// interlock. It sends the minimum identifying probe (a DB banner + current
+	// user for SQLi, one benign `id` for command injection) against confirmed
+	// findings, gated and audited through the governor, and attaches the result.
+	// A no-op when the interlock is not armed.
+	confirm.Run(ctx, gov, raw, confirm.Inputs{
+		Client:  governed,
+		Cookie:  cookie,
+		Headers: headers,
+		Bodies:  bodies,
+	}, progress)
 
 	gov.Event(engagement.EventScanFinish, map[string]string{
 		"target":          opts.URL,

@@ -40,6 +40,27 @@ Severity is nuclei's own template rating, banded like every other tool:
 exposure surface) stays honest `info`, never inflated to a gate-tripping
 medium.
 
+## Proof of concept and bounded confirmation
+
+A confirmed dynamic finding carries a **proof of concept**: the raw HTTP
+request, a copy-paste `curl`, the observed proof, and a plain-English reason the
+finding is real. It is built from what the engine already saw and sends no extra
+traffic. The `curl` renders the session cookie as a `$ARGUS_SESSION` placeholder,
+so a shared PoC never carries a live credential.
+
+Add `--confirm-impact` to go one step further and **confirm impact** with the
+minimum identifying probe: a database banner and current user for SQL injection,
+one benign `id` for command injection. It proves the finding's severity and
+takes nothing more, and it runs only behind its own double interlock (see
+[Engagements](engagement.md#bounded-impact-confirmation-a-second-separate-interlock)):
+the engagement's `--allow-confirmation` latch and the per-run `--confirm-impact`.
+It never dumps data, opens a shell, or changes target state.
+
+```bash
+# Reproduction PoC is automatic; add --confirm-impact for bounded confirmation.
+argus dast http://target/ --auth-auto --crawl --sqlmap --cmdi --confirm-impact
+```
+
 ## Request/response evidence
 
 By default a DAST finding is metadata only (see below). Add `--evidence`

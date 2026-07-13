@@ -87,6 +87,23 @@ service and resource exhaustion, data destruction, persistence and implants, and
 bulk exfiltration. These keep Argus a sanctioned testing tool. No current engine
 performs a destructive action; the interlock is the gate a future one must pass.
 
+## Bounded impact confirmation: a second, separate interlock
+
+Bounded confirmation proves a confirmed finding's impact with the minimum
+identifying probe and nothing more: a database banner and current user for SQL
+injection, one benign `id` for command injection. It is non-destructive by
+design, but it is still active exploitation, so it runs only behind its own
+double interlock:
+
+1. the engagement's confirmation latch (`--allow-confirmation` at create time), and
+2. a per-run confirmation (`argus dast ... --confirm-impact`).
+
+The confirmation latch is deliberately separate from and lesser than the
+destructive latch: an operator can arm bounded confirmation without arming
+destructive writes. The same hard limits apply, so a confirmation can never dump
+tables, open a shell, or change target state. Each confirmation is scope-gated,
+budgeted, and audited (`confirm.allow`) like every other active step.
+
 ## CLI
 
 ```
@@ -95,7 +112,8 @@ argus engagement create --name "Acme staging" \
   --scope staging.acme.com --scope '*.staging.acme.com' \
   --exclude admin.staging.acme.com \
   --auth-ref CVP-2026-0412 --contact you@acme.com \
-  --rate 8 --concurrency 3 --budget 15000
+  --rate 8 --concurrency 3 --budget 15000 \
+  --allow-confirmation                # optional: permit bounded impact confirmation
 
 argus engagement list                 # the active one is marked
 argus engagement show [id]            # scope, window, intensity (default: active)

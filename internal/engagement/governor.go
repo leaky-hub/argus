@@ -43,7 +43,8 @@ type Governor struct {
 	mu      sync.Mutex
 	sems    map[string]chan struct{}
 
-	destructiveConfirmed bool // the per-run (second) latch
+	destructiveConfirmed bool // the destructive interlock's per-run (second) latch
+	confirmConfirmed     bool // the confirmation interlock's per-run (second) latch
 }
 
 // Sentinel errors surfaced to callers (and, for in-process requests, returned
@@ -63,9 +64,10 @@ func (e *ScopeError) Error() string {
 }
 
 // NewGovernor builds the enforcer for an engagement. audit may be nil (no trail
-// written); eng must be non-nil. destructiveConfirmed is the per-run second
-// latch of the destructive interlock.
-func NewGovernor(eng *Engagement, audit *Audit, destructiveConfirmed bool) *Governor {
+// written); eng must be non-nil. destructiveConfirmed and confirmConfirmed are
+// the per-run second latches of the destructive and confirmation interlocks
+// respectively (each still needs its matching engagement flag).
+func NewGovernor(eng *Engagement, audit *Audit, destructiveConfirmed, confirmConfirmed bool) *Governor {
 	in := eng.EffectiveIntensity()
 	return &Governor{
 		eng:                  eng,
@@ -76,6 +78,7 @@ func NewGovernor(eng *Engagement, audit *Audit, destructiveConfirmed bool) *Gove
 		hostCap:              in.PerHostConcurrency,
 		sems:                 map[string]chan struct{}{},
 		destructiveConfirmed: destructiveConfirmed,
+		confirmConfirmed:     confirmConfirmed,
 	}
 }
 
@@ -258,6 +261,33 @@ func (g *Governor) RequireDestructive(action string) error {
 	}
 	g.Event(EventDestructiveAllow, map[string]string{"action": action})
 	return nil
+}
+
+// RequireConfirmation is the confirmation interlock. Bounded impact
+// confirmation is active exploitation (it sends a probe against a confirmed
+// finding), so even though it is non-destructive it runs only when BOTH latches
+// are set: the engagement's Confirm flag AND a per-run confirmation. The hard
+// limits still refuse, so a confirmation label naming a forbidden class is never
+// permitted. Every decision is audited. It returns nil to permit, an error to
+// refuse.
+func (g *Governor) RequireConfirmation(action string) error {
+	if isHardForbidden(action) {
+		g.Event(EventConfirmBlock, map[string]string{"action": action, "reason": ReasonHardForbidden})
+		return fmt.Errorf("refused: %q is a platform hard limit (no DoS, destruction, persistence, or bulk exfiltration) and is never permitted", action)
+	}
+	if !g.eng.Confirm || !g.confirmConfirmed {
+		g.Event(EventConfirmBlock, map[string]string{"action": action, "reason": ReasonConfirm})
+		return fmt.Errorf("refused: %q is a bounded impact confirmation; it needs the engagement's confirm flag AND a per-run --confirm-impact confirmation", action)
+	}
+	g.Event(EventConfirmAllow, map[string]string{"action": action})
+	return nil
+}
+
+// ConfirmationArmed reports whether the confirmation interlock's both latches
+// are set, so a caller can skip the confirmation pass entirely (and avoid
+// auditing a refusal per finding) when it is not armed.
+func (g *Governor) ConfirmationArmed() bool {
+	return g != nil && g.eng != nil && g.eng.Confirm && g.confirmConfirmed
 }
 
 // hardForbidden action classes: refused regardless of any flag or confirmation.

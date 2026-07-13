@@ -42,6 +42,8 @@ const (
 	EventCredentialUse    = "credential.use"    // a credential referenced by env-var name was used
 	EventDestructiveBlock = "destructive.block" // a destructive action was refused by the interlock
 	EventDestructiveAllow = "destructive.allow" // a destructive action passed the double interlock
+	EventConfirmBlock     = "confirm.block"     // a bounded confirmation was refused by the interlock
+	EventConfirmAllow     = "confirm.allow"     // a bounded confirmation passed the double interlock
 )
 
 // Refusal reasons.
@@ -50,6 +52,7 @@ const (
 	ReasonWindowClosed  = "window-closed"
 	ReasonBudget        = "budget-exhausted"
 	ReasonDestructive   = "destructive-not-authorized"
+	ReasonConfirm       = "confirmation-not-authorized"
 	ReasonHardForbidden = "hard-forbidden"
 )
 

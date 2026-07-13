@@ -199,4 +199,107 @@ func parseDBMS(text string) string {
 	return ""
 }
 
+// Identity is the minimum identifying evidence a bounded SQLi confirmation
+// retrieves: the database banner and the current user/database. It is enough to
+// demonstrate the injection reaches the real database, and nothing more. It
+// never carries table data.
+type Identity struct {
+	Banner      string
+	CurrentUser string
+	CurrentDB   string
+}
+
+// Empty reports whether nothing identifying was retrieved.
+func (id Identity) Empty() bool {
+	return id.Banner == "" && id.CurrentUser == "" && id.CurrentDB == ""
+}
+
+// ConfirmIdentity re-runs sqlmap against a known-injectable endpoint asking ONLY
+// for identity: the banner and the current user and database. It is the bounded
+// impact confirmation for SQLi: it proves the injection reaches the live
+// database without extracting any table data. It never passes --dump,
+// --sql-query, or --os-shell. It returns the identity (which may be partial), or
+// nil if sqlmap did not confirm the injection this run.
+func ConfirmIdentity(ctx context.Context, ep dastcrawl.Endpoint, opts Options) (*Identity, error) {
+	if !Available() {
+		return nil, fmt.Errorf("sqlmap not found on PATH")
+	}
+	level, risk := opts.Level, opts.Risk
+	if level <= 0 {
+		level = 1
+	}
+	if risk <= 0 {
+		risk = 1
+	}
+	budget := opts.PerReqSecs
+	if budget <= 0 {
+		budget = 120
+	}
+	args := []string{
+		"-u", ep.URL,
+		"--batch",
+		"--disable-coloring",
+		"--level", itoa(level),
+		"--risk", itoa(risk),
+		"--timeout", "10",
+		"--retries", "1",
+		"--time-limit", itoa(budget),
+		// Identity retrieval only. NEVER --dump/--sql-query/--os-shell.
+		"--banner", "--current-user", "--current-db",
+	}
+	if ep.Method == "POST" && ep.Body != "" {
+		args = append(args, "--data", ep.Body)
+	}
+	if opts.Cookie != "" {
+		args = append(args, "--cookie", opts.Cookie)
+	}
+	cmd := exec.CommandContext(ctx, "sqlmap", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	_ = cmd.Run() // sqlmap's exit code is not a reliable signal
+	id := parseIdentity(stdout.String())
+	if id.Empty() {
+		return nil, nil
+	}
+	return &id, nil
+}
+
+// parseIdentity reads the banner and current user/database from sqlmap's output.
+// It reads only those labelled identity lines, never any fetched row data.
+func parseIdentity(text string) Identity {
+	var id Identity
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := cutIdentity(line, "banner:"); ok {
+			id.Banner = v
+		} else if v, ok := cutIdentity(line, "current user:"); ok {
+			id.CurrentUser = v
+		} else if v, ok := cutIdentity(line, "current database:"); ok {
+			id.CurrentDB = v
+		}
+	}
+	if id.Banner == "" {
+		id.Banner = parseDBMS(text)
+	}
+	return id
+}
+
+// cutIdentity matches a "<label> '<value>'" line and returns the unquoted,
+// length-bounded value.
+func cutIdentity(line, label string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.ToLower(line), label)
+	if !ok {
+		return "", false
+	}
+	// Recover the original-case value using the matched length.
+	v := strings.TrimSpace(line[len(label):])
+	_ = rest
+	v = strings.Trim(v, "'\"")
+	if len(v) > 200 {
+		v = v[:200]
+	}
+	return strings.TrimSpace(v), v != ""
+}
+
 func itoa(n int) string { return fmt.Sprintf("%d", n) }

@@ -253,6 +253,57 @@ func finding(ep dastcrawl.Endpoint, base url.Values, param string, c confirmatio
 	return f
 }
 
+// ConfirmID is the bounded impact confirmation for command injection: it
+// injects a single benign `id` command into a confirmed-injectable parameter
+// and returns the identity line the shell prints (e.g.
+// "uid=33(www-data) gid=33(www-data) ..."). It runs one identifying command and
+// nothing else: no shell, no persistence, no data read beyond the process
+// identity. It returns ("", false, nil) when the response carried no id output.
+// The client should be the governed client so the probe is scope- and
+// budget-metered and audited.
+func ConfirmID(ctx context.Context, client *http.Client, ep dastcrawl.Endpoint, param string, headers []string) (string, bool, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	s := &scanner{client: client, headers: headers}
+	_, base, err := paramsOf(ep)
+	if err != nil {
+		return "", false, err
+	}
+	orig := base.Get(param)
+	for _, sep := range separators {
+		if ctx.Err() != nil {
+			break
+		}
+		body, _, err := s.send(ctx, ep, base, param, orig+sep+"id")
+		if err != nil {
+			continue
+		}
+		if line := extractIDLine(body); line != "" {
+			return line, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// extractIDLine returns the `uid=...` identity line from an `id` command's
+// output in a response, bounded in length. It is the minimum identifying proof
+// of command execution.
+func extractIDLine(body string) string {
+	idx := strings.Index(body, "uid=")
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx:]
+	if cut := strings.IndexAny(rest, "\r\n<"); cut >= 0 {
+		rest = rest[:cut]
+	}
+	if len(rest) > 200 {
+		rest = rest[:200]
+	}
+	return strings.TrimSpace(rest)
+}
+
 // hasCookie reports whether the request headers carry a session cookie, so the
 // rendered PoC shows a cookie placeholder rather than an unauthenticated request.
 func hasCookie(headers []string) bool {

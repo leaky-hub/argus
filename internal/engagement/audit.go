@@ -185,6 +185,10 @@ func Verify(path string) (VerifyResult, error) {
 	return VerifyResult{OK: true, Entries: len(entries)}, nil
 }
 
+// Entries returns the audit log's entries in order, for reporting. It does not
+// verify the chain integrity; call Verify for that.
+func Entries(path string) ([]Entry, error) { return readEntries(path) }
+
 // readEntries loads all parseable audit lines in order. A missing file is an
 // empty log. A line that does not parse as JSON is reported as a break rather
 // than silently skipped, because in a tamper-evident log a garbled line IS the

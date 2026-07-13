@@ -119,6 +119,23 @@ argus engagement list                 # the active one is marked
 argus engagement show [id]            # scope, window, intensity (default: active)
 argus engagement activate <id>        # switch the active engagement
 argus engagement verify-audit [id]    # confirm the audit chain is intact
+argus engagement report [id]          # pentest-grade HTML + Markdown deliverable
+```
+
+## The pentest report
+
+`argus engagement report` assembles a pentest-grade deliverable from the
+engagement and its saved DAST runs: the scope and authorization statement up
+front, the confirmed findings with their proof-of-concept (raw request, curl,
+response, and the plain-English reason) and compliance mapping, and the
+tamper-evident audit trail as an appendix (verified, so the reader can trust the
+testing stayed in bounds). It reads the latest run for each of the engagement's
+targets, or a specific run with `--run <file>`, and writes self-contained HTML
+(prints to a clean PDF) plus a Markdown copy.
+
+```
+argus dast https://staging.acme.com --engagement <id> --crawl --ssrf --idor --save
+argus engagement report <id>          # -> engagement-<id>-report.html (+ .md)
 ```
 
 A DAST scan runs under the active engagement by default, or a named one with

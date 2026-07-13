@@ -30,6 +30,33 @@ type HTMLMeta struct {
 	// package decoupled from the SQLite-backed ticket/threatmodel types.
 	Tickets      []TicketReport
 	ThreatModels []ThreatModelReport
+	// Engagement, when set, turns the report into a pentest-grade deliverable: a
+	// scope and authorization statement up front and a tamper-evident audit
+	// appendix at the end.
+	Engagement *EngagementReport
+}
+
+// EngagementReport is the rules-of-engagement context and audit trail for a
+// pentest-grade report.
+type EngagementReport struct {
+	Name             string
+	AuthorizationRef string
+	Contact          string
+	Window           string
+	InScope          []string
+	OutOfScope       []string
+	AuditVerified    bool
+	AuditError       string // set when the audit chain failed verification
+	AuditEntries     int
+	AuditEvents      []AuditEventRow
+}
+
+// AuditEventRow is one line of the tamper-evident audit appendix.
+type AuditEventRow struct {
+	Seq    int
+	Time   string
+	Event  string
+	Detail string
 }
 
 // TicketReport is one ticket row in the exported report.
@@ -324,6 +351,21 @@ var htmlTemplate = template.Must(template.New("report").Parse(`<!doctype html>
     </div>
   </header>
 
+  {{if .Meta.Engagement}}
+  <h2>Scope &amp; authorization</h2>
+  <table>
+    <tbody>
+      <tr><td><strong>Engagement</strong></td><td>{{.Meta.Engagement.Name}}</td></tr>
+      <tr><td><strong>Authorization</strong></td><td>{{.Meta.Engagement.AuthorizationRef}}</td></tr>
+      {{if .Meta.Engagement.Contact}}<tr><td><strong>Contact</strong></td><td>{{.Meta.Engagement.Contact}}</td></tr>{{end}}
+      {{if .Meta.Engagement.Window}}<tr><td><strong>Testing window</strong></td><td>{{.Meta.Engagement.Window}}</td></tr>{{end}}
+      <tr><td><strong>In scope</strong></td><td>{{range .Meta.Engagement.InScope}}<span class="chip">{{.}}</span> {{end}}</td></tr>
+      {{if .Meta.Engagement.OutOfScope}}<tr><td><strong>Out of scope</strong></td><td>{{range .Meta.Engagement.OutOfScope}}<span class="chip">{{.}}</span> {{end}}</td></tr>{{end}}
+    </tbody>
+  </table>
+  <p class="body">This assessment was conducted under the authorization above, non-destructively and within the stated scope. Every active request was scope-gated and recorded in the tamper-evident audit trail (see appendix). Confirmation was benign: impact was demonstrated with the minimum identifying evidence, and no data was extracted or altered.</p>
+  {{end}}
+
   <h2>Executive summary</h2>
   <div class="cards">
     <div class="card"><div class="k">Total findings</div><div class="v">{{.Total}}</div></div>
@@ -407,6 +449,19 @@ var htmlTemplate = template.Must(template.New("report").Parse(`<!doctype html>
     </table>
     {{end}}
   </div>
+  {{end}}
+  {{end}}
+
+  {{if .Meta.Engagement}}
+  <h2>Appendix: audit trail</h2>
+  <p class="body">{{.Meta.Engagement.AuditEntries}} recorded event(s). Chain integrity: {{if .Meta.Engagement.AuditVerified}}<strong>verified intact</strong>{{else}}<strong>FAILED</strong>{{if .Meta.Engagement.AuditError}} ({{.Meta.Engagement.AuditError}}){{end}}{{end}}. The trail is hash-chained and append-only; any edit, reorder, or truncation breaks verification.</p>
+  {{if .Meta.Engagement.AuditEvents}}
+  <table>
+    <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+    <tbody>
+      {{range .Meta.Engagement.AuditEvents}}<tr><td>{{.Seq}}</td><td class="loc">{{.Time}}</td><td>{{.Event}}</td><td class="loc">{{.Detail}}</td></tr>{{end}}
+    </tbody>
+  </table>
   {{end}}
   {{end}}
 

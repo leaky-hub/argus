@@ -104,6 +104,42 @@ func TestWriteHTMLProof(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLEngagementReport: the pentest-grade report renders the scope /
+// authorization statement and the tamper-evident audit appendix, and hostile
+// text in an audit detail is escaped.
+func TestWriteHTMLEngagementReport(t *testing.T) {
+	meta := HTMLMeta{
+		Engagement: &EngagementReport{
+			Name:             "acme-test",
+			AuthorizationRef: "CVP-2026-1",
+			Contact:          "you@acme.com",
+			InScope:          []string{"staging.acme.com"},
+			OutOfScope:       []string{"prod.acme.com"},
+			AuditVerified:    true,
+			AuditEntries:     42,
+			AuditEvents: []AuditEventRow{
+				{Seq: 1, Time: "10:00:00", Event: "scan.start", Detail: "target=<script>alert(1)</script>"},
+			},
+		},
+	}
+	var sb strings.Builder
+	if err := WriteHTML(&sb, nil, meta); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		"Scope &amp; authorization", "CVP-2026-1", "staging.acme.com", "prod.acme.com",
+		"Appendix: audit trail", "verified intact", "scan.start",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("engagement report missing %q", want)
+		}
+	}
+	if strings.Contains(out, "<script>alert(1)</script>") {
+		t.Error("audit detail was not HTML-escaped")
+	}
+}
+
 func TestWriteHTMLEmpty(t *testing.T) {
 	var sb strings.Builder
 	if err := WriteHTML(&sb, nil, HTMLMeta{}); err != nil {

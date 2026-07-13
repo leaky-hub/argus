@@ -31,7 +31,7 @@ func govFor(t *testing.T, in Intensity, inScope ...string) (*Governor, *Audit) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewGovernor(eng, audit, false), audit
+	return NewGovernor(eng, audit, false, false), audit
 }
 
 func TestRoundTripRefusesOutOfScopeBeforeDial(t *testing.T) {
@@ -100,7 +100,7 @@ func TestWindowClosedRefuses(t *testing.T) {
 		Scope:  Scope{InScope: []string{"127.0.0.1"}},
 		Window: Window{End: time.Now().Add(-time.Hour)},
 	}
-	gov := NewGovernor(eng, nil, false)
+	gov := NewGovernor(eng, nil, false, false)
 	counter := &countingRT{base: http.DefaultTransport}
 	client := gov.Client(&http.Client{Transport: counter})
 	if _, err := client.Get("http://127.0.0.1:1/x"); !errors.Is(err, ErrWindowClosed) {
@@ -220,7 +220,7 @@ func TestFilterEndpointsStopsAtBudget(t *testing.T) {
 
 func TestFilterEndpointsWindowClosed(t *testing.T) {
 	eng := &Engagement{Scope: Scope{InScope: []string{"in.example.com"}}, Window: Window{End: time.Now().Add(-time.Hour)}}
-	gov := NewGovernor(eng, nil, false)
+	gov := NewGovernor(eng, nil, false, false)
 	if kept := gov.FilterEndpoints("nuclei", []string{"https://in.example.com/a"}); kept != nil {
 		t.Fatal("a closed window must dispatch no endpoints")
 	}
@@ -230,30 +230,70 @@ func TestDestructiveInterlock(t *testing.T) {
 	scope := Scope{InScope: []string{"in.example.com"}}
 
 	// Neither latch: refused.
-	g1 := NewGovernor(&Engagement{Scope: scope, Destructive: false}, nil, false)
+	g1 := NewGovernor(&Engagement{Scope: scope, Destructive: false}, nil, false, false)
 	if err := g1.RequireDestructive("write-file"); err == nil {
 		t.Error("destructive action must be refused with neither latch set")
 	}
 	// Only the engagement flag (first latch): still refused.
-	g2 := NewGovernor(&Engagement{Scope: scope, Destructive: true}, nil, false)
+	g2 := NewGovernor(&Engagement{Scope: scope, Destructive: true}, nil, false, false)
 	if err := g2.RequireDestructive("write-file"); err == nil {
 		t.Error("destructive action must be refused without the per-run confirmation")
 	}
 	// Only the confirmation (second latch): still refused.
-	g3 := NewGovernor(&Engagement{Scope: scope, Destructive: false}, nil, true)
+	g3 := NewGovernor(&Engagement{Scope: scope, Destructive: false}, nil, true, false)
 	if err := g3.RequireDestructive("write-file"); err == nil {
 		t.Error("destructive action must be refused without the engagement flag")
 	}
 	// Both latches: permitted.
-	g4 := NewGovernor(&Engagement{Scope: scope, Destructive: true}, nil, true)
+	g4 := NewGovernor(&Engagement{Scope: scope, Destructive: true}, nil, true, false)
 	if err := g4.RequireDestructive("write-file"); err != nil {
 		t.Errorf("both latches set must permit a non-forbidden destructive action, got %v", err)
 	}
 }
 
+func TestConfirmationInterlock(t *testing.T) {
+	scope := Scope{InScope: []string{"in.example.com"}}
+
+	// Neither latch: refused.
+	g1 := NewGovernor(&Engagement{Scope: scope, Confirm: false}, nil, false, false)
+	if err := g1.RequireConfirmation("sql-identity"); err == nil {
+		t.Error("confirmation must be refused with neither latch set")
+	}
+	// Only the engagement flag: still refused.
+	g2 := NewGovernor(&Engagement{Scope: scope, Confirm: true}, nil, false, false)
+	if err := g2.RequireConfirmation("sql-identity"); err == nil {
+		t.Error("confirmation must be refused without the per-run confirmation")
+	}
+	// Only the per-run confirmation: still refused.
+	g3 := NewGovernor(&Engagement{Scope: scope, Confirm: false}, nil, false, true)
+	if err := g3.RequireConfirmation("sql-identity"); err == nil {
+		t.Error("confirmation must be refused without the engagement flag")
+	}
+	// Both latches: permitted.
+	g4 := NewGovernor(&Engagement{Scope: scope, Confirm: true}, nil, false, true)
+	if err := g4.RequireConfirmation("sql-identity"); err != nil {
+		t.Errorf("both latches set must permit a bounded confirmation, got %v", err)
+	}
+	// The destructive flag alone does not arm confirmation, and vice versa: the
+	// two latches are independent.
+	g5 := NewGovernor(&Engagement{Scope: scope, Destructive: true}, nil, true, false)
+	if err := g5.RequireConfirmation("sql-identity"); err == nil {
+		t.Error("the destructive latch must not arm the confirmation interlock")
+	}
+}
+
+func TestConfirmationHardLimitsNeverPermitted(t *testing.T) {
+	g := NewGovernor(&Engagement{Scope: Scope{InScope: []string{"x"}}, Confirm: true}, nil, false, true)
+	for _, action := range []string{"dump-all-rows", "bulk-export the database", "wipe the table"} {
+		if err := g.RequireConfirmation(action); err == nil {
+			t.Errorf("hard-limit confirmation %q must never be permitted", action)
+		}
+	}
+}
+
 func TestHardLimitsNeverPermitted(t *testing.T) {
 	// Even with both latches set, the platform hard limits always refuse.
-	g := NewGovernor(&Engagement{Scope: Scope{InScope: []string{"x"}}, Destructive: true}, nil, true)
+	g := NewGovernor(&Engagement{Scope: Scope{InScope: []string{"x"}}, Destructive: true}, nil, true, false)
 	for _, action := range []string{"DROP TABLE users", "deploy a webshell", "start a DoS flood", "bulk-export the database", "install persistence beacon"} {
 		if err := g.RequireDestructive(action); err == nil {
 			t.Errorf("hard-limit action %q must never be permitted", action)

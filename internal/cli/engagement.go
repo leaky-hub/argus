@@ -24,6 +24,7 @@ func init() {
 	engagementCreateCmd.Flags().Int("concurrency", 0, "Per-host concurrency ceiling (0 = conservative default)")
 	engagementCreateCmd.Flags().Int64("budget", 0, "Total metered-request budget for the engagement (0 = conservative default)")
 	engagementCreateCmd.Flags().Bool("allow-destructive", false, "Arm the engagement-level latch of the destructive interlock (still needs a per-run --i-have-authorization; hard limits always refuse)")
+	engagementCreateCmd.Flags().Bool("allow-confirmation", false, "Arm the engagement-level latch of the confirmation interlock, permitting bounded impact confirmation (still needs a per-run --confirm-impact; never dumps data or changes state)")
 	engagementCreateCmd.Flags().Bool("activate", true, "Make this the active engagement after creating it")
 
 	engagementCmd.AddCommand(engagementCreateCmd)
@@ -112,6 +113,7 @@ func runEngagementCreate(cmd *cobra.Command, _ []string) error {
 	concurrency, _ := cmd.Flags().GetInt("concurrency")
 	budget, _ := cmd.Flags().GetInt64("budget")
 	destructive, _ := cmd.Flags().GetBool("allow-destructive")
+	confirm, _ := cmd.Flags().GetBool("allow-confirmation")
 
 	window, err := windowFromFlags(cmd)
 	if err != nil {
@@ -124,6 +126,7 @@ func runEngagementCreate(cmd *cobra.Command, _ []string) error {
 		Window:           window,
 		Intensity:        engagement.Intensity{RatePerSec: rate, PerHostConcurrency: concurrency, RequestBudget: budget},
 		Destructive:      destructive,
+		Confirm:          confirm,
 	})
 	if err != nil {
 		return err
@@ -283,6 +286,7 @@ func runEngagementShow(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(os.Stdout, "  intensity:     %.0f req/s, %d concurrent/host, %d request budget\n", in.RatePerSec, in.PerHostConcurrency, in.RequestBudget)
 	fmt.Fprintf(os.Stdout, "  destructive:   %v\n", e.Destructive)
+	fmt.Fprintf(os.Stdout, "  confirmation:  %v\n", e.Confirm)
 	return nil
 }
 

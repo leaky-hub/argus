@@ -9,6 +9,7 @@ import (
 
 	"github.com/zer0d4y5/argus/internal/cmdiscan"
 	"github.com/zer0d4y5/argus/internal/config"
+	"github.com/zer0d4y5/argus/internal/confirm"
 	"github.com/zer0d4y5/argus/internal/dalfoxscan"
 	"github.com/zer0d4y5/argus/internal/dastauth"
 	"github.com/zer0d4y5/argus/internal/dastcrawl"
@@ -18,6 +19,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/fingerprint"
 	"github.com/zer0d4y5/argus/internal/jsrecon"
 	"github.com/zer0d4y5/argus/internal/model"
+	"github.com/zer0d4y5/argus/internal/poc"
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
 )
 
@@ -245,6 +247,26 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	raw = append(raw, reconFindings...)
 	raw = append(raw, fingerprintFindings...)
 
+	// Build the reproduction proof-of-concept for the confirmed dynamic findings
+	// that do not already carry one (the subprocess engines sqlmap and dalfox;
+	// cmdi builds its own from the exact request it sent). This renders what the
+	// engines observed into a request, a curl, and a plain-English reason. It
+	// sends no traffic.
+	bodies := pocBodies(endpoints)
+	poc.AttachToRaw(raw, bodies, cookie != "")
+
+	// Bounded impact confirmation: only when the operator armed the confirmation
+	// interlock. It sends the minimum identifying probe (a DB banner + current
+	// user for SQLi, one benign `id` for command injection) against confirmed
+	// findings, gated and audited through the governor, and attaches the result.
+	// A no-op when the interlock is not armed.
+	confirm.Run(ctx, gov, raw, confirm.Inputs{
+		Client:  governed,
+		Cookie:  cookie,
+		Headers: headers,
+		Bodies:  bodies,
+	}, progress)
+
 	gov.Event(engagement.EventScanFinish, map[string]string{
 		"target":          opts.URL,
 		"rawFindings":     fmt.Sprintf("%d", len(raw)),
@@ -253,6 +275,101 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 
 	findings := Enrich(ctx, opts.Config, "", raw, progress)
 	return DASTResult{Findings: findings, ToolVersion: toolVersion}, nil
+}
+
+// pocBodies indexes discovered endpoints' request bodies by method+URL so the
+// reproduction builder can render a faithful POST curl for a finding whose
+// engine did not carry the body on the finding itself.
+func pocBodies(eps []dastcrawl.Endpoint) map[string]string {
+	conv := make([]poc.Endpoint, 0, len(eps))
+	for _, ep := range eps {
+		conv = append(conv, poc.Endpoint{Method: ep.Method, URL: ep.URL, Body: ep.Body})
+	}
+	return poc.BodiesFromEndpoints(conv)
+}
+
+// ConfirmTarget identifies a single confirmed finding to run bounded impact
+// confirmation against. Class is "sqli" or "cmdi".
+type ConfirmTarget struct {
+	URL    string
+	Method string
+	Body   string
+	Param  string
+	Class  string
+}
+
+// ConfirmOptions configure a single-finding bounded confirmation (the console
+// path). Auth, when set, re-establishes a session before probing, since the
+// original scan's session was never persisted.
+type ConfirmOptions struct {
+	Governor *engagement.Governor
+	Auth     *DASTAuth
+	LoginURL string // where to authenticate (the target base); defaults to the finding URL
+	Headers  []string
+	Config   config.Config
+	Target   ConfirmTarget
+}
+
+// ConfirmImpact runs bounded impact confirmation for one confirmed finding,
+// re-authenticating first when configured, and returns the ImpactProof (nil if
+// the probe did not confirm). It refuses unless the confirmation interlock is
+// armed and the finding URL is in scope and within the testing window. Every
+// probe is scope-gated, budgeted, and audited through the governor.
+func ConfirmImpact(ctx context.Context, opts ConfirmOptions, progress Progress) (*model.ImpactProof, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	gov := opts.Governor
+	if gov == nil {
+		return nil, engagement.ErrNoEngagement
+	}
+	if !gov.ConfirmationArmed() {
+		return nil, fmt.Errorf("refused: the engagement's confirmation interlock is not armed (needs --allow-confirmation and an explicit confirmation)")
+	}
+	eng := gov.Engagement()
+	if !eng.WindowOpen(time.Now()) {
+		return nil, fmt.Errorf("refused: engagement %q testing window is closed", eng.Name)
+	}
+	url := opts.Target.URL
+	if !eng.InScope(url) {
+		gov.Event(engagement.EventRefused, map[string]string{"reason": engagement.ReasonOutOfScope, "url": url, "phase": "confirm"})
+		return nil, fmt.Errorf("refused: %s is outside the engagement %q scope", url, eng.Name)
+	}
+	cwe := map[string]string{"sqli": "CWE-89", "cmdi": "CWE-78"}[opts.Target.Class]
+	if cwe == "" {
+		return nil, fmt.Errorf("unsupported confirmation class %q", opts.Target.Class)
+	}
+
+	governed := gov.Client(&http.Client{Timeout: 20 * time.Second})
+	headers := opts.Headers
+	var cookie string
+	if opts.Auth != nil {
+		loginURL := opts.LoginURL
+		if loginURL == "" {
+			loginURL = url
+		}
+		sess, err := authenticate(ctx, governed, DASTOptions{Auth: opts.Auth, URL: loginURL}, progress)
+		if err != nil {
+			return nil, err
+		}
+		gov.Event(engagement.EventAuthSuccess, map[string]string{"user": sess.User})
+		if c := sess.CookieHeader(); c != "" {
+			cookie = c
+			headers = append(append([]string{}, headers...), "Cookie: "+c)
+		}
+	}
+
+	raw := []model.RawFinding{{
+		Category: model.CategoryDAST,
+		URL:      url,
+		CWEs:     []string{cwe},
+		Meta:     map[string]string{"param": opts.Target.Param, "method": opts.Target.Method, "body": opts.Target.Body},
+	}}
+	confirm.Run(ctx, gov, raw, confirm.Inputs{Client: governed, Cookie: cookie, Headers: headers}, progress)
+	if raw[0].Proof != nil {
+		return raw[0].Proof.Impact, nil
+	}
+	return nil, nil
 }
 
 // maxToolEndpoints bounds how many endpoints the slower form-aware engines

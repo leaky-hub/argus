@@ -64,6 +64,7 @@ export interface Finding {
   riskScore?: number;
   riskSignals?: RiskSignal[];
   evidence?: Evidence;
+  proof?: Proof;
 }
 
 // Evidence is the redacted request/response behind a DAST finding (opt-in).
@@ -72,6 +73,32 @@ export interface Evidence {
   response?: string;
   fuzzParam?: string;
   fuzzPos?: string;
+}
+
+// Proof is the reproduction proof-of-concept for a confirmed dynamic finding
+// (schema 2.3.0): the request, a copy-paste curl, the observed proof, and a
+// plain-English reason. impact is present only when a bounded confirmation ran.
+export interface Proof {
+  request?: string;
+  curl?: string;
+  observed?: string;
+  rationale?: string;
+  impact?: ImpactProof;
+}
+
+export interface ImpactProof {
+  kind: string;
+  command?: string;
+  summary: string;
+  detail?: string;
+}
+
+// ConfirmImpactResponse is the result of a live bounded-confirmation probe run
+// from the console (admin, interlocked). Not persisted to the run.
+export interface ConfirmImpactResponse {
+  confirmed: boolean;
+  impact?: ImpactProof;
+  message?: string;
 }
 
 export interface OwaspCategory {
@@ -796,6 +823,9 @@ export const opsApi = {
 
   validate: (req: { targetId?: string; runId: string; findingId: string }): Promise<ValidationResponse> =>
     send<ValidationResponse>("POST", "api/validate", req),
+
+  confirmImpact: (req: { targetId: string; runId: string; findingId: string }): Promise<ConfirmImpactResponse> =>
+    send<ConfirmImpactResponse>("POST", "api/confirm-impact", { ...req, confirm: true }),
 
   setDisposition: (req: { targetId?: string; findingId: string; status: DispositionStatus; note?: string }): Promise<Disposition> =>
     send<Disposition>("POST", "api/dispositions", req),

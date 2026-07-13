@@ -160,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sbom", s.handleSBOM)                                         // POST (operator): generate a CycloneDX/SPDX SBOM
 	mux.HandleFunc("/api/remediate", s.handleRemediate)                               // POST (operator): on-demand assisted remediation, never persisted
 	mux.HandleFunc("/api/validate", s.handleValidate)                                 // POST (operator): on-demand severity validation + CVSS
+	mux.HandleFunc("/api/confirm-impact", s.handleConfirmImpact)                       // POST (admin): bounded impact confirmation, interlocked + audited
 	mux.HandleFunc("/api/mitigations", s.handleMitigations)                           // GET (viewer): curated secure-coding guidance by CWE
 	mux.HandleFunc("/api/dispositions", s.handleDispositions)                         // POST (operator): set a finding's workflow status
 	mux.HandleFunc("/api/dispositions/bulk", s.handleDispositionsBulk)                // POST (operator): apply/clear across a selection

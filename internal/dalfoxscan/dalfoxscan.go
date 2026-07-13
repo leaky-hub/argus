@@ -170,10 +170,20 @@ func parseDalfox(data []byte, ep dastcrawl.Endpoint) []model.RawFinding {
 			RawSeverity: strings.ToLower(strings.TrimSpace(f.Severity)),
 			URL:         ep.URL,
 			CWEs:        cweList(f.CWE),
-			Meta:        map[string]string{"param": param, "method": f.Method, "dalfoxType": f.Type},
+			Meta:        dalfoxMeta(param, f.Method, f.Type, ep),
 		})
 	}
 	return out
+}
+
+// dalfoxMeta assembles the finding metadata, carrying the POST body so the
+// finding is self-contained for reproduction and confirmation.
+func dalfoxMeta(param, method, dalfoxType string, ep dastcrawl.Endpoint) map[string]string {
+	m := map[string]string{"param": param, "method": method, "dalfoxType": dalfoxType}
+	if strings.EqualFold(ep.Method, "POST") && ep.Body != "" {
+		m["body"] = ep.Body
+	}
+	return m
 }
 
 func locationLabel(f dalfoxFinding) string {

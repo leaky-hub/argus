@@ -44,6 +44,7 @@ func init() {
 	dastCmd.Flags().Bool("exclude-fp", false, "Exclude LLM-marked false positives from the report and severity gate (opt-in)")
 	dastCmd.Flags().String("engagement", "", "Engagement id to run under (default: the active engagement). Active DAST requires one.")
 	dastCmd.Flags().Bool("i-have-authorization", false, "Per-run confirmation of the destructive interlock's second latch (still needs the engagement's destructive flag; hard limits always refuse)")
+	dastCmd.Flags().Bool("confirm-impact", false, "Run bounded impact confirmation on confirmed findings (DB banner for SQLi, benign `id` for command injection). Second latch of the confirmation interlock; needs the engagement's --allow-confirmation flag; never dumps data or changes state")
 	dastCmd.Flags().Bool("save", false, "Save the run under .appsec/dast/<target>/runs for the console")
 	dastCmd.Flags().Bool("strict-gate", false, "Gate on ALL findings, ignoring accepted-risk/false-positive dispositions (default: dispositioned findings don't fail the gate)")
 	rootCmd.AddCommand(dastCmd)
@@ -203,8 +204,9 @@ func dastGovernor(cmd *cobra.Command) (*engagement.Governor, error) {
 	if err != nil {
 		return nil, err
 	}
-	confirm, _ := cmd.Flags().GetBool("i-have-authorization")
-	return engagement.NewGovernor(eng, audit, confirm), nil
+	destructive, _ := cmd.Flags().GetBool("i-have-authorization")
+	confirmImpact, _ := cmd.Flags().GetBool("confirm-impact")
+	return engagement.NewGovernor(eng, audit, destructive, confirmImpact), nil
 }
 
 // dastAuthFromFlags builds the pre-scan auth config, or nil when no auth flag

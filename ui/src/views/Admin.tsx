@@ -94,6 +94,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastDalfox: boolean;
     dastSqlmap: boolean;
     dastCmdi: boolean;
+    dastSsrf: boolean;
     dastRecon: boolean;
     dastFingerprint: boolean;
     dastApiRecon: boolean;
@@ -116,6 +117,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastDalfox: false,
     dastSqlmap: false,
     dastCmdi: false,
+    dastSsrf: false,
     dastRecon: false,
     dastFingerprint: false,
     dastApiRecon: false,
@@ -681,6 +683,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
+                    checked={configForm.dastSsrf}
+                    onChange={(e) => setConfigForm({ ...configForm, dastSsrf: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>SSRF: inject callback URLs to a local out-of-band listener and probe cloud-metadata reachability</span>
+                </label>
+
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
                     checked={configForm.dastRecon}
                     onChange={(e) => setConfigForm({ ...configForm, dastRecon: e.target.checked })}
                     className="rounded border-gray-300 dark:border-gray-600"
@@ -1010,6 +1022,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastDalfox: d?.dalfox ?? false,
       dastSqlmap: d?.sqlmap ?? false,
       dastCmdi: d?.cmdi ?? false,
+      dastSsrf: d?.ssrf ?? false,
       dastRecon: d?.recon ?? false,
       dastFingerprint: d?.fingerprint ?? false,
       dastApiRecon: d?.apiRecon ?? false,
@@ -1046,6 +1059,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastDalfox) dast.dalfox = true;
         if (configForm.dastSqlmap) dast.sqlmap = true;
         if (configForm.dastCmdi) dast.cmdi = true;
+        if (configForm.dastSsrf) dast.ssrf = true;
         if (configForm.dastRecon) dast.recon = true;
         if (configForm.dastFingerprint) dast.fingerprint = true;
         if (configForm.dastApiRecon) dast.apiRecon = true;

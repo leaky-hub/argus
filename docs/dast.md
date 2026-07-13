@@ -158,6 +158,23 @@ These engines are opt-in and slower than nuclei (sqlmap especially tests each
 endpoint thoroughly), so enable them when you want depth. File upload is the
 remaining class no engine covers yet.
 
+## Server-side request forgery (`--ssrf`)
+
+`--ssrf` tests each parameter for server-side request forgery by injecting a
+callback URL that points at a listener Argus runs itself on `127.0.0.1`. There
+is no third-party out-of-band service: the only callback endpoint is local, so
+the network-free discipline holds. A parameter is flagged when the target's
+server connects back to the listener (blind, out-of-band), when the response
+reflects the listener's per-probe marker (in-band), or when it can reach the
+cloud instance metadata service at `169.254.169.254` (the canonical escalation).
+The metadata probe confirms reachability by a signature in the response and
+never requests a credential path. Each finding carries the request and, where
+applicable, the response, plus the callback source as proof.
+
+```bash
+argus dast https://target/ --auth-auto --crawl --ssrf
+```
+
 ## Client-side reverse-engineering (`--js-recon`)
 
 Link-following only finds the surface the app links to. Most of a modern app's

@@ -22,6 +22,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/model"
 	"github.com/zer0d4y5/argus/internal/poc"
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
+	"github.com/zer0d4y5/argus/internal/ssrfscan"
 )
 
 // DASTOptions configure one dynamic scan.
@@ -42,6 +43,7 @@ type DASTOptions struct {
 	Dalfox      bool // also run dalfox (active XSS, GET+POST forms)
 	Sqlmap      bool // also run sqlmap (SQL injection incl. blind, GET+POST)
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
+	SSRF        bool // also run the native SSRF detector (local out-of-band listener + cloud-metadata reachability)
 	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
 	APIRecon    bool // reconstruct the API surface from served schemas (OpenAPI/Swagger/GraphQL) and fuzz it
@@ -259,6 +261,14 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		// cmdi's requests go through the governed client, so scope and budget are
 		// enforced per request; the endpoint list is already scope-filtered.
 		if fs := runCmdi(ctx, governed, targets, headers, progress); len(fs) > 0 {
+			raw = append(raw, fs...)
+		}
+	}
+	if opts.SSRF && len(targets) > 0 {
+		// ssrf probes go to the target through the governed client (scope +
+		// budget + audit per request); the callback is to Argus's own local
+		// listener, never a third-party out-of-band service.
+		if fs := runSSRF(ctx, governed, targets, headers, progress); len(fs) > 0 {
 			raw = append(raw, fs...)
 		}
 	}
@@ -635,6 +645,17 @@ func runCmdi(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint,
 		progress(fmt.Sprintf("WARN: command-injection scan failed: %v\n", err))
 	}
 	return fs
+}
+
+func runSSRF(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint, headers []string, progress Progress) []model.RawFinding {
+	progress(fmt.Sprintf("==> testing %d endpoint(s) for server-side request forgery\n", len(eps)))
+	listener, err := ssrfscan.NewListener()
+	if err != nil {
+		progress(fmt.Sprintf("WARN: ssrf: could not start the out-of-band listener: %v\n", err))
+		return nil
+	}
+	defer listener.Close()
+	return ssrfscan.Scan(ctx, client, listener, ssrfscan.Options{Endpoints: eps, Headers: headers, CloudMetadata: true}, progress)
 }
 
 // authenticate runs the pre-scan login through the governed client (so every

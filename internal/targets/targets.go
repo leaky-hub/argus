@@ -83,6 +83,7 @@ type DastConfig struct {
 	Dalfox      bool            `json:"dalfox,omitempty"`      // also run dalfox (active XSS, GET+POST)
 	Sqlmap      bool            `json:"sqlmap,omitempty"`      // also run sqlmap (SQLi incl. blind, GET+POST)
 	Cmdi        bool            `json:"cmdi,omitempty"`        // also test for OS command injection (GET+POST)
+	SSRF        bool            `json:"ssrf,omitempty"`        // also test for server-side request forgery (local OOB listener + cloud metadata)
 	Recon       bool            `json:"recon,omitempty"`       // reverse-engineer client-side JS for endpoints + exposed secrets
 	Fingerprint bool            `json:"fingerprint,omitempty"` // identify the tech stack + correlate to known-exploited software
 	APIRecon    bool            `json:"apiRecon,omitempty"`    // reconstruct the API surface from served schemas and fuzz it

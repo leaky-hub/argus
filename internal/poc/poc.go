@@ -141,6 +141,8 @@ func rationale(class, param string) string {
 		return "An injected script payload in " + p + " was reflected into the response without output encoding, so it runs in the browser of anyone who loads the page."
 	case "cmdi":
 		return "A benign probe in " + p + " produced a value the server could only return by running the injected input as a shell command."
+	case "ssrf":
+		return "The server fetched a URL supplied through " + p + ", proven by a connection back to a listener the tester controls. That is only possible when the input drives a server-side request without validation."
 	default:
 		return "The engine confirmed this dynamically against the running target using " + p + "."
 	}
@@ -243,6 +245,8 @@ func ClassForCWEs(cwes []string) string {
 			return "xss"
 		case "CWE-78":
 			return "cmdi"
+		case "CWE-918":
+			return "ssrf"
 		}
 	}
 	return ""

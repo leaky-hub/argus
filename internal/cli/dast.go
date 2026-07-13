@@ -32,6 +32,7 @@ func init() {
 	dastCmd.Flags().Bool("dalfox", false, "Also run dalfox: active XSS testing of GET and POST forms (reflected, stored, DOM)")
 	dastCmd.Flags().Bool("sqlmap", false, "Also run sqlmap: SQL injection testing incl. boolean/time-based blind, GET and POST")
 	dastCmd.Flags().Bool("cmdi", false, "Also test for OS command injection (GET and POST) with benign arithmetic/timing probes")
+	dastCmd.Flags().Bool("ssrf", false, "Also test for server-side request forgery: inject callback URLs to a local out-of-band listener (never a third-party service) and probe cloud-metadata reachability")
 	dastCmd.Flags().Bool("js-recon", false, "Reverse-engineer the target's client-side JavaScript: recover endpoints/API routes (fed to the fuzzers) and report secrets exposed in served bundles")
 	dastCmd.Flags().Bool("fingerprint", false, "Identify the target's technology stack (server/framework/CMS/library versions) and correlate CMS families against the CISA KEV catalog")
 	dastCmd.Flags().Bool("api-recon", false, "Reconstruct the API surface from served schemas (OpenAPI/Swagger, GraphQL introspection), fuzz the recovered operations, and report the exposure")
@@ -102,6 +103,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 	dalfox, _ := cmd.Flags().GetBool("dalfox")
 	sqlmap, _ := cmd.Flags().GetBool("sqlmap")
 	cmdi, _ := cmd.Flags().GetBool("cmdi")
+	ssrf, _ := cmd.Flags().GetBool("ssrf")
 	recon, _ := cmd.Flags().GetBool("js-recon")
 	fingerprint, _ := cmd.Flags().GetBool("fingerprint")
 	apiRecon, _ := cmd.Flags().GetBool("api-recon")
@@ -129,6 +131,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		Dalfox:      dalfox,
 		Sqlmap:      sqlmap,
 		Cmdi:        cmdi,
+		SSRF:        ssrf,
 		Recon:       recon,
 		Fingerprint: fingerprint,
 		APIRecon:    apiRecon,

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zer0d4y5/argus/internal/apirecon"
 	"github.com/zer0d4y5/argus/internal/cmdiscan"
 	"github.com/zer0d4y5/argus/internal/config"
 	"github.com/zer0d4y5/argus/internal/confirm"
@@ -43,6 +44,7 @@ type DASTOptions struct {
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
 	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
+	APIRecon    bool // reconstruct the API surface from served schemas (OpenAPI/Swagger/GraphQL) and fuzz it
 	Config      config.Config
 
 	// Governor is the engagement enforcement plane. It is REQUIRED: a nil
@@ -118,6 +120,7 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	// scanning the login page is worse than a clear error.
 	headers := opts.Headers
 	var session *dastauth.Session
+	var authFlowFindings []model.RawFinding
 	if opts.Auth != nil {
 		sess, err := authenticate(ctx, governed, opts, progress)
 		if err != nil {
@@ -128,6 +131,9 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		if cookie := sess.CookieHeader(); cookie != "" {
 			headers = append(append([]string{}, headers...), "Cookie: "+cookie)
 		}
+		// Auth-flow modeling: what login observed about the session cookies drives
+		// deterministic hardening findings (missing HttpOnly/Secure/SameSite).
+		authFlowFindings = authModelFindings(sess.Model, opts.URL, progress)
 	}
 
 	// When crawling is on, discover the app's fuzzable endpoints (authenticated,
@@ -161,6 +167,19 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		reconFindings = rf
 		if merged := mergeEndpoints(endpoints, reconEps); len(merged) > len(endpoints) {
 			progress(fmt.Sprintf("==> jsrecon added %d endpoint(s) to the fuzz set\n", len(merged)-len(endpoints)))
+			endpoints = merged
+		}
+	}
+
+	// API schema reconstruction: recover the API surface from served OpenAPI/
+	// Swagger/GraphQL schemas, merge the fuzzable operations into the scan, and
+	// report the exposure. Fetches through the governed client.
+	var apiFindings []model.RawFinding
+	if opts.APIRecon {
+		apiEps, af := runAPIRecon(ctx, authedClient(governed, session), opts, eng, progress)
+		apiFindings = af
+		if merged := mergeEndpoints(endpoints, apiEps); len(merged) > len(endpoints) {
+			progress(fmt.Sprintf("==> apirecon added %d operation(s) to the fuzz set\n", len(merged)-len(endpoints)))
 			endpoints = merged
 		}
 	}
@@ -244,7 +263,9 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		}
 	}
 
+	raw = append(raw, authFlowFindings...)
 	raw = append(raw, reconFindings...)
+	raw = append(raw, apiFindings...)
 	raw = append(raw, fingerprintFindings...)
 
 	// Build the reproduction proof-of-concept for the confirmed dynamic findings
@@ -399,6 +420,82 @@ func runJSRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng 
 		return nil, nil
 	}
 	return filterEndpointsInScope(eng, res.Endpoints), res.Findings
+}
+
+// runAPIRecon reconstructs the API surface from the target's served schema
+// documents (OpenAPI/Swagger/GraphQL), returning scope-filtered fuzzable
+// operations to merge into the scan and the exposure findings. Non-fatal on
+// failure.
+func runAPIRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng *engagement.Engagement, progress Progress) ([]dastcrawl.Endpoint, []model.RawFinding) {
+	progress("==> reconstructing the API surface from served schemas\n")
+	res, err := apirecon.Analyze(ctx, client, opts.URL, apirecon.Options{}, progress)
+	if err != nil {
+		progress(fmt.Sprintf("WARN: apirecon failed: %v\n", err))
+		return nil, nil
+	}
+	return filterEndpointsInScope(eng, res.Operations), res.Findings
+}
+
+// authModelFindings turns what authentication observed about the session
+// cookies into deterministic hardening findings: a session cookie without
+// HttpOnly, without Secure (over HTTPS), or without SameSite. It reports on the
+// cookie's name and flags only, never its value.
+func authModelFindings(m dastauth.AuthModel, targetURL string, progress Progress) []model.RawFinding {
+	https := strings.HasPrefix(strings.ToLower(strings.TrimSpace(targetURL)), "https://")
+	var out []model.RawFinding
+	for _, c := range m.SetCookies {
+		if !isSessionCookie(c.Name) {
+			continue
+		}
+		if !c.HTTPOnly {
+			out = append(out, cookieFinding(targetURL, c.Name, "httponly", "CWE-1004", "medium",
+				"The session cookie %q is set without the HttpOnly flag, so page JavaScript can read it. Paired with any cross-site-scripting flaw, that hands an attacker the session."))
+		}
+		if https && !c.Secure {
+			out = append(out, cookieFinding(targetURL, c.Name, "secure", "CWE-614", "medium",
+				"The session cookie %q is served over HTTPS without the Secure flag, so a downgrade or mixed-content request can carry it in cleartext."))
+		}
+		if c.SameSite == "" {
+			out = append(out, cookieFinding(targetURL, c.Name, "samesite", "CWE-1275", "low",
+				"The session cookie %q has no SameSite attribute, so the browser sends it on cross-site requests, widening the target's CSRF exposure."))
+		}
+	}
+	if len(out) > 0 {
+		progress(fmt.Sprintf("==> auth-flow modeling: %d session-cookie hardening finding(s)\n", len(out)))
+	}
+	return out
+}
+
+// isSessionCookie is a name heuristic for the cookies worth hardening findings.
+func isSessionCookie(name string) bool {
+	l := strings.ToLower(name)
+	return strings.Contains(l, "sess") || strings.Contains(l, "sid") || strings.Contains(l, "auth")
+}
+
+func cookieFinding(targetURL, cookie, flag, cwe, sev, descFmt string) model.RawFinding {
+	return model.RawFinding{
+		Tool:        "argus-authmodel",
+		Category:    model.CategoryDAST,
+		RuleID:      "session-cookie-" + flag + ":" + cookie,
+		Title:       "Session Cookie Missing " + cookieFlagLabel(flag),
+		Description: fmt.Sprintf(descFmt, cookie),
+		RawSeverity: sev,
+		URL:         targetURL,
+		CWEs:        []string{cwe},
+		Meta:        map[string]string{"cookie": cookie, "flag": cookieFlagLabel(flag)},
+	}
+}
+
+func cookieFlagLabel(flag string) string {
+	switch flag {
+	case "httponly":
+		return "HttpOnly"
+	case "secure":
+		return "Secure"
+	case "samesite":
+		return "SameSite"
+	}
+	return flag
 }
 
 // authedClient returns the governed client wrapped with the auth session when

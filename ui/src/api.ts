@@ -545,6 +545,7 @@ export interface DastConfig {
   cmdi?: boolean;
   recon?: boolean;
   fingerprint?: boolean;
+  apiRecon?: boolean;
   crawlDepth?: number;
   crawlPages?: number;
   templates?: string[];

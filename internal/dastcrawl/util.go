@@ -58,6 +58,22 @@ func isAuthPath(path string) bool {
 	return false
 }
 
+// IsAuthPath reports whether a URL path is part of the auth machinery (login,
+// logout, password reset, ...) that active testing must not exercise. Exported
+// so endpoints recovered by other recon (JS, API schema) get the same guard the
+// crawler applies to discovered links.
+func IsAuthPath(path string) bool { return isAuthPath(path) }
+
+// ChangesCredentials reports whether a set of parameter names looks like it
+// changes the logged-in user's credentials, so a fuzzer must not drive it.
+func ChangesCredentials(names []string) bool {
+	m := make(map[string][]string, len(names))
+	for _, n := range names {
+		m[n] = nil
+	}
+	return changesCredentials(m)
+}
+
 // splitHeader parses a "Name: value" header line.
 func splitHeader(h string) (key, val string, ok bool) {
 	i := strings.Index(h, ":")

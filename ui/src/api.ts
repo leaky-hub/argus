@@ -545,6 +545,7 @@ export interface DastConfig {
   sqlmap?: boolean;
   cmdi?: boolean;
   ssrf?: boolean;
+  ssti?: boolean;
   recon?: boolean;
   fingerprint?: boolean;
   apiRecon?: boolean;

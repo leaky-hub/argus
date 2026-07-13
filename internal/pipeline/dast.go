@@ -23,6 +23,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/poc"
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
 	"github.com/zer0d4y5/argus/internal/ssrfscan"
+	"github.com/zer0d4y5/argus/internal/sstiscan"
 )
 
 // DASTOptions configure one dynamic scan.
@@ -44,6 +45,7 @@ type DASTOptions struct {
 	Sqlmap      bool // also run sqlmap (SQL injection incl. blind, GET+POST)
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
 	SSRF        bool // also run the native SSRF detector (local out-of-band listener + cloud-metadata reachability)
+	SSTI        bool // also run the native server-side template injection detector (GET+POST)
 	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
 	APIRecon    bool // reconstruct the API surface from served schemas (OpenAPI/Swagger/GraphQL) and fuzz it
@@ -269,6 +271,11 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		// budget + audit per request); the callback is to Argus's own local
 		// listener, never a third-party out-of-band service.
 		if fs := runSSRF(ctx, governed, targets, headers, progress); len(fs) > 0 {
+			raw = append(raw, fs...)
+		}
+	}
+	if opts.SSTI && len(targets) > 0 {
+		if fs := runSSTI(ctx, governed, targets, headers, progress); len(fs) > 0 {
 			raw = append(raw, fs...)
 		}
 	}
@@ -656,6 +663,11 @@ func runSSRF(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint,
 	}
 	defer listener.Close()
 	return ssrfscan.Scan(ctx, client, listener, ssrfscan.Options{Endpoints: eps, Headers: headers, CloudMetadata: true}, progress)
+}
+
+func runSSTI(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint, headers []string, progress Progress) []model.RawFinding {
+	progress(fmt.Sprintf("==> testing %d endpoint(s) for server-side template injection\n", len(eps)))
+	return sstiscan.Scan(ctx, client, sstiscan.Options{Endpoints: eps, Headers: headers}, progress)
 }
 
 // authenticate runs the pre-scan login through the governed client (so every

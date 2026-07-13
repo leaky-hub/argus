@@ -143,6 +143,8 @@ func rationale(class, param string) string {
 		return "A benign probe in " + p + " produced a value the server could only return by running the injected input as a shell command."
 	case "ssrf":
 		return "The server fetched a URL supplied through " + p + ", proven by a connection back to a listener the tester controls. That is only possible when the input drives a server-side request without validation."
+	case "ssti":
+		return "A template expression injected through " + p + " was evaluated by the server: the response contained the arithmetic result, not the expression. That means the input is rendered as a server-side template."
 	default:
 		return "The engine confirmed this dynamically against the running target using " + p + "."
 	}
@@ -247,6 +249,8 @@ func ClassForCWEs(cwes []string) string {
 			return "cmdi"
 		case "CWE-918":
 			return "ssrf"
+		case "CWE-1336":
+			return "ssti"
 		}
 	}
 	return ""

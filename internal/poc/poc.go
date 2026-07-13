@@ -145,6 +145,8 @@ func rationale(class, param string) string {
 		return "The server fetched a URL supplied through " + p + ", proven by a connection back to a listener the tester controls. That is only possible when the input drives a server-side request without validation."
 	case "ssti":
 		return "A template expression injected through " + p + " was evaluated by the server: the response contained the arithmetic result, not the expression. That means the input is rendered as a server-side template."
+	case "upload":
+		return "The upload accepted a file whose type should have been rejected, and the file was retrievable afterward. That means the type restriction can be bypassed, the first step toward storing a web shell."
 	default:
 		return "The engine confirmed this dynamically against the running target using " + p + "."
 	}
@@ -251,6 +253,8 @@ func ClassForCWEs(cwes []string) string {
 			return "ssrf"
 		case "CWE-1336":
 			return "ssti"
+		case "CWE-434":
+			return "upload"
 		}
 	}
 	return ""

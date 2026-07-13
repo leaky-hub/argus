@@ -96,6 +96,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: boolean;
     dastSsrf: boolean;
     dastSsti: boolean;
+    dastFileUpload: boolean;
     dastRecon: boolean;
     dastFingerprint: boolean;
     dastApiRecon: boolean;
@@ -120,6 +121,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: false,
     dastSsrf: false,
     dastSsti: false,
+    dastFileUpload: false,
     dastRecon: false,
     dastFingerprint: false,
     dastApiRecon: false,
@@ -705,6 +707,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
+                    checked={configForm.dastFileUpload}
+                    onChange={(e) => setConfigForm({ ...configForm, dastFileUpload: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>File upload: test discovered upload forms for unrestricted upload (needs crawl); fetches back a benign marker file</span>
+                </label>
+
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
                     checked={configForm.dastRecon}
                     onChange={(e) => setConfigForm({ ...configForm, dastRecon: e.target.checked })}
                     className="rounded border-gray-300 dark:border-gray-600"
@@ -1036,6 +1048,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastCmdi: d?.cmdi ?? false,
       dastSsrf: d?.ssrf ?? false,
       dastSsti: d?.ssti ?? false,
+      dastFileUpload: d?.fileUpload ?? false,
       dastRecon: d?.recon ?? false,
       dastFingerprint: d?.fingerprint ?? false,
       dastApiRecon: d?.apiRecon ?? false,
@@ -1074,6 +1087,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastCmdi) dast.cmdi = true;
         if (configForm.dastSsrf) dast.ssrf = true;
         if (configForm.dastSsti) dast.ssti = true;
+        if (configForm.dastFileUpload) dast.fileUpload = true;
         if (configForm.dastRecon) dast.recon = true;
         if (configForm.dastFingerprint) dast.fingerprint = true;
         if (configForm.dastApiRecon) dast.apiRecon = true;

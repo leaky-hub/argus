@@ -47,6 +47,15 @@ type Endpoint struct {
 	Body   string
 }
 
+// UploadForm is a multipart file-upload form discovered during the crawl: where
+// to POST, the file input's field name, and the other fields (hidden tokens,
+// size limits, submit buttons) that must accompany the upload.
+type UploadForm struct {
+	Action    string
+	FileField string
+	Fields    map[string]string
+}
+
 // sig is the dedup key for an endpoint.
 func (e Endpoint) sig() string { return e.Method + " " + e.URL + " " + e.Body }
 
@@ -65,7 +74,7 @@ func GETURLs(eps []Endpoint) []string {
 // Crawl discovers fuzzable endpoints under baseURL: parameterized URLs and form
 // submissions (GET and POST), deduplicated and sorted. It runs authenticated
 // via opts.Headers. progress may be nil.
-func Crawl(ctx context.Context, client *http.Client, baseURL string, opts Options, progress func(string)) ([]Endpoint, error) {
+func Crawl(ctx context.Context, client *http.Client, baseURL string, opts Options, progress func(string)) ([]Endpoint, []UploadForm, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -77,7 +86,7 @@ func Crawl(ctx context.Context, client *http.Client, baseURL string, opts Option
 	}
 	base, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -89,6 +98,7 @@ func Crawl(ctx context.Context, client *http.Client, baseURL string, opts Option
 		opts:    opts,
 		visited: map[string]bool{},
 		results: map[string]Endpoint{},
+		uploads: map[string]UploadForm{},
 	}
 	c.enqueue(base.String(), 0)
 
@@ -101,7 +111,7 @@ func Crawl(ctx context.Context, client *http.Client, baseURL string, opts Option
 		c.visit(ctx, item)
 	}
 	progress(fmtProgress(c.pages, len(c.results)))
-	return c.sortedResults(), nil
+	return c.sortedResults(), c.sortedUploads(), nil
 }
 
 type queued struct {
@@ -115,6 +125,7 @@ type crawler struct {
 	opts    Options
 	visited map[string]bool
 	results map[string]Endpoint
+	uploads map[string]UploadForm // keyed by action, so a form is recorded once
 	queue   []queued
 	pages   int
 }
@@ -220,6 +231,22 @@ func (c *crawler) consumeForm(base *url.URL, form *html.Node) {
 		return
 	}
 
+	// A form with a file input is a multipart upload: record it for the upload
+	// engine rather than treating the file field as a fuzzable text parameter.
+	if field := fileFieldName(form); field != "" {
+		values := url.Values{}
+		collectFields(form, values)
+		if !changesCredentials(values) {
+			fields := map[string]string{}
+			for k := range values {
+				fields[k] = values.Get(k)
+			}
+			delete(fields, field) // the file field is supplied by the upload, not a seed
+			c.addUpload(UploadForm{Action: actionURL.String(), FileField: field, Fields: fields})
+		}
+		return
+	}
+
 	values := url.Values{}
 	collectFields(form, values)
 	if len(values) == 0 {
@@ -300,4 +327,44 @@ func (c *crawler) sortedResults() []Endpoint {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].sig() < out[j].sig() })
 	return out
+}
+
+func (c *crawler) addUpload(f UploadForm) {
+	if len(c.uploads) < maxResults {
+		if _, ok := c.uploads[f.Action]; !ok {
+			c.uploads[f.Action] = f
+		}
+	}
+}
+
+func (c *crawler) sortedUploads() []UploadForm {
+	out := make([]UploadForm, 0, len(c.uploads))
+	for _, f := range c.uploads {
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Action < out[j].Action })
+	return out
+}
+
+// fileFieldName returns the name of the first file input in a form, or "".
+func fileFieldName(form *html.Node) string {
+	var found string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if found != "" {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "input" &&
+			strings.EqualFold(attr(n, "type"), "file") {
+			if name := strings.TrimSpace(attr(n, "name")); name != "" {
+				found = name
+				return
+			}
+		}
+		for ch := n.FirstChild; ch != nil; ch = ch.NextSibling {
+			walk(ch)
+		}
+	}
+	walk(form)
+	return found
 }

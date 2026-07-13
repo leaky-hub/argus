@@ -24,6 +24,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/sqlmapscan"
 	"github.com/zer0d4y5/argus/internal/ssrfscan"
 	"github.com/zer0d4y5/argus/internal/sstiscan"
+	"github.com/zer0d4y5/argus/internal/uploadscan"
 )
 
 // DASTOptions configure one dynamic scan.
@@ -46,6 +47,7 @@ type DASTOptions struct {
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
 	SSRF        bool // also run the native SSRF detector (local out-of-band listener + cloud-metadata reachability)
 	SSTI        bool // also run the native server-side template injection detector (GET+POST)
+	FileUpload  bool // also test discovered upload forms for unrestricted file upload (fetch-back a benign marker)
 	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
 	APIRecon    bool // reconstruct the API surface from served schemas (OpenAPI/Swagger/GraphQL) and fuzz it
@@ -145,11 +147,13 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	// them: a discovered link or synthesized form action can be same-host yet
 	// outside an in-scope URL-prefix, and it must be dropped.
 	var endpoints []dastcrawl.Endpoint
+	var uploadForms []dastcrawl.UploadForm
 	if opts.Crawl {
-		eps, err := crawlEndpoints(ctx, governed, opts, session, headers, progress)
+		eps, uploads, err := crawlEndpoints(ctx, governed, opts, session, headers, progress)
 		if err != nil {
 			return DASTResult{}, err
 		}
+		uploadForms = filterUploadsInScope(eng, uploads)
 		endpoints = filterEndpointsInScope(eng, eps)
 		if dropped := len(eps) - len(endpoints); dropped > 0 {
 			progress(fmt.Sprintf("==> dropped %d discovered endpoint(s) outside the engagement scope\n", dropped))
@@ -276,6 +280,11 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	}
 	if opts.SSTI && len(targets) > 0 {
 		if fs := runSSTI(ctx, governed, targets, headers, progress); len(fs) > 0 {
+			raw = append(raw, fs...)
+		}
+	}
+	if opts.FileUpload && len(uploadForms) > 0 {
+		if fs := runFileUpload(ctx, governed, opts.URL, uploadForms, headers, progress); len(fs) > 0 {
 			raw = append(raw, fs...)
 		}
 	}
@@ -670,6 +679,23 @@ func runSSTI(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint,
 	return sstiscan.Scan(ctx, client, sstiscan.Options{Endpoints: eps, Headers: headers}, progress)
 }
 
+func runFileUpload(ctx context.Context, client *http.Client, baseURL string, forms []dastcrawl.UploadForm, headers []string, progress Progress) []model.RawFinding {
+	progress(fmt.Sprintf("==> testing %d upload form(s) for unrestricted file upload\n", len(forms)))
+	return uploadscan.Scan(ctx, client, uploadscan.Options{BaseURL: baseURL, Forms: forms, Headers: headers}, progress)
+}
+
+// filterUploadsInScope drops upload forms whose action is outside the engagement
+// scope, mirroring filterEndpointsInScope.
+func filterUploadsInScope(eng *engagement.Engagement, forms []dastcrawl.UploadForm) []dastcrawl.UploadForm {
+	out := forms[:0:0]
+	for _, f := range forms {
+		if eng.InScope(f.Action) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // authenticate runs the pre-scan login through the governed client (so every
 // login request is scope-gated and audited) and returns the session (cookies
 // held in memory, never logged).
@@ -689,19 +715,19 @@ func authenticate(ctx context.Context, client *http.Client, opts DASTOptions, pr
 
 // crawlEndpoints walks the target through the governed client (reusing the auth
 // session when present) and returns the fuzzable endpoints to scan.
-func crawlEndpoints(ctx context.Context, governed *http.Client, opts DASTOptions, session *dastauth.Session, headers []string, progress Progress) ([]dastcrawl.Endpoint, error) {
+func crawlEndpoints(ctx context.Context, governed *http.Client, opts DASTOptions, session *dastauth.Session, headers []string, progress Progress) ([]dastcrawl.Endpoint, []dastcrawl.UploadForm, error) {
 	progress(fmt.Sprintf("==> crawling %s to discover endpoints\n", opts.URL))
 	client := governed
 	if session != nil {
 		client = session.Client(governed) // preserves the governed transport, adds the session jar
 	}
-	eps, err := dastcrawl.Crawl(ctx, client, opts.URL, dastcrawl.Options{
+	eps, uploads, err := dastcrawl.Crawl(ctx, client, opts.URL, dastcrawl.Options{
 		MaxDepth: opts.CrawlDepth,
 		MaxPages: opts.CrawlPages,
 		Headers:  headers,
 	}, progress)
 	if err != nil {
-		return nil, fmt.Errorf("dast crawl: %w", err)
+		return nil, nil, fmt.Errorf("dast crawl: %w", err)
 	}
-	return eps, nil
+	return eps, uploads, nil
 }

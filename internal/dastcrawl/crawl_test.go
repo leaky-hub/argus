@@ -55,7 +55,7 @@ func TestCrawlDiscoversParamsAndForms(t *testing.T) {
 	srv := httptest.NewServer(fakeApp())
 	defer srv.Close()
 
-	eps, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
+	eps, _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestCrawlNeverFollowsLogoutOrOffsite(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eps, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
+	eps, _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestCrawlCapturesPostForms(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eps, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
+	eps, _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestCrawlBoundsPages(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{MaxPages: 5}, nil); err != nil {
+	if _, _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{MaxPages: 5}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if count > 6 { // 5 pages plus a little slack for in-flight
@@ -170,7 +170,7 @@ func TestCrawlSkipsCredentialChangeForms(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	eps, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
+	eps, _, err := Crawl(context.Background(), srv.Client(), srv.URL+"/", Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -95,6 +95,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastSqlmap: boolean;
     dastCmdi: boolean;
     dastSsrf: boolean;
+    dastSsti: boolean;
     dastRecon: boolean;
     dastFingerprint: boolean;
     dastApiRecon: boolean;
@@ -118,6 +119,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastSqlmap: false,
     dastCmdi: false,
     dastSsrf: false,
+    dastSsti: false,
     dastRecon: false,
     dastFingerprint: false,
     dastApiRecon: false,
@@ -693,6 +695,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
+                    checked={configForm.dastSsti}
+                    onChange={(e) => setConfigForm({ ...configForm, dastSsti: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>SSTI: test GET and POST parameters for server-side template injection with benign arithmetic probes</span>
+                </label>
+
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
                     checked={configForm.dastRecon}
                     onChange={(e) => setConfigForm({ ...configForm, dastRecon: e.target.checked })}
                     className="rounded border-gray-300 dark:border-gray-600"
@@ -1023,6 +1035,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastSqlmap: d?.sqlmap ?? false,
       dastCmdi: d?.cmdi ?? false,
       dastSsrf: d?.ssrf ?? false,
+      dastSsti: d?.ssti ?? false,
       dastRecon: d?.recon ?? false,
       dastFingerprint: d?.fingerprint ?? false,
       dastApiRecon: d?.apiRecon ?? false,
@@ -1060,6 +1073,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastSqlmap) dast.sqlmap = true;
         if (configForm.dastCmdi) dast.cmdi = true;
         if (configForm.dastSsrf) dast.ssrf = true;
+        if (configForm.dastSsti) dast.ssti = true;
         if (configForm.dastRecon) dast.recon = true;
         if (configForm.dastFingerprint) dast.fingerprint = true;
         if (configForm.dastApiRecon) dast.apiRecon = true;

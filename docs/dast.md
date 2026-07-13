@@ -175,6 +175,20 @@ applicable, the response, plus the callback source as proof.
 argus dast https://target/ --auth-auto --crawl --ssrf
 ```
 
+## Server-side template injection (`--ssti`)
+
+`--ssti` tests each parameter for server-side template injection using the same
+arithmetic-marker discipline as command injection: it injects a template
+expression that multiplies two random numbers, per template engine (Jinja2/Twig,
+Freemarker/Velocity, Thymeleaf/Spring, ERB, Smarty), and confirms only when the
+response contains the product, which the payload never contains. A template that
+merely echoes the payload cannot produce a false positive. Each finding names
+the engine family it matched and is CWE-1336.
+
+```bash
+argus dast https://target/ --auth-auto --crawl --ssti
+```
+
 ## Client-side reverse-engineering (`--js-recon`)
 
 Link-following only finds the surface the app links to. Most of a modern app's

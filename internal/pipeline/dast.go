@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zer0d4y5/argus/internal/apirecon"
 	"github.com/zer0d4y5/argus/internal/cmdiscan"
 	"github.com/zer0d4y5/argus/internal/config"
 	"github.com/zer0d4y5/argus/internal/confirm"
@@ -43,6 +44,7 @@ type DASTOptions struct {
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
 	Recon       bool // reverse-engineer the target's client-side JS for endpoints and exposed secrets
 	Fingerprint bool // identify the target's technology stack and correlate to known-exploited software
+	APIRecon    bool // reconstruct the API surface from served schemas (OpenAPI/Swagger/GraphQL) and fuzz it
 	Config      config.Config
 
 	// Governor is the engagement enforcement plane. It is REQUIRED: a nil
@@ -165,6 +167,19 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 		}
 	}
 
+	// API schema reconstruction: recover the API surface from served OpenAPI/
+	// Swagger/GraphQL schemas, merge the fuzzable operations into the scan, and
+	// report the exposure. Fetches through the governed client.
+	var apiFindings []model.RawFinding
+	if opts.APIRecon {
+		apiEps, af := runAPIRecon(ctx, authedClient(governed, session), opts, eng, progress)
+		apiFindings = af
+		if merged := mergeEndpoints(endpoints, apiEps); len(merged) > len(endpoints) {
+			progress(fmt.Sprintf("==> apirecon added %d operation(s) to the fuzz set\n", len(merged)-len(endpoints)))
+			endpoints = merged
+		}
+	}
+
 	// Stack fingerprinting: identify the target's technologies and versions from
 	// what it discloses, emit version-disclosure findings, and correlate CMS
 	// families against the known-exploited catalog. One governed GET.
@@ -245,6 +260,7 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	}
 
 	raw = append(raw, reconFindings...)
+	raw = append(raw, apiFindings...)
 	raw = append(raw, fingerprintFindings...)
 
 	// Build the reproduction proof-of-concept for the confirmed dynamic findings
@@ -399,6 +415,20 @@ func runJSRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng 
 		return nil, nil
 	}
 	return filterEndpointsInScope(eng, res.Endpoints), res.Findings
+}
+
+// runAPIRecon reconstructs the API surface from the target's served schema
+// documents (OpenAPI/Swagger/GraphQL), returning scope-filtered fuzzable
+// operations to merge into the scan and the exposure findings. Non-fatal on
+// failure.
+func runAPIRecon(ctx context.Context, client *http.Client, opts DASTOptions, eng *engagement.Engagement, progress Progress) ([]dastcrawl.Endpoint, []model.RawFinding) {
+	progress("==> reconstructing the API surface from served schemas\n")
+	res, err := apirecon.Analyze(ctx, client, opts.URL, apirecon.Options{}, progress)
+	if err != nil {
+		progress(fmt.Sprintf("WARN: apirecon failed: %v\n", err))
+		return nil, nil
+	}
+	return filterEndpointsInScope(eng, res.Operations), res.Findings
 }
 
 // authedClient returns the governed client wrapped with the auth session when

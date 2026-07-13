@@ -97,6 +97,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: boolean;
     dastRecon: boolean;
     dastFingerprint: boolean;
+    dastApiRecon: boolean;
     dastTags: string;
     dastSeverities: string;
     dastRateLimit: number | undefined;
@@ -119,6 +120,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: false,
     dastRecon: false,
     dastFingerprint: false,
+    dastApiRecon: false,
     dastTags: "",
     dastSeverities: "",
     dastRateLimit: undefined,
@@ -698,6 +700,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                   <span>Fingerprint: identify the tech stack (versions) and correlate CMS families to CISA KEV</span>
                 </label>
 
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={configForm.dastApiRecon}
+                    onChange={(e) => setConfigForm({ ...configForm, dastApiRecon: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>API recon: reconstruct the API surface from served schemas (OpenAPI/Swagger, GraphQL) and fuzz it</span>
+                </label>
+
                 <label className="mb-3 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
@@ -1012,6 +1024,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastCmdi: d?.cmdi ?? false,
       dastRecon: d?.recon ?? false,
       dastFingerprint: d?.fingerprint ?? false,
+      dastApiRecon: d?.apiRecon ?? false,
       dastTags: d?.tags?.join(", ") || "",
       dastSeverities: d?.severities?.join(", ") || "",
       dastRateLimit: d?.rateLimit,
@@ -1048,6 +1061,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastCmdi) dast.cmdi = true;
         if (configForm.dastRecon) dast.recon = true;
         if (configForm.dastFingerprint) dast.fingerprint = true;
+        if (configForm.dastApiRecon) dast.apiRecon = true;
         const tags = splitList(configForm.dastTags);
         const sevs = splitList(configForm.dastSeverities);
         if (tags.length > 0) dast.tags = tags;

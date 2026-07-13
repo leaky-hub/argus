@@ -219,6 +219,27 @@ the reporting and (future) attack-path reasoning build on.
 > endpoints. Run it against targets you own and treat as disposable (a test or
 > staging instance), never production.
 
+## API schema reconstruction (`--api-recon`)
+
+Link-following finds the pages a user clicks; an API's real surface usually
+lives in the schema the app serves. `--api-recon` probes well-known locations
+for an OpenAPI/Swagger document (`/openapi.json`, `/swagger.json`,
+`/v3/api-docs`, and similar) and for GraphQL introspection (`/graphql`), parses
+what it finds into fuzzable operations, and merges them into the scan so the
+active engines test the whole API, not just the crawled pages.
+
+```bash
+argus dast https://api.example.com/ --api-recon --sqlmap --cmdi
+```
+
+It reports the exposure itself (an exposed schema document, and GraphQL
+introspection left enabled), both as information disclosure. Recovered
+operations pass through the same guards as crawled ones: an operation on an
+auth path (login, logout) or one whose parameters look like a credential change
+is never fuzzed, path templates are filled with a benign value, and DELETE
+operations are left alone. Every fetch goes through the engagement's governed
+client, so it is scope-gated, budgeted, and audited.
+
 ## Authenticated scanning
 
 Most of an app lives behind a login, and an unauthenticated scan only ever

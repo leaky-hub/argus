@@ -85,6 +85,7 @@ type DastConfig struct {
 	Cmdi        bool            `json:"cmdi,omitempty"`        // also test for OS command injection (GET+POST)
 	Recon       bool            `json:"recon,omitempty"`       // reverse-engineer client-side JS for endpoints + exposed secrets
 	Fingerprint bool            `json:"fingerprint,omitempty"` // identify the tech stack + correlate to known-exploited software
+	APIRecon    bool            `json:"apiRecon,omitempty"`    // reconstruct the API surface from served schemas and fuzz it
 	CrawlDepth  int             `json:"crawlDepth,omitempty"`  // crawl depth; 0 = default
 	CrawlPages  int             `json:"crawlPages,omitempty"`  // crawl page cap; 0 = default
 	Templates   []string        `json:"templates,omitempty"`   // nuclei -t selectors

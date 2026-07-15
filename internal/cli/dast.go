@@ -34,6 +34,7 @@ func init() {
 	dastCmd.Flags().Bool("cmdi", false, "Also test for OS command injection (GET and POST) with benign arithmetic/timing probes")
 	dastCmd.Flags().Bool("ssrf", false, "Also test for server-side request forgery: inject callback URLs to a local out-of-band listener (never a third-party service) and probe cloud-metadata reachability")
 	dastCmd.Flags().Bool("ssti", false, "Also test for server-side template injection (GET and POST) with benign arithmetic-marker probes per template engine")
+	dastCmd.Flags().Bool("xxe", false, "Also test for XML external entity processing (inject XML entities pointing at a local out-of-band listener) and flag serialized-object parameters (deserialization surface)")
 	dastCmd.Flags().Bool("file-upload", false, "Also test discovered upload forms for unrestricted file upload: upload a benign marker file of a disallowed type and fetch it back (needs --crawl)")
 	dastCmd.Flags().Bool("js-recon", false, "Reverse-engineer the target's client-side JavaScript: recover endpoints/API routes (fed to the fuzzers) and report secrets exposed in served bundles")
 	dastCmd.Flags().Bool("fingerprint", false, "Identify the target's technology stack (server/framework/CMS/library versions) and correlate CMS families against the CISA KEV catalog")
@@ -112,6 +113,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 	cmdi, _ := cmd.Flags().GetBool("cmdi")
 	ssrf, _ := cmd.Flags().GetBool("ssrf")
 	ssti, _ := cmd.Flags().GetBool("ssti")
+	xxe, _ := cmd.Flags().GetBool("xxe")
 	fileUpload, _ := cmd.Flags().GetBool("file-upload")
 	recon, _ := cmd.Flags().GetBool("js-recon")
 	fingerprint, _ := cmd.Flags().GetBool("fingerprint")
@@ -148,6 +150,7 @@ func runDAST(cmd *cobra.Command, args []string) error {
 		Cmdi:        cmdi,
 		SSRF:        ssrf,
 		SSTI:        ssti,
+		XXE:         xxe,
 		FileUpload:  fileUpload,
 		Recon:       recon,
 		Fingerprint: fingerprint,

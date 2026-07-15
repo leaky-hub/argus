@@ -149,6 +149,8 @@ func rationale(class, param string) string {
 		return "The upload accepted a file whose type should have been rejected, and the file was retrievable afterward. That means the type restriction can be bypassed, the first step toward storing a web shell."
 	case "idor":
 		return "A second identity retrieved the object referenced by " + p + " that belongs to the first identity, and got the same response. The endpoint does not check that the caller owns the object, so any user can read another user's data by changing the id."
+	case "xxe":
+		return "The XML parser resolved an external entity pointing at a listener the tester controls, proven by a connection back. A parser that fetches external entities can be steered to read local files or reach internal services."
 	default:
 		return "The engine confirmed this dynamically against the running target using " + p + "."
 	}
@@ -260,6 +262,8 @@ func ClassForCWEs(cwes []string) string {
 			return "upload"
 		case "CWE-639":
 			return "idor"
+		case "CWE-611":
+			return "xxe"
 		}
 	}
 	return ""

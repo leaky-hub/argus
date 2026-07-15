@@ -569,6 +569,7 @@ export interface DastConfig {
   cmdi?: boolean;
   ssrf?: boolean;
   ssti?: boolean;
+  xxe?: boolean;
   fileUpload?: boolean;
   graphql?: boolean;
   recon?: boolean;

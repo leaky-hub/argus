@@ -27,6 +27,7 @@ import (
 	"github.com/zer0d4y5/argus/internal/ssrfscan"
 	"github.com/zer0d4y5/argus/internal/sstiscan"
 	"github.com/zer0d4y5/argus/internal/uploadscan"
+	"github.com/zer0d4y5/argus/internal/xxescan"
 )
 
 // DASTOptions configure one dynamic scan.
@@ -49,6 +50,7 @@ type DASTOptions struct {
 	Cmdi        bool // also run the native command-injection detector (GET+POST)
 	SSRF        bool // also run the native SSRF detector (local out-of-band listener + cloud-metadata reachability)
 	SSTI        bool // also run the native server-side template injection detector (GET+POST)
+	XXE         bool // also test for XML external entity processing (local OOB) + flag the deserialization surface
 	FileUpload  bool // also test discovered upload forms for unrestricted file upload (fetch-back a benign marker)
 	IDOR        bool // also test for IDOR/BOLA by replaying identity A's object ids as a second identity
 	GraphQL     bool // also test discovered GraphQL endpoints for batching and alias amplification
@@ -302,6 +304,11 @@ func RunDAST(ctx context.Context, opts DASTOptions, progress Progress) (DASTResu
 	}
 	if opts.SSTI && len(targets) > 0 {
 		if fs := runSSTI(ctx, governed, targets, headers, progress); len(fs) > 0 {
+			raw = append(raw, fs...)
+		}
+	}
+	if opts.XXE && len(targets) > 0 {
+		if fs := runXXE(ctx, governed, targets, headers, progress); len(fs) > 0 {
 			raw = append(raw, fs...)
 		}
 	}
@@ -721,6 +728,17 @@ func runSSRF(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint,
 func runSSTI(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint, headers []string, progress Progress) []model.RawFinding {
 	progress(fmt.Sprintf("==> testing %d endpoint(s) for server-side template injection\n", len(eps)))
 	return sstiscan.Scan(ctx, client, sstiscan.Options{Endpoints: eps, Headers: headers}, progress)
+}
+
+func runXXE(ctx context.Context, client *http.Client, eps []dastcrawl.Endpoint, headers []string, progress Progress) []model.RawFinding {
+	progress(fmt.Sprintf("==> testing %d endpoint(s) for XML external entity + deserialization surface\n", len(eps)))
+	listener, err := ssrfscan.NewListener()
+	if err != nil {
+		progress(fmt.Sprintf("WARN: xxe: could not start the out-of-band listener: %v\n", err))
+		return nil
+	}
+	defer listener.Close()
+	return xxescan.Scan(ctx, client, listener, xxescan.Options{Endpoints: eps, Headers: headers}, progress)
 }
 
 func runFileUpload(ctx context.Context, client *http.Client, baseURL string, forms []dastcrawl.UploadForm, headers []string, progress Progress) []model.RawFinding {

@@ -96,6 +96,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: boolean;
     dastSsrf: boolean;
     dastSsti: boolean;
+    dastXxe: boolean;
     dastFileUpload: boolean;
     dastGraphql: boolean;
     dastRecon: boolean;
@@ -126,6 +127,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
     dastCmdi: false,
     dastSsrf: false,
     dastSsti: false,
+    dastXxe: false,
     dastFileUpload: false,
     dastGraphql: false,
     dastRecon: false,
@@ -717,6 +719,16 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
                 <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
+                    checked={configForm.dastXxe}
+                    onChange={(e) => setConfigForm({ ...configForm, dastXxe: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span>XXE: inject XML external entities pointing at a local out-of-band listener, and flag serialized-object parameters</span>
+                </label>
+
+                <label className="mb-2 flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
                     checked={configForm.dastFileUpload}
                     onChange={(e) => setConfigForm({ ...configForm, dastFileUpload: e.target.checked })}
                     className="rounded border-gray-300 dark:border-gray-600"
@@ -1102,6 +1114,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
       dastCmdi: d?.cmdi ?? false,
       dastSsrf: d?.ssrf ?? false,
       dastSsti: d?.ssti ?? false,
+      dastXxe: d?.xxe ?? false,
       dastFileUpload: d?.fileUpload ?? false,
       dastGraphql: d?.graphql ?? false,
       dastRecon: d?.recon ?? false,
@@ -1146,6 +1159,7 @@ export function Admin({ selfUsername }: { selfUsername: string }) {
         if (configForm.dastCmdi) dast.cmdi = true;
         if (configForm.dastSsrf) dast.ssrf = true;
         if (configForm.dastSsti) dast.ssti = true;
+        if (configForm.dastXxe) dast.xxe = true;
         if (configForm.dastFileUpload) dast.fileUpload = true;
         if (configForm.dastGraphql) dast.graphql = true;
         if (configForm.dastRecon) dast.recon = true;

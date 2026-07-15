@@ -224,6 +224,27 @@ APP_USER=alice APP_PASS=... APP_USER2=bob APP_PASS2=... \
   --auth2-user-env APP_USER2 --auth2-pass-env APP_PASS2
 ```
 
+## XML external entity + deserialization surface (`--xxe`)
+
+`--xxe` tests for XML external entity (XXE) processing the same way `--ssrf`
+tests SSRF: it posts an XML document whose external entity points at a listener
+Argus runs itself on `127.0.0.1`, then watches for the parser to connect back.
+The entity never points at a real file (no `file:///etc/passwd`) or a
+third-party service, so it proves the parser resolves external entities without
+exfiltrating any secret. A blind out-of-band callback and an in-band reflection
+of the listener's marker both confirm it (CWE-611).
+
+The same pass flags the **deserialization surface**: parameter values that look
+like a serialized object (Java, PHP, .NET) are reported as a low-severity
+finding (CWE-502) for manual review. This is passive — it sends no gadget
+payload and stores only the parameter name and format, never the value — because
+safe confirmation of insecure deserialization requires weaponized gadget chains,
+which this tool does not use.
+
+```bash
+argus dast https://target/ --auth-auto --crawl --xxe
+```
+
 ## GraphQL abuse (`--graphql`)
 
 `--graphql` tests discovered GraphQL endpoints (found by the crawl, by
